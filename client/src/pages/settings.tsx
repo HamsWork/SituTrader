@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer, Database, RefreshCw } from "lucide-react";
+import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer, Database, RefreshCw, Crosshair } from "lucide-react";
 import type { Symbol } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -108,6 +108,10 @@ export default function SettingsPage() {
     topNUniverse: settings?.topNUniverse ?? "150",
     alertLiquidityGateEnabled: settings?.alertLiquidityGateEnabled ?? "true",
     timePriorityMode: settings?.timePriorityMode ?? "BLEND",
+    focusMode: settings?.focusMode ?? "EXPECTANCY",
+    focusWinRateThreshold: settings?.focusWinRateThreshold ?? "0.70",
+    focusExpectancyThreshold: settings?.focusExpectancyThreshold ?? "0.15",
+    focusMinSampleSize: settings?.focusMinSampleSize ?? "50",
   };
 
   const watchlistCount = symbolList?.filter(s => s.isWatchlist).length ?? 0;
@@ -458,6 +462,78 @@ export default function SettingsPage() {
                 <SelectItem value="SAME_DAY">Same Day (25*p390)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Crosshair className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Focus Mode</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Gates alerts based on setup-level expectancy statistics. Only setups categorized as PRIMARY or SECONDARY will generate alerts.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="text-xs">Focus Mode</Label>
+              <Select
+                value={currentSettings.focusMode}
+                onValueChange={(value) => saveSetting.mutate({ key: "focusMode", value })}
+              >
+                <SelectTrigger data-testid="select-focus-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WIN_RATE">Win Rate (hit rate threshold)</SelectItem>
+                  <SelectItem value="EXPECTANCY">Expectancy (R-multiple threshold)</SelectItem>
+                  <SelectItem value="BARBELL">Barbell (top hit rate + top expectancy)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Min Sample Size</Label>
+              <Input
+                type="number"
+                value={currentSettings.focusMinSampleSize}
+                onChange={(e) => saveSetting.mutate({ key: "focusMinSampleSize", value: e.target.value })}
+                data-testid="input-focus-min-sample"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Setups below this sample count are categorized as OFF
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Win Rate Threshold</Label>
+              <Input
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                value={currentSettings.focusWinRateThreshold}
+                onChange={(e) => saveSetting.mutate({ key: "focusWinRateThreshold", value: e.target.value })}
+                data-testid="input-focus-winrate"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Used in WIN_RATE mode to gate alerts
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Expectancy Threshold (R)</Label>
+              <Input
+                type="number"
+                step="0.05"
+                value={currentSettings.focusExpectancyThreshold}
+                onChange={(e) => saveSetting.mutate({ key: "focusExpectancyThreshold", value: e.target.value })}
+                data-testid="input-focus-expectancy"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Used in EXPECTANCY mode to gate alerts
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

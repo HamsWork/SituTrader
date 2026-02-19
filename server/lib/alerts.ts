@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { fetchSnapshot } from "./polygon";
 import { computeATR } from "./confidence";
 import { runActivationScan } from "./activation";
+import { getSetupAlertCategory, type ExpectancyStats } from "./expectancy";
 import { log } from "../index";
 import type { Signal } from "@shared/schema";
 
@@ -64,6 +65,29 @@ export async function runAlerts(): Promise<AlertEvent[]> {
   const nowIso = now.toISOString();
 
   const settings = await storage.getAllSettings();
+  const focusMode = settings.focusMode || "EXPECTANCY";
+  const winRateThreshold = parseFloat(settings.focusWinRateThreshold || "0.70");
+  const expectancyThreshold = parseFloat(settings.focusExpectancyThreshold || "0.15");
+
+  let setupStatsData: ExpectancyStats[] = [];
+  try {
+    const overallStats = await storage.getOverallSetupExpectancy();
+    setupStatsData = overallStats.map(s => ({
+      setupType: s.setupType,
+      ticker: s.ticker,
+      sampleSize: s.sampleSize,
+      winRate: s.winRate,
+      avgWinR: s.avgWinR,
+      avgLossR: s.avgLossR,
+      medianR: s.medianR,
+      expectancyR: s.expectancyR,
+      profitFactor: s.profitFactor,
+      avgMaeR: s.avgMaeR,
+      medianMaeR: s.medianMaeR,
+      tradeability: s.tradeability as "CLEAN" | "CAUTION" | "AVOID",
+      category: s.category as "PRIMARY" | "SECONDARY" | "OFF",
+    }));
+  } catch {}
 
   const eligibleSignals = await storage.getAlertEligibleSignals();
   if (eligibleSignals.length === 0) return events;
@@ -98,6 +122,19 @@ export async function runAlerts(): Promise<AlertEvent[]> {
           await storage.updateSignalAlert(sig.id, "disabled", null);
         }
         continue;
+      }
+
+      if (setupStatsData.length > 0) {
+        const alertCategory = getSetupAlertCategory(
+          sig.setupType, focusMode, setupStatsData,
+          winRateThreshold, expectancyThreshold
+        );
+        if (alertCategory === "OFF") {
+          if (sig.alertState === "new") {
+            await storage.updateSignalAlert(sig.id, "focus_filtered", null);
+          }
+          continue;
+        }
       }
 
       if (!shouldRoute(sig.tier, settings)) {

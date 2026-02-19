@@ -3,9 +3,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
-  universeMembers, tickerStats,
+  universeMembers, tickerStats, setupExpectancy,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
-  type UniverseMember, type TickerStat,
+  type UniverseMember, type TickerStat, type SetupExpectancy,
   type InsertSymbol,
 } from "@shared/schema";
 
@@ -67,6 +67,11 @@ export interface IStorage {
   setSymbolWatchlist(ticker: string, isWatchlist: boolean): Promise<void>;
   getWatchlistSymbols(): Promise<Symbol[]>;
   getScanList(mode: string): Promise<string[]>;
+
+  upsertSetupExpectancy(stat: Omit<SetupExpectancy, "id" | "updatedAt">): Promise<void>;
+  getSetupExpectancy(setupType: string, ticker?: string | null): Promise<SetupExpectancy | null>;
+  getAllSetupExpectancy(): Promise<SetupExpectancy[]>;
+  getOverallSetupExpectancy(): Promise<SetupExpectancy[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -108,9 +113,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDailyBars(ticker: string, from?: string, to?: string): Promise<DailyBar[]> {
-    let query = db.select().from(dailyBars).where(eq(dailyBars.ticker, ticker));
-    if (from) query = query.where(and(eq(dailyBars.ticker, ticker), gte(dailyBars.date, from))) as any;
-    const results = await db.select().from(dailyBars)
+    return db.select().from(dailyBars)
       .where(
         from && to
           ? and(eq(dailyBars.ticker, ticker), gte(dailyBars.date, from), sql`${dailyBars.date} <= ${to}`)
@@ -119,7 +122,6 @@ export class DatabaseStorage implements IStorage {
           : eq(dailyBars.ticker, ticker)
       )
       .orderBy(asc(dailyBars.date));
-    return results;
   }
 
   async getDailyCoverage(ticker: string): Promise<{ earliest: string; latest: string; count: number } | null> {
@@ -489,6 +491,42 @@ export class DatabaseStorage implements IStorage {
     const watchlistTickers = wl.map(s => s.ticker);
     const combined = new Set([...watchlistTickers, ...universeTickers]);
     return Array.from(combined).sort();
+  }
+
+  async upsertSetupExpectancy(stat: Omit<SetupExpectancy, "id" | "updatedAt">): Promise<void> {
+    const tickerCondition = stat.ticker === null
+      ? sql`${setupExpectancy.ticker} IS NULL`
+      : eq(setupExpectancy.ticker, stat.ticker);
+    const existing = await db.select().from(setupExpectancy).where(
+      and(eq(setupExpectancy.setupType, stat.setupType), tickerCondition)
+    );
+    if (existing.length > 0) {
+      await db.update(setupExpectancy)
+        .set({ ...stat, updatedAt: new Date() })
+        .where(eq(setupExpectancy.id, existing[0].id));
+    } else {
+      await db.insert(setupExpectancy).values(stat);
+    }
+  }
+
+  async getSetupExpectancy(setupType: string, ticker?: string | null): Promise<SetupExpectancy | null> {
+    const tickerCondition = !ticker
+      ? sql`${setupExpectancy.ticker} IS NULL`
+      : eq(setupExpectancy.ticker, ticker);
+    const result = await db.select().from(setupExpectancy).where(
+      and(eq(setupExpectancy.setupType, setupType), tickerCondition)
+    );
+    return result[0] ?? null;
+  }
+
+  async getAllSetupExpectancy(): Promise<SetupExpectancy[]> {
+    return db.select().from(setupExpectancy).orderBy(desc(setupExpectancy.expectancyR));
+  }
+
+  async getOverallSetupExpectancy(): Promise<SetupExpectancy[]> {
+    return db.select().from(setupExpectancy)
+      .where(sql`${setupExpectancy.ticker} IS NULL`)
+      .orderBy(desc(setupExpectancy.expectancyR));
   }
 }
 

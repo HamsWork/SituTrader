@@ -141,6 +141,26 @@ export const tickerStats = pgTable("ticker_stats", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const setupExpectancy = pgTable("setup_expectancy", {
+  id: serial("id").primaryKey(),
+  setupType: text("setup_type").notNull(),
+  ticker: text("ticker"),
+  sampleSize: integer("sample_size").notNull().default(0),
+  winRate: real("win_rate").notNull().default(0),
+  avgWinR: real("avg_win_r").notNull().default(0),
+  avgLossR: real("avg_loss_r").notNull().default(0),
+  medianR: real("median_r").notNull().default(0),
+  expectancyR: real("expectancy_r").notNull().default(0),
+  profitFactor: real("profit_factor").notNull().default(0),
+  avgMaeR: real("avg_mae_r").notNull().default(0),
+  medianMaeR: real("median_mae_r").notNull().default(0),
+  tradeability: text("tradeability").notNull().default("CLEAN"),
+  category: text("category").notNull().default("SECONDARY"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("se_setup_ticker").on(table.setupType, table.ticker),
+]);
+
 export const insertSymbolSchema = createInsertSchema(symbols).omit({ id: true, createdAt: true });
 export const insertSignalSchema = createInsertSchema(signals).omit({ id: true, createdAt: true });
 export const insertBacktestSchema = createInsertSchema(backtests).omit({ id: true, createdAt: true });
@@ -149,6 +169,7 @@ export const insertIntradayBarSchema = createInsertSchema(intradayBars).omit({ i
 export const insertTimeToHitStatsSchema = createInsertSchema(timeToHitStats).omit({ id: true, updatedAt: true });
 export const insertUniverseMemberSchema = createInsertSchema(universeMembers).omit({ id: true });
 export const insertTickerStatsSchema = createInsertSchema(tickerStats).omit({ id: true, updatedAt: true });
+export const insertSetupExpectancySchema = createInsertSchema(setupExpectancy).omit({ id: true, updatedAt: true });
 
 export type InsertSymbol = z.infer<typeof insertSymbolSchema>;
 export type Symbol = typeof symbols.$inferSelect;
@@ -160,6 +181,16 @@ export type TimeToHitStat = typeof timeToHitStats.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
 export type UniverseMember = typeof universeMembers.$inferSelect;
 export type TickerStat = typeof tickerStats.$inferSelect;
+export type SetupExpectancy = typeof setupExpectancy.$inferSelect;
+
+export const FOCUS_MODES = ["WIN_RATE", "EXPECTANCY", "BARBELL"] as const;
+export type FocusMode = typeof FOCUS_MODES[number];
+
+export const SETUP_CATEGORIES = ["PRIMARY", "SECONDARY", "OFF"] as const;
+export type SetupCategory = typeof SETUP_CATEGORIES[number];
+
+export const TRADEABILITY_LEVELS = ["CLEAN", "CAUTION", "AVOID"] as const;
+export type TradeabilityLevel = typeof TRADEABILITY_LEVELS[number];
 
 export const SETUP_TYPES = ["F", "C", "D", "E", "A", "B"] as const;
 export type SetupType = typeof SETUP_TYPES[number];

@@ -1,0 +1,154 @@
+Yes — you should absolutely be able to focus the system on the 2–3 setups that actually print, but you shouldn’t do it using win-rate alone.
+
+What you’re circling is the real question:
+
+Do the “lower hit-rate” setups have higher expectancy (bigger average R-multiple) that makes them worth it?
+
+That’s how pros decide what stays.
+
+⸻
+
+1) Don’t optimize for hit rate. Optimize for expectancy.
+
+A setup can have a 45% win rate and still be elite if the winners are big.
+
+Use this:
+
+Expectancy (in R) = (WinRate × AvgWinR) − (LossRate × AvgLossR)
+
+If your stop is defined, AvgLossR is usually near 1R (unless you let it slip). Then it becomes:
+
+Expectancy ≈ (WinRate × AvgWinR) − (1 − WinRate)
+
+Examples:
+	•	Setup X: 75% win, AvgWin 0.6R → Expectancy = 0.75×0.6 − 0.25 = 0.20R
+	•	Setup Y: 45% win, AvgWin 2.0R → Expectancy = 0.45×2.0 − 0.55 = 0.35R ✅ better despite lower win rate
+
+So yes: lower success can still be better if the average win is bigger.
+
+⸻
+
+2) For your system, magnet setups have a built-in “payoff structure”
+
+Your T1 is usually the magnet. That means payoff size is basically:
+
+Payoff ≈ distance(entry → magnet) / stopDistance
+
+So the setups that hit less often might be the ones with:
+	•	bigger distance to magnet (more potential R)
+	•	but also harder to reach (lower hit rate)
+
+That’s normal.
+
+⸻
+
+3) What you should do inside the app (actionable rules)
+
+You want the system to automatically answer:
+
+A) “Which setups should we prioritize?”
+
+Make the dashboard default to Top setups by Expectancy, not hit rate.
+
+Track per (ticker, setup_type):
+	•	win rate (hit rate)
+	•	avg R (using your activation entry + ATR stop)
+	•	median R
+	•	profit factor (gross win / gross loss)
+	•	max drawdown in R (optional)
+	•	sample size
+
+Then rank setups by:
+	•	Expectancy (primary)
+	•	Profit factor (secondary)
+	•	Sample size (minimum threshold)
+
+B) “Should we turn off low performers?”
+
+Yes — but only after minimum sample size.
+
+Hard rule:
+	•	If sample size < 30–50 occurrences: do not disable. Mark as “insufficient data.”
+	•	If expectancy is negative over a meaningful sample: disable by default (or downgrade alerts to B/C only).
+
+C) “Are low hit-rate setups still worth it?”
+
+If expectancy is positive and stable, keep them but allocate differently:
+
+Playbook:
+	•	High win / low R setups → good for frequent, smaller trades (scalps)
+	•	Low win / high R setups → treat like “home run” setups (fewer trades, tighter filtering)
+
+⸻
+
+4) The clean solution: “Focus Mode”
+
+Add a Setting called Focus Mode with 3 options:
+	1.	Win-Rate Mode
+
+	•	Only alert setups with hit rate ≥ X% (ex: 70%)
+	•	This is psychologically easier but not always best EV.
+
+	2.	Expectancy Mode (recommended)
+
+	•	Only alert setups with expectancy ≥ +0.15R (configurable)
+	•	This is the most rational mode.
+
+	3.	Barbell Mode (best trader mode)
+
+	•	Alert:
+	•	the highest hit-rate setup(s) and
+	•	the highest expectancy setup(s)
+Even if expectancy setup has lower hit rate.
+
+This gives you consistent action + occasional big trades.
+
+⸻
+
+5) You also need to check “RIO on risk” correctly
+
+I’m assuming you mean ROI on risk = return relative to risk (R-multiple).
+
+Your system should output, per setup:
+	•	Average R per trade
+	•	Average R per day (optional)
+	•	Worst MAE before hit (helps calibrate stops)
+
+Because a setup might “hit” but still be untradeable if the drawdown is nasty before the magnet prints.
+
+So add this filter:
+
+Tradeability filter
+	•	If median MAE > 1.2R before hit → it’s a “hit” but not a clean trade (you’d get stopped). Downgrade it.
+
+This is where a lot of “high hit rate” setups die in reality.
+
+⸻
+
+6) What I’d advise you to do right now
+	1.	Keep all 5 setups running (for data)
+	2.	Only alert the top 3 by expectancy (not win rate), with sample size ≥ 30
+	3.	Put the other 2 in:
+	•	“Track only / no alerts”
+	•	Re-evaluate after 100+ occurrences
+
+And on the lower win-rate setups:
+	•	keep them only if:
+	•	expectancy is positive
+	•	MAE is manageable
+	•	time-to-hit is compatible with your trading window
+
+⸻
+
+7) If you want the simplest decision rule
+
+Use this exact rule:
+	•	Primary set (alerts on): setups with expectancy ≥ +0.20R and sample ≥ 50
+	•	Secondary set (digest only): expectancy between +0.05R and +0.20R
+	•	Off: expectancy < +0.05R (or negative)
+
+That’s clean, unemotional, and it will converge fast.
+
+⸻
+
+If you paste the backtest summary table (for the 5 setups: occurrences, hit rate, avg time-to-hit, avg MAE/MFE, and your current stop rule), I’ll tell you exactly which 3 should be “primary alerts,” which ones should be “digest only,” and whether the low hit-rate ones are actually better on ROI/risk.

@@ -12,6 +12,7 @@ import { runBacktest, computeAndStoreTimeToHitStats } from "./lib/backtest";
 import { runAlerts } from "./lib/alerts";
 import { runActivationScan } from "./lib/activation";
 import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
+import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy";
 import { log } from "./index";
 import type { SetupType } from "@shared/schema";
 
@@ -348,6 +349,9 @@ export async function registerRoutes(
               activationStatus: "NOT_ACTIVE",
               activatedTs: null,
               entryPriceAtActivation: null,
+              stopPrice: tradePlan.stopDistance ? (tradePlan.bias === "SELL" ? lastBar.close + tradePlan.stopDistance : lastBar.close - tradePlan.stopDistance) : null,
+              entryTriggerPrice: null,
+              invalidationTs: null,
             });
           }
 
@@ -380,7 +384,7 @@ export async function registerRoutes(
       if (!key || typeof key !== "string") {
         return res.status(400).json({ message: "Key required" });
       }
-      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier", "topNUniverse", "alertLiquidityGateEnabled"];
+      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier", "topNUniverse", "alertLiquidityGateEnabled", "focusMode", "focusWinRateThreshold", "focusExpectancyThreshold", "focusMinSampleSize"];
       if (!allowedKeys.includes(key)) {
         return res.status(400).json({ message: `Invalid setting key: ${key}` });
       }
@@ -398,6 +402,27 @@ export async function registerRoutes(
       }
       if (key === "stopMode" && !["atr", "fixed"].includes(String(value))) {
         return res.status(400).json({ message: "Stop mode must be atr or fixed" });
+      }
+      if (key === "focusMode" && !["WIN_RATE", "EXPECTANCY", "BARBELL"].includes(String(value))) {
+        return res.status(400).json({ message: "Focus mode must be WIN_RATE, EXPECTANCY, or BARBELL" });
+      }
+      if (key === "focusWinRateThreshold") {
+        const num = parseFloat(String(value));
+        if (isNaN(num) || num < 0 || num > 1) {
+          return res.status(400).json({ message: "Win rate threshold must be between 0 and 1" });
+        }
+      }
+      if (key === "focusExpectancyThreshold") {
+        const num = parseFloat(String(value));
+        if (isNaN(num) || num < -5 || num > 5) {
+          return res.status(400).json({ message: "Expectancy threshold must be between -5 and 5" });
+        }
+      }
+      if (key === "focusMinSampleSize") {
+        const num = parseInt(String(value));
+        if (isNaN(num) || num < 0 || num > 10000) {
+          return res.status(400).json({ message: "Min sample size must be between 0 and 10000" });
+        }
       }
       await storage.setSetting(key, String(value));
       res.json({ ok: true });
@@ -424,6 +449,13 @@ export async function registerRoutes(
           results.push(saved);
           await computeAndStoreTimeToHitStats(ticker, setup, timeframe);
         }
+      }
+
+      try {
+        await recomputeAllExpectancy();
+        log("Expectancy stats recomputed after backtest", "backtest");
+      } catch (err: any) {
+        log(`Expectancy recompute failed: ${err.message}`, "backtest");
       }
 
       res.json(results);
@@ -503,6 +535,36 @@ export async function registerRoutes(
       const status = await getUniverseStatus();
       res.json(status);
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/setup-stats", async (_req, res) => {
+    try {
+      const overall = await storage.getOverallSetupExpectancy();
+      res.json(overall);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/setup-stats/:setupType", async (req, res) => {
+    try {
+      const { setupType } = req.params;
+      const ticker = req.query.ticker as string | undefined;
+      const stat = await storage.getSetupExpectancy(setupType, ticker || null);
+      res.json(stat);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/setup-stats/recompute", async (_req, res) => {
+    try {
+      const results = await recomputeAllExpectancy();
+      res.json({ ok: true, count: results.length, results });
+    } catch (err: any) {
+      log(`Expectancy recompute error: ${err.message}`, "expectancy");
       res.status(500).json({ message: err.message });
     }
   });

@@ -22,6 +22,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Activation Engine**: Entry trigger scanning that checks intraday bars against trade plan conditions, tracks ACTIVE/NOT_ACTIVE/INVALIDATED states
 - **RTH Validation**: All hit/miss validation uses Regular Trading Hours only (09:30-16:00 ET)
 - **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
+- **Focus Mode**: Expectancy-based setup prioritization with 3 modes (WIN_RATE, EXPECTANCY, BARBELL). Gates alerts by setup category (PRIMARY/SECONDARY/OFF). Includes MAE-based tradeability filtering (CLEAN/CAUTION/AVOID).
 - **Market Calendar**: NYSE holiday-aware date handling
 
 ## Project Structure
@@ -38,6 +39,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/activation.ts` - Activation engine: entry trigger scanning, ACTIVE/NOT_ACTIVE/INVALIDATED tracking
 - `server/lib/tradeplan.ts` - Trade plan generation
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
+- `server/lib/expectancy.ts` - Expectancy computation: R-multiples, profit factor, tradeability, setup categorization
 - `server/lib/universe.ts` - Universe builder: Polygon grouped daily, ranking, top N persistence, 24h cache
 - `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings)
 - `client/src/components/` - Reusable UI components
@@ -61,6 +63,9 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `GET /api/alerts/events` - List alert events sorted by tier/quality
 - `POST /api/universe/rebuild` - Rebuild liquidity universe (force=true bypasses 24h cache)
 - `GET /api/universe/status` - Universe status (lastRebuild, memberCount, topTickers)
+- `GET /api/setup-stats` - Overall setup expectancy stats (R-multiples, profit factor, category)
+- `GET /api/setup-stats/:setupType` - Per-ticker breakdown for a setup type
+- `POST /api/setup-stats/recompute` - Force recompute all expectancy stats from backtest data
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus
@@ -79,7 +84,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
 - `universe_members` - Universe membership per date (universeDate, ticker, avgDollarVol20d, rank, included)
 - `ticker_stats` - Latest ticker statistics (avgDollarVol20d, avgVol20d, atr14, lastPrice)
-- `app_settings` - Key-value settings
+- `setup_expectancy` - Setup-level expectancy stats (R-multiples, profit factor, tradeability, category per setup type/ticker)
+- `app_settings` - Key-value settings (includes focusMode, focusWinRateThreshold, focusExpectancyThreshold, focusMinSampleSize)
 
 ## Environment
 - `POLYGON_API_KEY` - Required for market data

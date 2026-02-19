@@ -33,10 +33,26 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { BarChart3, Play, Download, Loader2 } from "lucide-react";
+import { BarChart3, Play, Download, Loader2, Crosshair } from "lucide-react";
 import type { Symbol, Backtest, BacktestDetail } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+
+interface SetupStats {
+  setupType: string;
+  ticker: string | null;
+  sampleSize: number;
+  winRate: number;
+  avgWinR: number;
+  avgLossR: number;
+  medianR: number;
+  expectancyR: number;
+  profitFactor: number;
+  avgMaeR: number;
+  medianMaeR: number;
+  tradeability: string;
+  category: string;
+}
 
 export default function BacktestPage() {
   const { toast } = useToast();
@@ -53,6 +69,10 @@ export default function BacktestPage() {
     queryKey: ["/api/backtests"],
   });
 
+  const { data: setupStats } = useQuery<SetupStats[]>({
+    queryKey: ["/api/setup-stats"],
+  });
+
   const runBacktest = useMutation({
     mutationFn: () =>
       apiRequest("POST", "/api/backtest/run", {
@@ -63,6 +83,7 @@ export default function BacktestPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
       toast({ title: "Backtest complete", description: "Results are ready to view." });
     },
     onError: (error: Error) => {
@@ -315,6 +336,107 @@ export default function BacktestPage() {
           </Card>
         );
       })()}
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Crosshair className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Setup Rankings (Expectancy)</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {!setupStats ? (
+            <div className="p-6 space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : setupStats.filter(s => !s.ticker).length === 0 ? (
+            <div className="p-8 text-center">
+              <Crosshair className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No expectancy data yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Run a backtest to compute setup expectancy stats</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Setup</TableHead>
+                    <TableHead className="text-right">Sample</TableHead>
+                    <TableHead className="text-right">Win Rate</TableHead>
+                    <TableHead className="text-right">Expectancy (R)</TableHead>
+                    <TableHead className="text-right">Avg Win (R)</TableHead>
+                    <TableHead className="text-right">Avg Loss (R)</TableHead>
+                    <TableHead className="text-right">Profit Factor</TableHead>
+                    <TableHead className="text-right">Med MAE (R)</TableHead>
+                    <TableHead>Tradeability</TableHead>
+                    <TableHead>Category</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {setupStats
+                    .filter(s => !s.ticker)
+                    .sort((a, b) => b.expectancyR - a.expectancyR)
+                    .map((s) => (
+                      <TableRow key={s.setupType} data-testid={`row-setup-rank-${s.setupType}`}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant="outline" className="text-xs">{s.setupType}</Badge>
+                            <span className="text-xs text-muted-foreground">{SETUP_LABELS[s.setupType as SetupType] ?? s.setupType}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-mono">{s.sampleSize}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          <span className={s.winRate >= 0.5 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
+                            {(s.winRate * 100).toFixed(1)}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-medium">
+                          <span className={s.expectancyR >= 0.15 ? "text-emerald-500" : s.expectancyR >= 0 ? "text-amber-500" : "text-red-500 dark:text-red-400"}>
+                            {s.expectancyR >= 0 ? "+" : ""}{s.expectancyR.toFixed(3)}R
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">{s.avgWinR.toFixed(2)}R</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{s.avgLossR.toFixed(2)}R</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{s.profitFactor.toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{s.medianMaeR.toFixed(2)}R</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${
+                              s.tradeability === "CLEAN"
+                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                : s.tradeability === "CAUTION"
+                                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                : "bg-red-500/10 text-red-600 border-red-500/20"
+                            }`}
+                            data-testid={`badge-tradeability-${s.setupType}`}
+                          >
+                            {s.tradeability}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${
+                              s.category === "PRIMARY"
+                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                : s.category === "SECONDARY"
+                                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                : "bg-red-500/10 text-red-600 border-red-500/20"
+                            }`}
+                            data-testid={`badge-category-${s.setupType}`}
+                          >
+                            {s.category}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
