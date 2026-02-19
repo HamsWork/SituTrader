@@ -36,7 +36,7 @@ export interface IStorage {
   updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number, stopPrice?: number, entryTriggerPrice?: number): Promise<void>;
   updateSignalInvalidation(id: number, invalidationTs: string): Promise<void>;
   updateSignalStopStage(id: number, stopStage: string, stopPrice: number, stopMovedToBeTs?: string, timeStopTriggeredTs?: string): Promise<void>;
-  getSignalStats(profileFilter?: { allowedSetups: string[] } | null): Promise<{
+  getSignalStats(profileFilter?: { allowedSetups: string[]; minTier: string; minQualityScore: number } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
     totalSignals: number;
@@ -296,13 +296,14 @@ export class DatabaseStorage implements IStorage {
     return hits / resolved.length;
   }
 
-  async getSignalStats(profileFilter?: { allowedSetups: string[] } | null): Promise<{
+  async getSignalStats(profileFilter?: { allowedSetups: string[]; minTier: string; minQualityScore: number } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
     totalSignals: number;
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
     topSignalsToday: Signal[];
   }> {
+    const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
     const allSignals = await db.select().from(signals);
     const now = new Date();
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -310,8 +311,15 @@ export class DatabaseStorage implements IStorage {
     const activeCount = allSignals.filter((s) => s.status === "pending").length;
     const totalSignals = allSignals.length;
 
-    const allowedSetups = profileFilter?.allowedSetups;
-    const matchesProfile = (s: Signal) => !allowedSetups || allowedSetups.includes(s.setupType);
+    const matchesProfile = (s: Signal) => {
+      if (!profileFilter) return true;
+      if (!profileFilter.allowedSetups.includes(s.setupType)) return false;
+      const sigTierRank = TIER_RANK[s.tier] ?? 3;
+      const minTierRank = TIER_RANK[profileFilter.minTier] ?? 3;
+      if (sigTierRank > minTierRank) return false;
+      if (s.qualityScore < profileFilter.minQualityScore) return false;
+      return true;
+    };
 
     const recent = allSignals.filter((s) => s.asofDate >= sixtyDaysAgo && s.status !== "pending" && matchesProfile(s));
     const recentHits = recent.filter((s) => s.status === "hit").length;

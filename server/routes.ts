@@ -284,13 +284,13 @@ export async function registerRoutes(
 
   app.get("/api/stats", async (req, res) => {
     try {
-      let profileFilter: { allowedSetups: string[] } | null = null;
+      let profileFilter: { allowedSetups: string[]; minTier: string; minQualityScore: number } | null = null;
       const profileId = req.query.profileId;
       if (profileId && profileId !== "all") {
         const profiles = await storage.getProfiles();
         const profile = profiles.find(p => p.id === Number(profileId));
         if (profile) {
-          profileFilter = { allowedSetups: profile.allowedSetups };
+          profileFilter = { allowedSetups: profile.allowedSetups, minTier: profile.minTier, minQualityScore: profile.minQualityScore };
         }
       }
       const stats = await storage.getSignalStats(profileFilter);
