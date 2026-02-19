@@ -25,7 +25,8 @@ function checkEntryTrigger(
 
   const isSell = tradePlan.bias === "SELL";
   const magnetPrice = tradePlan.t1;
-  const stopDistance = tradePlan.stopDistance ?? (Math.abs(magnetPrice - rthBars[0]?.close ?? magnetPrice) * 0.5 || 1);
+  const firstClose = rthBars[0]?.close;
+  const stopDistance = tradePlan.stopDistance ?? ((firstClose != null ? Math.abs(magnetPrice - firstClose) * 0.5 : 1) || 1);
 
   if (entryMode === "aggressive") {
     for (const bar of rthBars) {
@@ -78,9 +79,6 @@ function checkEntryTrigger(
       }
     }
 
-    if (breakoutSeen) {
-      return { triggered: true, triggerTs: breakoutTs, entryPrice: breakoutPrice };
-    }
   }
 
   return { triggered: false };
