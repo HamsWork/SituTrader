@@ -1,0 +1,149 @@
+import { storage } from "../storage";
+import { detectAllSetups, type SetupResult } from "./rules";
+import { validateMagnetTouch, computeMAEMFE, filterRTHBars } from "./validate";
+import { fetchIntradayBars } from "./polygon";
+import { formatDate } from "./calendar";
+import type { BacktestDetail, Backtest } from "@shared/schema";
+import { log } from "../index";
+
+export async function runBacktest(
+  ticker: string,
+  setupType: string,
+  startDate: string,
+  endDate: string,
+  timeframe: string = "5"
+): Promise<Omit<Backtest, "id" | "createdAt">> {
+  const dailyBars = await storage.getDailyBars(ticker, startDate, endDate);
+  if (dailyBars.length < 5) {
+    return {
+      ticker,
+      setupType,
+      startDate,
+      endDate,
+      occurrences: 0,
+      hits: 0,
+      hitRate: 0,
+      avgTimeToHitMin: null,
+      medianTimeToHitMin: null,
+      avgMae: null,
+      avgMfe: null,
+      details: [],
+      notes: "Insufficient daily data",
+    };
+  }
+
+  const setups = detectAllSetups(dailyBars, [setupType]);
+  const details: BacktestDetail[] = [];
+  let hits = 0;
+  const timesToHit: number[] = [];
+  const maes: number[] = [];
+  const mfes: number[] = [];
+
+  for (const setup of setups) {
+    if (setup.targetDate < startDate || setup.targetDate > endDate) continue;
+
+    let intradayBarsData = await storage.getIntradayBars(ticker, setup.targetDate, timeframe);
+
+    if (intradayBarsData.length === 0) {
+      try {
+        const polygonBars = await fetchIntradayBars(ticker, setup.targetDate, setup.targetDate, timeframe);
+        for (const bar of polygonBars) {
+          const ts = new Date(bar.t).toISOString();
+          await storage.upsertIntradayBar({
+            ticker,
+            ts,
+            open: bar.o,
+            high: bar.h,
+            low: bar.l,
+            close: bar.c,
+            volume: bar.v,
+            timeframe,
+            source: "polygon",
+          });
+        }
+        intradayBarsData = await storage.getIntradayBars(ticker, setup.targetDate, timeframe);
+      } catch (err: any) {
+        log(`Backtest: failed to fetch intraday for ${ticker} ${setup.targetDate}: ${err.message}`, "backtest");
+      }
+    }
+
+    if (intradayBarsData.length === 0) {
+      details.push({
+        date: setup.asofDate,
+        triggered: true,
+        hit: false,
+        magnetPrice: setup.magnetPrice,
+      });
+      continue;
+    }
+
+    const result = validateMagnetTouch(
+      intradayBarsData.map((b) => ({ ts: b.ts, high: b.high, low: b.low })),
+      setup.magnetPrice,
+      setup.direction
+    );
+
+    const rthBars = filterRTHBars(intradayBarsData as any);
+    const entryPrice = rthBars.length > 0 ? rthBars[0].open : setup.magnetPrice;
+
+    let mae: number | undefined;
+    let mfe: number | undefined;
+    if (rthBars.length > 0) {
+      const maeResult = computeMAEMFE(
+        intradayBarsData as any,
+        entryPrice,
+        setup.direction
+      );
+      mae = maeResult.mae;
+      mfe = maeResult.mfe;
+      if (mae > 0) maes.push(mae);
+      if (mfe > 0) mfes.push(mfe);
+    }
+
+    if (result.hit) {
+      hits++;
+      if (result.timeToHitMin !== undefined) timesToHit.push(result.timeToHitMin);
+    }
+
+    details.push({
+      date: setup.asofDate,
+      triggered: true,
+      hit: result.hit,
+      timeToHitMin: result.timeToHitMin,
+      mae,
+      mfe,
+      magnetPrice: setup.magnetPrice,
+      entryPrice,
+    });
+  }
+
+  const occurrences = details.length;
+  const hitRate = occurrences > 0 ? hits / occurrences : 0;
+  const avgTimeToHitMin = timesToHit.length > 0 ? timesToHit.reduce((a, b) => a + b, 0) / timesToHit.length : null;
+
+  const sorted = [...timesToHit].sort((a, b) => a - b);
+  const medianTimeToHitMin = sorted.length > 0
+    ? sorted.length % 2 === 0
+      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+      : sorted[Math.floor(sorted.length / 2)]
+    : null;
+
+  const avgMae = maes.length > 0 ? maes.reduce((a, b) => a + b, 0) / maes.length : null;
+  const avgMfe = mfes.length > 0 ? mfes.reduce((a, b) => a + b, 0) / mfes.length : null;
+
+  return {
+    ticker,
+    setupType,
+    startDate,
+    endDate,
+    occurrences,
+    hits,
+    hitRate,
+    avgTimeToHitMin,
+    medianTimeToHitMin,
+    avgMae,
+    avgMfe,
+    details,
+    notes: null,
+  };
+}
