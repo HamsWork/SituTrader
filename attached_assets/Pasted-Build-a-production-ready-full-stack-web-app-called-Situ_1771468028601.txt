@@ -1,0 +1,217 @@
+Build a production-ready full-stack web app called “Situational Signals” that detects multi-day “situational analysis” setups and produces actionable Buy or Sell bias signals with quantified hit rates. I have unlimited Polygon.io usage.
+
+STACK (Replit-friendly):
+	•	Next.js 14+ (App Router) + TypeScript
+	•	Tailwind CSS
+	•	SQLite (better-sqlite3) for persistence
+	•	Server Actions (preferred) and API routes where needed
+	•	Recharts for charts (or lightweight charting if easier)
+	•	Testing: Vitest + Testing Library (minimum rule tests)
+	•	Lint/format: ESLint + Prettier
+	•	Use environment variables:
+	•	POLYGON_API_KEY (required)
+	•	APP_TIMEZONE = “America/New_York” (default)
+	•	SESSION_RTH_START = “09:30”
+	•	SESSION_RTH_END = “16:00”
+
+PRIMARY GOAL:
+Detect “magnet level” setups (prior low/high likely to be revisited next session) and generate:
+	1.	a “Magnet Likely” signal (touch probability)
+	2.	a “Trade Bias” signal (Buy or Sell) with entry logic, invalidation, and targets
+	3.	a backtest engine using intraday data to validate “touched during regular trading hours”
+
+IMPORTANT TRADING SESSION RULE:
+	•	All “hit/miss” validation for these setups must be computed using intraday bars during RTH ONLY (09:30–16:00 ET).
+	•	If the target day is a market holiday or weekend, roll the target day forward to the next trading day.
+
+DATA SOURCES (Polygon):
+	•	Daily bars: /v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}
+	•	Intraday bars (default): /v2/aggs/ticker/{ticker}/range/5/minute/{from}/{to}
+	•	Allow user to toggle 1-minute vs 5-minute (default 5m for speed)
+	•	Snapshot (optional for “current price”): /v2/snapshot/locale/us/markets/stocks/tickers/{ticker}
+	•	Use aggressive caching + idempotent writes.
+
+SEED SYMBOLS:
+SPY, QQQ, NVDA, TSLA (editable list in UI, enable/disable).
+
+CORE SETUPS TO IMPLEMENT (Minimum Viable):
+Setup A — Thu–Fri–Mon Magnet (Hougaard-style)
+	•	Evaluate after Friday daily close:
+Condition: High(Fri) < High(Thu)
+Magnet: Low(Fri)
+Target day: next trading day after Friday (normally Monday)
+Validation: On target day during RTH, did intraday Low <= Magnet?
+
+Setup B — Mon–Wed–Thu Magnet
+	•	Evaluate after Wednesday daily close:
+Condition: High(Wed) < High(Mon)
+Magnet: Low(Wed)
+Target day: next trading day after Wednesday (normally Thursday)
+Validation: On target day during RTH, did intraday Low <= Magnet?
+
+Setup C — Gap Fill Magnet
+	•	Evaluate at the open (requires intraday):
+Define Gap% = (Open(today) - Close(prevDay)) / Close(prevDay)
+If abs(Gap%) >= user threshold (default 0.30%):
+Magnet: Close(prevDay)
+Target day: same day (today)
+Validation: During RTH, did price touch magnet? (for gap up: intraday Low <= magnet; for gap down: intraday High >= magnet)
+
+Setup D — Inside Day Expansion + Sweep Watch
+	•	Evaluate after daily close:
+Condition: High(today) < High(yesterday) AND Low(today) > Low(yesterday)
+Targets (magnets) for next day: Yesterday High and Yesterday Low
+Validation: During next day RTH, record whether either side was swept first and whether both were touched.
+
+EXTRA “SITUATIONAL” MODULES (Add now, but keep them toggleable):
+Module E — PDH/PDL Sweep
+	•	Every day, track Previous Day High and Previous Day Low as magnets for the next day.
+	•	Validation: Next day RTH touches PDH or PDL (intraday High >= PDH, intraday Low <= PDL).
+	•	Record which hit first and whether a reversal occurred after sweep (simple heuristic: after hitting, did price move back at least X ATR% or X% within RTH).
+
+Module F — “Weak Extreme” / Unfinished Auction Proxy (No Market Profile needed)
+	•	Proxy definition:
+If day’s low is within 0.05% of a mechanical level (PDL, round number .00/.50, or premarket low) AND the day closes in the top 35% of its daily range (strong rejection),
+then mark that low as a “weak/unfinished” candidate likely to be revisited within the next 1–3 trading days.
+	•	Validation: Check next 3 trading days RTH for touch of that low.
+
+SIGNAL OUTPUT (What the app must show):
+For each active signal, output:
+	•	Ticker
+	•	Setup type (A/B/C/D/E/F)
+	•	As-of date (when detected)
+	•	Target date(s)
+	•	Magnet price (one or two magnets)
+	•	Direction (Down-to-magnet or Up-to-magnet)
+	•	Confidence score (0.05–0.95)
+	•	Status: Pending / Hit / Miss (and for multi-day validations: Hit-Day1/2/3)
+	•	Trade plan (for Buy/Sell):
+	•	Bias: BUY or SELL
+	•	Entry trigger (default rules below)
+	•	Invalidation (stop logic)
+	•	Targets (magnet as T1 plus optional extension)
+	•	Notes
+
+DEFAULT TRADE PLAN RULES (Make configurable in Settings):
+	•	If current price is above magnet => SELL bias “down-to-magnet”
+	•	If current price is below magnet => BUY bias “up-to-magnet”
+Entry trigger options (user-selectable, default = conservative):
+
+	1.	Conservative: Enter only after a 5-minute close breaks in the direction of the magnet AND retests that break level without reclaiming.
+	2.	Aggressive: Enter on the first 5-minute close in the direction of the magnet after 09:35 ET.
+Invalidation/Stop (user-selectable, default = ATR-based):
+
+	•	Compute ATR(14) on daily bars.
+	•	Stop distance default = max(0.25 * ATR, 0.15% of price).
+Targets:
+	•	T1 = magnet (primary objective)
+	•	T2 optional = sweep-through buffer = magnet ± 0.15 * ATR (directional)
+	•	Always calculate and display the implied R:R for the selected entry/stop.
+
+CONFIDENCE SCORING (Simple, deterministic, explainable):
+Start base = 0.50
+Adjustments (clamp 0.05–0.95):
+	•	+0.15 if “clean edge”: trigger-day condition margin >= 0.10% of price (e.g., ThuHigh - FriHigh >= 0.10%*Close)
+	•	+0.10 if trigger-day volume > 20-day average volume
+	•	+0.05 if VIX proxy filter (optional): if SPY realized range (daily True Range) is above its 20d average (more movement favors magnets)
+	•	-0.10 if the magnet is extremely far: distance from last close to magnet > 1.25 * ATR
+Show the scoring breakdown in the UI so it’s auditable.
+
+DATABASE (SQLite):
+Tables:
+	•	symbols(id, ticker UNIQUE, enabled, created_at)
+	•	daily_bars(id, ticker, date, open, high, low, close, volume, vwap, source, UNIQUE(ticker,date))
+	•	intraday_bars(id, ticker, ts, open, high, low, close, volume, timeframe, source, UNIQUE(ticker,ts,timeframe))
+	•	signals(id, ticker, setup_type, asof_date, target_date, magnet_price, magnet_price_2, direction, confidence, status, hit_ts, miss_reason, trade_plan_json, created_at)
+	•	backtests(id, ticker, setup_type, start_date, end_date, occurrences, hits, hit_rate, avg_time_to_hit_min, median_time_to_hit_min, avg_mae, avg_mfe, notes, created_at)
+
+IDEMPOTENCY + PERFORMANCE:
+	•	Never insert duplicate bars (use UNIQUE constraints).
+	•	Cache Polygon requests per ticker/date/timeframe.
+	•	“Refresh Data” should:
+	•	Fetch last 200 trading days daily bars for enabled symbols
+	•	Fetch intraday for:
+	•	today (for live-ish dashboard)
+	•	last 15 trading days (so backtests run fast initially)
+	•	Allow backtest jobs to fetch more intraday lazily as needed.
+
+MARKET CALENDAR:
+	•	Implement a “nextTradingDay(date)” helper.
+	•	Use a reliable market calendar library if available in npm; otherwise implement:
+	•	weekend skip
+	•	NYSE holiday list for current year and next year (hardcode list or fetch from a maintained source once and cache).
+	•	MUST roll targets forward if market closed.
+
+BACKTEST ENGINE (must be real intraday validation):
+	•	For each setup and ticker:
+	•	Scan daily bars over a date range
+	•	When a setup triggers, compute target day(s)
+	•	Load intraday bars for target day RTH
+	•	Determine hit/miss and time-to-hit (first bar timestamp where touch occurs)
+	•	Compute MAE/MFE from entry reference:
+	•	Use 09:35 ET price as a consistent proxy entry reference if no entry trigger selected
+	•	MAE: worst move against direction before hit
+	•	MFE: best move in direction before hit
+	•	Display results in UI with a chart of hit rate by month and distribution of time-to-hit.
+
+PAGES / UI:
+	1.	Dashboard
+
+	•	Top bar: “Refresh Data” + Settings button
+	•	Cards: Active signals count, Hit rate last 60 days (per setup), Last refresh timestamp
+	•	Table: Active signals (sortable by confidence)
+	•	Clicking a row opens Symbol Detail
+
+	2.	Symbol Detail (/symbol/[ticker])
+
+	•	Price summary (last, change)
+	•	Daily chart (last 6 months)
+	•	Markers: magnet levels + recent signals
+	•	Tabs:
+	•	Signals (list with statuses)
+	•	Backtest (run and view results)
+	•	Data (daily/intraday coverage and last timestamps)
+
+	3.	Backtest (/backtest)
+
+	•	Select ticker(s), setup(s), date range
+	•	Run backtest (server action)
+	•	Show table + charts
+	•	Export CSV
+
+	4.	Settings (/settings)
+
+	•	Manage tickers (add/remove/enable)
+	•	Choose intraday timeframe default (1m or 5m)
+	•	Gap threshold
+	•	Entry trigger mode (conservative/aggressive)
+	•	Stop mode (ATR-based vs fixed %)
+	•	Session hours (default RTH)
+
+TESTS (minimum required):
+	•	Unit tests for each setup detector:
+	•	Setup A: 5 cases including normal week, holiday Monday, and non-trigger
+	•	Setup B: 5 cases including missing days/holiday
+	•	Gap Fill: 5 cases including gap up/down and below threshold
+	•	Inside Day: 5 cases
+	•	Validation tests for “RTH-only touch logic”.
+
+ENGINEERING REQUIREMENTS:
+	•	Clean folder structure:
+/lib/polygon (client + caching)
+/lib/db (db init + queries)
+/lib/rules (setup detectors)
+/lib/validate (intraday hit/miss logic)
+/lib/backtest (runner)
+	•	All time handling must be correct for America/New_York.
+	•	Include a sticky disclaimer banner: “Education only. Not financial advice.”
+	•	No fake data. If Polygon fails, show an error state with retry.
+
+DELIVERABLE:
+Implement the entire project with all files needed so that I can click Run in Replit and have a working app. Include a README with:
+	•	how to set POLYGON_API_KEY
+	•	how to run tests
+	•	what the signals mean
+	•	known limitations.
+
+Now build the full codebase.
