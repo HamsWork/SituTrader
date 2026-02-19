@@ -46,6 +46,18 @@ import type { Signal, TradePlan } from "@shared/schema";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
+interface LiveData {
+  currentPrice: number;
+  activeMinutes: number | null;
+  progressToTarget: number;
+  rNow: number | null;
+  distToTargetAtr: number | null;
+  distToStopAtr: number | null;
+  atr14: number | null;
+}
+
+type SignalWithLive = Signal & { live?: LiveData };
+
 function getTierBadge(tier: string) {
   const label = TIER_LABELS[tier] || tier;
   switch (tier) {
@@ -93,12 +105,16 @@ function oneLinePlan(signal: Signal): string {
   if (!tp) return "";
   const bias = tp.bias;
   const target = `$${tp.t1.toFixed(2)}`;
-  const stop = tp.stopDistance ? `$${(tp.bias === "SELL" ? tp.t1 + tp.stopDistance : tp.t1 - tp.stopDistance).toFixed(2)}` : "N/A";
+  const stop = signal.stopPrice != null
+    ? `$${signal.stopPrice.toFixed(2)}`
+    : tp.stopDistance
+    ? `$${(tp.bias === "SELL" ? (signal.entryPriceAtActivation ?? tp.t1) + tp.stopDistance : (signal.entryPriceAtActivation ?? tp.t1) - tp.stopDistance).toFixed(2)}`
+    : "N/A";
   const earlyHit = signal.pHit60 != null ? `${(signal.pHit60 * 100).toFixed(0)}%` : "--";
   return `${bias} → target ${target} → stop ${stop} → Early Hit ${earlyHit}`;
 }
 
-function ProgressBar({ signal }: { signal: Signal }) {
+function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: number }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   if (!tp) return null;
 
@@ -106,42 +122,70 @@ function ProgressBar({ signal }: { signal: Signal }) {
   const entryPrice = signal.entryPriceAtActivation ?? (tp.bias === "SELL"
     ? magnetPrice + (tp.stopDistance ?? 0) * 2
     : magnetPrice - (tp.stopDistance ?? 0) * 2);
-  const stopPrice = tp.bias === "SELL"
+  const stopPrice = signal.stopPrice ?? (tp.bias === "SELL"
     ? entryPrice + (tp.stopDistance ?? 0)
-    : entryPrice - (tp.stopDistance ?? 0);
+    : entryPrice - (tp.stopDistance ?? 0));
 
   const isSell = tp.bias === "SELL";
-  const priceMin = Math.min(magnetPrice, entryPrice, stopPrice);
-  const priceMax = Math.max(magnetPrice, entryPrice, stopPrice);
+  const allPrices = [magnetPrice, entryPrice, stopPrice];
+  if (currentPrice != null) allPrices.push(currentPrice);
+  const priceMin = Math.min(...allPrices);
+  const priceMax = Math.max(...allPrices);
   const range = priceMax - priceMin || 1;
 
   const toPercent = (price: number) => Math.max(0, Math.min(100, ((price - priceMin) / range) * 100));
 
   const entryPct = toPercent(entryPrice);
   const magnetPct = toPercent(magnetPrice);
+  const stopPct = toPercent(stopPrice);
+  const currentPct = currentPrice != null ? toPercent(currentPrice) : null;
 
   const fillLeft = Math.min(entryPct, magnetPct);
   const fillWidth = Math.abs(magnetPct - entryPct);
 
+  const beyondStop = currentPrice != null && (
+    (isSell && currentPrice > stopPrice) ||
+    (!isSell && currentPrice < stopPrice)
+  );
+
   return (
     <div className="space-y-1" data-testid={`progress-bar-${signal.id}`}>
-      <div className="relative h-2 rounded-full bg-muted">
+      <div className="relative h-3 rounded-full bg-muted">
         <div
           className={`absolute h-full rounded-full ${isSell ? "bg-red-400/40 dark:bg-red-500/30" : "bg-emerald-400/40 dark:bg-emerald-500/30"}`}
           style={{ left: `${fillLeft}%`, width: `${fillWidth}%` }}
         />
         <div
-          className="absolute w-2.5 h-2.5 rounded-full bg-muted-foreground border-2 border-background -translate-y-[1px]"
+          className="absolute w-1.5 h-full rounded-sm bg-red-400/60"
+          style={{ left: `${stopPct}%`, transform: "translateX(-50%)" }}
+          title={`Stop: $${stopPrice.toFixed(2)}`}
+        />
+        <div
+          className="absolute w-2.5 h-2.5 rounded-full bg-muted-foreground border-2 border-background top-[1px]"
           style={{ left: `${entryPct}%`, transform: "translateX(-50%)" }}
           title={`Entry: $${entryPrice.toFixed(2)}`}
         />
         <div
-          className={`absolute w-2.5 h-2.5 rounded-full -translate-y-[1px] border-2 border-background ${isSell ? "bg-red-500" : "bg-emerald-500"}`}
+          className={`absolute w-2.5 h-2.5 rounded-full top-[1px] border-2 border-background ${isSell ? "bg-red-500" : "bg-emerald-500"}`}
           style={{ left: `${magnetPct}%`, transform: "translateX(-50%)" }}
           title={`Target: $${magnetPrice.toFixed(2)}`}
         />
+        {currentPct != null && (
+          <div
+            className={`absolute w-3 h-3 rounded-full top-0 border-2 border-background z-10 ${beyondStop ? "bg-red-500 animate-pulse" : "bg-blue-500"}`}
+            style={{ left: `${currentPct}%`, transform: "translateX(-50%)" }}
+            title={`Now: $${currentPrice!.toFixed(2)}`}
+            data-testid={`marker-now-${signal.id}`}
+          />
+        )}
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>Stop ${stopPrice.toFixed(2)}</span>
+        {currentPrice != null && (
+          <span className={`font-semibold ${beyondStop ? "text-red-500" : "text-blue-500"}`} data-testid={`text-now-price-${signal.id}`}>
+            Now ${currentPrice.toFixed(2)}
+          </span>
+        )}
         <span>Entry ${entryPrice.toFixed(2)}</span>
         <span>Target ${magnetPrice.toFixed(2)}</span>
       </div>
@@ -149,12 +193,22 @@ function ProgressBar({ signal }: { signal: Signal }) {
   );
 }
 
-function TradeNowCard({ signal }: { signal: Signal }) {
+function getPaceLabel(signal: SignalWithLive): string | null {
+  const live = signal.live;
+  if (!live || live.activeMinutes == null || live.progressToTarget == null) return null;
+  if (live.activeMinutes <= 60 && live.progressToTarget >= 0.25) return "On pace";
+  if (live.activeMinutes > 120 && live.progressToTarget < 0.15 && signal.pHit60 != null && signal.pHit60 >= 0.5) return "Late";
+  return null;
+}
+
+function TradeNowCard({ signal }: { signal: SignalWithLive }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   const isBuy = tp?.bias === "BUY" || (!tp && !signal.direction.toLowerCase().includes("down") && signal.direction !== "SELL");
   const biasLabel = isBuy ? "BUY" : "SELL";
   const biasColor = isBuy ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
   const biasBg = isBuy ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30";
+  const live = signal.live;
+  const paceLabel = getPaceLabel(signal);
 
   return (
     <Card className={`border-2 ${biasBg}`} data-testid={`card-trade-now-${signal.id}`}>
@@ -184,11 +238,46 @@ function TradeNowCard({ signal }: { signal: Signal }) {
           </div>
         </div>
 
+        {live?.currentPrice != null && (
+          <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2" data-testid={`live-strip-${signal.id}`}>
+            <div className="flex items-center gap-3 flex-wrap text-sm">
+              <span className="font-semibold" data-testid={`text-current-price-${signal.id}`}>
+                Current: ${live.currentPrice.toFixed(2)}
+              </span>
+              {live.activeMinutes != null && (
+                <span className="text-muted-foreground">
+                  Active: <span className="font-semibold" data-testid={`text-active-min-${signal.id}`}>{live.activeMinutes}m</span>
+                </span>
+              )}
+              {live.rNow != null && (
+                <span className="text-muted-foreground">
+                  R Now: <span className={`font-semibold ${live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid={`text-r-now-${signal.id}`}>
+                    {live.rNow >= 0 ? "+" : ""}{live.rNow.toFixed(2)}R
+                  </span>
+                </span>
+              )}
+              {live.progressToTarget != null && (
+                <span className="text-muted-foreground">
+                  Progress: <span className="font-semibold" data-testid={`text-progress-${signal.id}`}>{Math.round(live.progressToTarget * 100)}%</span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {live.distToTargetAtr != null && (
+                <span data-testid={`text-dist-target-${signal.id}`}>To T1: <span className="font-semibold">{live.distToTargetAtr.toFixed(2)} ATR</span></span>
+              )}
+              {live.distToStopAtr != null && (
+                <span data-testid={`text-dist-stop-${signal.id}`}>To Stop: <span className="font-semibold">{live.distToStopAtr.toFixed(2)} ATR</span></span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="rounded-md bg-muted/50 p-2 font-mono text-xs" data-testid={`text-one-line-${signal.id}`}>
           {oneLinePlan(signal) || `${biasLabel} → target $${signal.magnetPrice.toFixed(2)}`}
         </div>
 
-        <ProgressBar signal={signal} />
+        <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
 
         {tp && (
           <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
@@ -207,7 +296,9 @@ function TradeNowCard({ signal }: { signal: Signal }) {
                 <Shield className="w-3 h-3" /> Stop
               </div>
               <p className="text-xs leading-relaxed" data-testid={`text-stop-${signal.id}`}>
-                {tp.invalidation}
+                {signal.stopPrice != null
+                  ? `$${signal.stopPrice.toFixed(2)}`
+                  : tp.invalidation}
               </p>
             </div>
             <div className="rounded-md bg-muted/50 p-2.5">
@@ -237,6 +328,15 @@ function TradeNowCard({ signal }: { signal: Signal }) {
               <Timer className="w-3 h-3" />
               <span>Same-day Hit: <span className={`font-semibold ${getProbColor(signal.pHit390)}`}>{(signal.pHit390 * 100).toFixed(0)}%</span></span>
             </div>
+          )}
+          {paceLabel && (
+            <Badge
+              variant="outline"
+              className={`text-[10px] ${paceLabel === "On pace" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}`}
+              data-testid={`badge-pace-${signal.id}`}
+            >
+              {paceLabel}
+            </Badge>
           )}
           {signal.activatedTs && (
             <div className="flex items-center gap-1">
@@ -331,8 +431,9 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showHistory, setShowHistory] = useState(false);
 
-  const { data: signals, isLoading: signalsLoading } = useQuery<Signal[]>({
+  const { data: signals, isLoading: signalsLoading } = useQuery<SignalWithLive[]>({
     queryKey: ["/api/signals"],
+    refetchInterval: 30000,
   });
 
   const { data: stats, isLoading: statsLoading } = useQuery<{

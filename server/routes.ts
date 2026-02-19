@@ -80,7 +80,92 @@ export async function registerRoutes(
   app.get("/api/signals", async (_req, res) => {
     try {
       const sigs = await storage.getSignals(undefined, 100);
-      res.json(sigs);
+
+      const activeSignals = sigs.filter(s => s.activationStatus === "ACTIVE" && s.status === "pending");
+      if (activeSignals.length === 0) {
+        return res.json(sigs);
+      }
+
+      const activeTickers = Array.from(new Set(activeSignals.map(s => s.ticker)));
+      const priceMap = new Map<string, number>();
+      const atrMap = new Map<string, number>();
+
+      await Promise.all(activeTickers.map(async (ticker) => {
+        try {
+          const snap = await fetchSnapshot(ticker);
+          if (snap && snap.lastPrice > 0) {
+            priceMap.set(ticker, snap.lastPrice);
+          }
+        } catch {}
+        try {
+          const ts = await storage.getTickerStats(ticker);
+          if (ts && ts.atr14 > 0) {
+            atrMap.set(ticker, ts.atr14);
+          }
+        } catch {}
+      }));
+
+      const nowMs = Date.now();
+
+      const hydrated = sigs.map(sig => {
+        if (sig.activationStatus !== "ACTIVE" || sig.status !== "pending") return sig;
+
+        const currentPrice = priceMap.get(sig.ticker);
+        if (currentPrice == null) return sig;
+
+        const tp = sig.tradePlanJson as any;
+        const E = sig.entryPriceAtActivation ?? sig.entryTriggerPrice ?? tp?.t1;
+        if (E == null || E === 0) return sig;
+
+        const stopDist = sig.stopPrice != null
+          ? Math.abs(E - sig.stopPrice)
+          : (tp?.stopDistance != null && tp.stopDistance > 0 ? tp.stopDistance : 0);
+        const S = sig.stopPrice ?? (stopDist > 0
+          ? (tp?.bias === "SELL" ? E + stopDist : E - stopDist)
+          : null);
+        const T = sig.magnetPrice;
+        const isSell = tp?.bias === "SELL";
+        const atr = atrMap.get(sig.ticker) ?? 0;
+
+        const activeMinutes = sig.activatedTs
+          ? Math.floor((nowMs - new Date(sig.activatedTs).getTime()) / 60000)
+          : null;
+
+        let progressToTarget: number;
+        if (isSell) {
+          progressToTarget = (E - T) !== 0 ? (E - currentPrice) / (E - T) : 0;
+        } else {
+          progressToTarget = (T - E) !== 0 ? (currentPrice - E) / (T - E) : 0;
+        }
+        progressToTarget = Math.max(0, Math.min(1, progressToTarget));
+
+        let rNow: number | null;
+        if (stopDist === 0 || S == null) {
+          rNow = null;
+        } else if (isSell) {
+          rNow = (E - currentPrice) / stopDist;
+        } else {
+          rNow = (currentPrice - E) / stopDist;
+        }
+
+        const distToTargetAtr = atr > 0 ? Math.abs(T - currentPrice) / atr : null;
+        const distToStopAtr = atr > 0 && S != null ? Math.abs(currentPrice - S) / atr : null;
+
+        return {
+          ...sig,
+          live: {
+            currentPrice,
+            activeMinutes,
+            progressToTarget: Math.round(progressToTarget * 1000) / 1000,
+            rNow: Math.round(rNow * 100) / 100,
+            distToTargetAtr: distToTargetAtr != null ? Math.round(distToTargetAtr * 100) / 100 : null,
+            distToStopAtr: distToStopAtr != null ? Math.round(distToStopAtr * 100) / 100 : null,
+            atr14: atr > 0 ? atr : null,
+          },
+        };
+      });
+
+      res.json(hydrated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

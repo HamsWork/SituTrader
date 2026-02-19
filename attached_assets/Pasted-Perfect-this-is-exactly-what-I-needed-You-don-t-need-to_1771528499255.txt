@@ -1,0 +1,209 @@
+Perfect — this is exactly what I needed. You don’t need to redesign the whole card; you just need to inject 3 live fields and compute 4 derived metrics.
+
+Below is the cleanest implementation plan (minimal code churn, max clarity).
+
+⸻
+
+1) Where to inject the new fields
+
+You want these on TradeNowCard and ProgressBar:
+
+Add to the Signal type (front-end)
+
+Add fields (either directly on Signal, or under a live object):
+
+Option A (simple flat fields)
+	•	currentPrice?: number
+	•	activeMinutes?: number (or compute in UI from activatedTs + now)
+	•	progressToTarget?: number (0–1)
+	•	rNow?: number (current R multiple)
+	•	distToTargetAtr?: number
+	•	distToStopAtr?: number
+	•	atr14?: number (needed to compute ATR distances if not already)
+
+Option B (cleaner)
+	•	live?: { currentPrice, activeMinutes, progressToTarget, rNow, distToTargetAtr, distToStopAtr }
+
+I recommend Option B so you don’t pollute the signal schema.
+
+⸻
+
+2) Where the data should come from (backend)
+
+You already have entryPriceAtActivation, stopPrice, activatedTs, and magnetPrice. You need:
+
+currentPrice
+
+Best source: latest intraday close from your chosen timeframe (1m or 5m), today, during RTH.
+
+Backend should hydrate currentPrice when building the dashboard payload:
+	•	For each ticker with ACTIVE signals:
+	•	query latest intraday bar in DB (today, timeframe)
+	•	if missing, fetch Polygon, store, then return latest close
+
+activeMinutes
+
+Compute server-side so it’s consistent:
+	•	activeMinutes = floor((nowET - activatedTs) / 60000)
+
+ATR (if you want ATR distances)
+
+If you already compute ATR for scoring, reuse it. If not, add atr14 per ticker into a ticker_stats table and attach it.
+
+⸻
+
+3) What to compute (derived metrics)
+
+You need these for each ACTIVE signal:
+
+Let:
+	•	E = entryPriceAtActivation ?? entryTriggerPrice (but for TradeNow, should exist)
+	•	S = stopPrice
+	•	T = magnetPrice (or tp.t1 if same thing)
+	•	P = currentPrice
+	•	direction: BUY or SELL
+
+Progress to target (0–1)
+
+BUY:
+	•	progress = (P - E) / (T - E)
+SELL:
+	•	progress = (E - P) / (E - T)
+Clamp 0..1.
+
+R Now
+
+BUY:
+	•	rNow = (P - E) / (E - S)
+SELL:
+	•	rNow = (E - P) / (S - E)
+
+Distance to target + stop (in ATR)
+
+If you have ATR:
+	•	distToTargetAtr = abs(T - P) / atr14
+	•	distToStopAtr = abs(P - S) / atr14
+
+⸻
+
+4) UI changes inside TradeNowCard (exact placement)
+
+Your card has 5 rows. Add a “Row 1.5” after Row 1 (title row), because that’s where traders look first.
+
+Insert right after Row 1 block
+
+Add a compact live status strip:
+	•	Current price (bold)
+	•	Active minutes since activation
+	•	R Now
+	•	Progress %
+
+Example JSX skeleton (drop-in):
+
+{/* Row 1.5: live status (current price + time since activation + live R + progress) */}
+{signal.live?.currentPrice != null && (
+  <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2">
+    <div className="flex items-center gap-3 flex-wrap text-sm">
+      <span className="font-semibold">
+        Current: ${signal.live.currentPrice.toFixed(2)}
+      </span>
+
+      {signal.live.activeMinutes != null && (
+        <span className="text-muted-foreground">
+          Active: <span className="font-semibold">{signal.live.activeMinutes}m</span>
+        </span>
+      )}
+
+      {signal.live.rNow != null && (
+        <span className="text-muted-foreground">
+          R Now: <span className={`font-semibold ${signal.live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+            {signal.live.rNow.toFixed(2)}R
+          </span>
+        </span>
+      )}
+
+      {signal.live.progressToTarget != null && (
+        <span className="text-muted-foreground">
+          Progress: <span className="font-semibold">{Math.round(signal.live.progressToTarget * 100)}%</span>
+        </span>
+      )}
+    </div>
+
+    {/* Optional: distance chips */}
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {signal.live.distToTargetAtr != null && (
+        <span>To T1: <span className="font-semibold">{signal.live.distToTargetAtr.toFixed(2)} ATR</span></span>
+      )}
+      {signal.live.distToStopAtr != null && (
+        <span>To Stop: <span className="font-semibold">{signal.live.distToStopAtr.toFixed(2)} ATR</span></span>
+      )}
+    </div>
+  </div>
+)}
+
+This alone makes it “live.”
+
+⸻
+
+5) Upgrade ProgressBar to show current price marker
+
+Right now it only knows entry/magnet/stop positions. Pass currentPrice.
+
+Change call:
+
+<ProgressBar signal={signal} currentPrice={signal.live?.currentPrice} />
+
+Then inside ProgressBar:
+	•	Compute marker position for currentPrice
+	•	Render a dot + tiny label “Now 685.47”
+	•	If current price is beyond stop, show red warning state
+	•	If beyond target, show hit-ish state (or green)
+
+If your progress bar uses a normalized scale between stop and target:
+	•	Normalize current to same scale:
+	•	pos = (current - stop)/(target - stop) or reverse for SELL depending on how you implemented it.
+
+⸻
+
+6) Add “late / on-schedule” label (uses time-to-hit)
+
+You already show pHit60 / pHit390. Use them.
+
+Add a tiny status tag near Early Hit:
+
+Logic:
+	•	If signal.live.activeMinutes <= 60 and signal.live.progressToTarget >= 0.25 → “On pace”
+	•	If activeMinutes > 120 and progress < 0.25 and pHit60 high → “Late”
+	•	Otherwise blank
+
+Put it in Row 5 next to Early Hit.
+
+⸻
+
+7) What I want you to tell your agent to implement
+
+Here’s the exact instruction to give them:
+	1.	Backend: add live object to dashboard response for ACTIVE signals:
+	•	currentPrice from latest intraday bar close today
+	•	activeMinutes from activatedTs
+	•	compute progressToTarget, rNow, and ATR distances (if atr14 available)
+	2.	Frontend: inject Row 1.5 live strip in TradeNowCard
+	3.	ProgressBar: accept currentPrice and render “NOW” marker + label
+
+That’s it.
+
+⸻
+
+One more important note (your screenshot exposed it)
+
+Your SPY example showed “Entry 684.88” and “Stop at 682.53” but the one-line plan text said a different stop (684.05). That inconsistency kills trust.
+
+So: in oneLinePlan(signal) always source stop from the same field the stop box uses:
+	•	if signal.stopPrice exists, use that
+	•	otherwise fallback to tp.invalidation
+
+Fix that too, or you’ll constantly feel like the tool is off.
+
+⸻
+
+If you paste the Signal TypeScript type + the dashboard API response shape (or the server handler that returns signals), I’ll tell you exactly how to extend it without breaking anything.

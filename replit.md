@@ -49,7 +49,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/symbols` - Add symbol
 - `PATCH /api/symbols/:ticker` - Toggle enabled
 - `DELETE /api/symbols/:ticker` - Remove symbol
-- `GET /api/signals` - List signals (includes qualityScore, tier, alertState, pHit60, pHit120, pHit390, timeScore, universePass)
+- `GET /api/signals` - List signals (includes qualityScore, tier, alertState, pHit60, pHit120, pHit390, timeScore, universePass). ACTIVE signals hydrated with `live` object (currentPrice, activeMinutes, progressToTarget, rNow, distToTargetAtr, distToStopAtr, atr14). Auto-refetches every 30s on dashboard.
 - `GET /api/stats` - Dashboard statistics (includes topSignalsToday)
 - `GET /api/symbol/:ticker` - Symbol detail with bars, signals, coverage
 - `POST /api/refresh` - Fetch market data, generate signals with quality scores and time-to-hit stats
