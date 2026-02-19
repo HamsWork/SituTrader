@@ -592,7 +592,7 @@ export async function registerRoutes(
       if (!key || typeof key !== "string") {
         return res.status(400).json({ message: "Key required" });
       }
-      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier", "topNUniverse", "alertLiquidityGateEnabled", "focusMode", "focusWinRateThreshold", "focusExpectancyThreshold", "focusMinSampleSize"];
+      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier", "topNUniverse", "alertLiquidityGateEnabled", "focusMode", "focusWinRateThreshold", "focusExpectancyThreshold", "focusMinSampleSize", "stopAtrMultiplier", "stopManagementMode", "beProgressThreshold", "beRThreshold", "timeStopMinutes", "timeStopProgressThreshold", "timeStopTightenFactor"];
       if (!allowedKeys.includes(key)) {
         return res.status(400).json({ message: `Invalid setting key: ${key}` });
       }
