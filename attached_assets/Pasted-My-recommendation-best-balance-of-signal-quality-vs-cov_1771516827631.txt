@@ -1,0 +1,193 @@
+My recommendation (best balance of signal quality vs coverage)
+
+Do HYBRID universe:
+	1.	Always scan your core watchlist (SPY, QQQ, MAG7 + your hand-picked liquid names like AMD, ARM, PLTR, NFLX, LLY, UNH, BABA).
+	2.	Plus auto-scan the Top 150 U.S. tickers by 20-day average dollar volume (avg(close×volume)).
+
+Then gate alerts:
+	•	Alerts only for tickers that pass liquidity floor (default ≥ 1B avg$vol20) OR are on your watchlist override.
+	•	This keeps alerts clean and prevents the system from “discovering edges” in trash.
+
+Why this is best:
+	•	You get SPY/QQQ/MAG7 execution-grade alerts always.
+	•	You also catch other monsters you didn’t manually list (AVGO, JPM, COST, ORCL, XOM, etc.) without turning the tool into a spam cannon.
+	•	Your manual list stops being a ceiling.
+
+⸻
+
+MASTER REPLIT PROMPT (build/update the app with HYBRID + Top Dollar-Volume Universe)
+
+We already built/are building the “Situational Signals” app. Now upgrade it so the ticker list is NOT limiting and alerts are high quality. Implement a HYBRID universe system + automatic Top N liquidity universe + strict alert gating, while preserving all existing setups, time-to-hit probability, tiering, and activation tracking.
+
+STACK:
+	•	Next.js App Router + TypeScript
+	•	Tailwind
+	•	SQLite (better-sqlite3)
+	•	Polygon.io (unlimited)
+	•	Vitest tests
+Env:
+	•	POLYGON_API_KEY
+	•	APP_TIMEZONE=“America/New_York”
+	•	RTH 09:30–16:00 ET
+
+GOAL:
+	1.	Scan signals across a large, high-liquidity universe automatically (Top N by 20-day avg dollar volume).
+	2.	Keep a manual watchlist override always scanned.
+	3.	Only alert the best, most tradeable names by default.
+
+UNIVERSE DESIGN (NEW):
+Add three universe modes in Settings:
+	•	WATCHLIST_ONLY
+	•	LIQUIDITY_ONLY
+	•	HYBRID (default) = watchlist OR liquidity universe
+
+Definitions:
+	•	watchlist = user editable tickers. Seed with:
+SPY, QQQ,
+AAPL, MSFT, AMZN, NVDA, GOOGL, META, TSLA,
+AMD, ARM, PLTR, NFLX, DIS, LLY, UNH, BABA
+	•	liquidity universe = Top N tickers by avgDollarVol20 = avg(close * volume) over last 20 trading days.
+Default N = 150 (editable 50–500).
+Default liquidity floor = 1,000,000,000 (1B) avgDollarVol20 (editable).
+Alert gating rule:
+	•	Only send alerts if (ticker in watchlist) OR (avgDollarVol20 >= liquidity_floor).
+	•	Still compute/store signals for all scanned tickers, but suppress notifications if they fail gating (unless user toggles “alert even if fails liquidity floor”).
+
+HOW TO BUILD THE LIQUIDITY UNIVERSE (Polygon):
+Implement a nightly/refreshable universe builder that:
+	1.	Pulls a broad list of tickers efficiently.
+Use Polygon snapshots endpoint for markets/stocks tickers (bulk) OR Polygon tickers endpoint to enumerate tickers.
+	2.	For candidate tickers, fetch daily bars for last ~30 trading days using /v2/aggs/ticker/{ticker}/range/1/day/… and compute avgDollarVol20.
+	3.	Sort and take Top N.
+	4.	Persist results in DB.
+
+Performance:
+	•	Use concurrency control (e.g., p-limit) and caching.
+	•	Because API is unlimited, optimize for speed but still avoid unnecessary refetches.
+	•	Universe rebuild should take under a few minutes on Replit; allow running incrementally and cache results.
+
+DATABASE CHANGES (NEW):
+Add tables:
+	•	universe_members(
+id,
+universe_date,
+ticker,
+avg_dollar_vol_20d,
+rank,
+included boolean,
+UNIQUE(universe_date, ticker)
+)
+	•	ticker_stats(
+id,
+ticker UNIQUE,
+avg_dollar_vol_20d,
+avg_vol_20d,
+atr_14,
+updated_at
+)
+Update symbols table usage:
+	•	symbols remains for watchlist management and enabled toggle.
+	•	Add a flag in symbols: is_watchlist boolean.
+
+App settings table must include:
+	•	universe_mode (default HYBRID)
+	•	top_n_universe (default 150)
+	•	liquidity_floor_avg_dollar_vol_20d (default 1B)
+	•	scan_max_tickers_per_cycle (default 200) (safety)
+	•	alert_liquidity_gate_enabled (default true)
+
+SCANNING BEHAVIOR (NEW):
+On “Refresh Data”:
+	1.	Rebuild universe if last rebuild older than 24 hours OR if user clicks “Rebuild Universe Now”.
+	2.	Determine scan list:
+	•	WATCHLIST_ONLY: enabled watchlist tickers
+	•	LIQUIDITY_ONLY: Top N tickers (enabled = true in universe_members for most recent universe_date)
+	•	HYBRID: union(watchlist enabled, top N)
+	3.	For the scan list:
+	•	Fetch daily bars (last 260 trading days) if missing/stale
+	•	Fetch intraday bars (last 20 trading days + today) based on selected timeframe (1m/5m)
+	4.	Generate signals (A–F setups as already spec’d)
+	5.	Run validation + time-to-hit stats recomputation incrementally
+	6.	Run activation tracking during RTH when alerts runner executes (see below)
+
+ACTIVATION TRACKING (MUST EXIST):
+Add fields on signals:
+	•	activation_status: NOT_ACTIVE | ACTIVE | INVALIDATED
+	•	activated_ts
+	•	entry_trigger_price
+	•	entry_price_at_activation
+	•	stop_price
+	•	invalidated_ts
+Activation rules:
+	•	Only for PENDING signals that pass alert gating (unless user wants to track all).
+	•	Use selected entry mode:
+Conservative: 5m close breaks trigger level then retest holds (define exact logic and store state machine).
+Aggressive: first 5m close in direction of magnet after 09:35 ET.
+When activation flips to ACTIVE -> fire “ACTIVATED” alert immediately.
+
+ALERTING (UPDATED):
+We already have:
+	•	New signal created
+	•	Approaching magnet
+	•	Hit
+	•	Miss
+Add highest priority alerts:
+	•	ACTIVATED BUY/SELL (this is the real “trade now” moment)
+
+Alert gating:
+	•	Default send only tiers A+ and A
+	•	AND must pass liquidity gate OR be on watchlist
+	•	Users can override in Settings.
+
+RUNNER:
+	•	/api/alerts/run
+Called on schedule every 1–5 minutes during RTH.
+Tasks:
+
+	1.	Pull latest intraday bars for today for tickers with pending signals
+	2.	Update activation status (NOT_ACTIVE -> ACTIVE / INVALIDATED)
+	3.	Update hit/miss status using magnet touch logic
+	4.	Rate-limit approaching alerts (once per signal per day)
+	5.	Send alerts to:
+	•	In-app
+	•	Discord webhook (primary)
+	•	Email/SMS optional
+
+UI IMPROVEMENTS (MUST MAKE IT FEEL LIKE A TRADING TOOL):
+Dashboard must be a 3-column command center:
+	1.	TRADE NOW (ACTIVE)
+Cards only for signals with activation_status=ACTIVE and not yet HIT.
+Each card shows big BUY/SELL, entry trigger, entry price, stop, target (magnet), R:R, tier, p60/p390, and a “Copy Plan” button.
+	2.	ON DECK (PENDING)
+Only A+/A pending signals (or user filter), sorted by quality_score and p60.
+Must show: direction, magnet, target date, activation trigger description, distance in ATR, p60.
+Include a progress bar visualization: Current Price -> Trigger -> Magnet.
+	3.	DONE (HIT/MISS/INVALIDATED)
+Collapsible list, default collapsed.
+
+Add filters:
+	•	Today / This Week / All
+	•	Universe pass only toggle
+	•	Tier filter
+
+Backtest pages remain, but dashboard must prioritize actionable items.
+
+TIME-TO-HIT PROBABILITY (KEEP):
+Maintain time_to_hit_stats with p15/p30/p60/p120/p240/p390 and median time-to-hit.
+Use sample_size rules (>=30) with fallback to setup-level overall.
+
+TESTS (ADD):
+	•	Universe builder: verify it ranks tickers by avgDollarVol20 correctly from mocked data.
+	•	Liquidity gate logic test.
+	•	Activation state machine tests (at least 5).
+	•	Ensure alerts suppressed for low liquidity unless watchlist override.
+
+DELIVERABLE:
+Implement all changes end-to-end so the app runs in Replit. Update README:
+	•	explain HYBRID universe
+	•	explain liquidity gating
+	•	how to rebuild universe
+	•	how activation alerts differ from signal creation
+	•	how to schedule /api/alerts/run
+
+Now implement the full code changes with all necessary files.

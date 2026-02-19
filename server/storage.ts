@@ -31,7 +31,8 @@ export interface IStorage {
   getAlertEligibleSignals(): Promise<Signal[]>;
   updateSignalStatus(id: number, status: string, hitTs?: string, missReason?: string): Promise<void>;
   updateSignalAlert(id: number, alertState: string, nextEligibleAt: string | null): Promise<void>;
-  updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number): Promise<void>;
+  updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number, stopPrice?: number, entryTriggerPrice?: number): Promise<void>;
+  updateSignalInvalidation(id: number, invalidationTs: string): Promise<void>;
   getSignalStats(): Promise<{
     activeCount: number;
     hitRate60d: number;
@@ -222,11 +223,20 @@ export class DatabaseStorage implements IStorage {
     }).where(eq(signals.id, id));
   }
 
-  async updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number): Promise<void> {
+  async updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number, stopPrice?: number, entryTriggerPrice?: number): Promise<void> {
     const updates: any = { activationStatus };
     if (activatedTs) updates.activatedTs = activatedTs;
     if (entryPrice != null) updates.entryPriceAtActivation = entryPrice;
+    if (stopPrice != null) updates.stopPrice = stopPrice;
+    if (entryTriggerPrice != null) updates.entryTriggerPrice = entryTriggerPrice;
     await db.update(signals).set(updates).where(eq(signals.id, id));
+  }
+
+  async updateSignalInvalidation(id: number, invalidationTs: string): Promise<void> {
+    await db.update(signals).set({
+      activationStatus: "INVALIDATED",
+      invalidationTs,
+    }).where(eq(signals.id, id));
   }
 
   async getHitRateForTickerSetup(ticker: string, setupType: string): Promise<number | null> {

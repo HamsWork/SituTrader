@@ -15,11 +15,21 @@ export interface ActivationEvent {
   timestamp: string;
 }
 
+function computeEntryTriggerPrice(
+  bars: Array<{ high: number; low: number; close: number }>,
+  tradePlan: TradePlan
+): number | null {
+  if (bars.length < 2) return null;
+  const isSell = tradePlan.bias === "SELL";
+  const prevBar = bars[bars.length - 2];
+  return isSell ? prevBar.low : prevBar.high;
+}
+
 function checkEntryTrigger(
   bars: Array<{ ts: string; open: number; high: number; low: number; close: number; volume: number }>,
   tradePlan: TradePlan,
   entryMode: string
-): { triggered: boolean; triggerTs?: string; entryPrice?: number; invalidated?: boolean } {
+): { triggered: boolean; triggerTs?: string; entryPrice?: number; entryTriggerPrice?: number; invalidated?: boolean } {
   const rthBars = filterRTHBars(bars);
   if (rthBars.length === 0) return { triggered: false };
 
@@ -35,10 +45,10 @@ function checkEntryTrigger(
       if (totalMin < 575) continue;
 
       if (isSell && bar.close < bar.open) {
-        return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close };
+        return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: bar.open };
       }
       if (!isSell && bar.close > bar.open) {
-        return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close };
+        return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: bar.open };
       }
     }
   } else {
@@ -63,14 +73,14 @@ function checkEntryTrigger(
       } else {
         if (isSell) {
           if (bar.high >= breakoutPrice && bar.close <= breakoutPrice) {
-            return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close };
+            return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: breakoutPrice };
           }
           if (bar.close > breakoutPrice + stopDistance) {
             breakoutSeen = false;
           }
         } else {
           if (bar.low <= breakoutPrice && bar.close >= breakoutPrice) {
-            return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close };
+            return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: breakoutPrice };
           }
           if (bar.close < breakoutPrice - stopDistance) {
             breakoutSeen = false;
@@ -135,7 +145,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
 
       if (sig.activationStatus === "ACTIVE") {
         if (currentPrice && checkInvalidation(currentPrice, tp, sig.entryPriceAtActivation ?? currentPrice)) {
-          await storage.updateSignalActivation(sig.id, "INVALIDATED");
+          await storage.updateSignalInvalidation(sig.id, nowIso);
           events.push({
             signalId: sig.id,
             ticker,
@@ -168,7 +178,17 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       );
 
       if (result.triggered && result.entryPrice) {
-        await storage.updateSignalActivation(sig.id, "ACTIVE", result.triggerTs, result.entryPrice);
+        let stopPrice: number | undefined;
+        if (tp.stopDistance && tp.stopDistance > 0) {
+          stopPrice = tp.bias === "SELL"
+            ? result.entryPrice + tp.stopDistance
+            : result.entryPrice - tp.stopDistance;
+        }
+        await storage.updateSignalActivation(
+          sig.id, "ACTIVE", result.triggerTs, result.entryPrice,
+          stopPrice,
+          result.entryTriggerPrice
+        );
         events.push({
           signalId: sig.id,
           ticker,
@@ -176,7 +196,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           tier: sig.tier,
           qualityScore: sig.qualityScore,
           entryPrice: result.entryPrice,
-          message: `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}, Stop: ${tp.invalidation}`,
+          message: `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`,
           timestamp: nowIso,
         });
       }

@@ -70,7 +70,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `symbols` - Managed tickers
 - `daily_bars` - OHLCV daily data
 - `intraday_bars` - OHLCV intraday data
-- `signals` - Generated signals with quality/tier/alert/probability/activation fields
+- `signals` - Generated signals with quality/tier/alert/probability/activation fields (includes stop_price, entry_trigger_price, invalidation_ts)
 - `backtests` - Backtest results with details
 - `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
 - `app_settings` - Key-value settings

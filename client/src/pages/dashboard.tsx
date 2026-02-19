@@ -65,6 +65,8 @@ function getStatusBadge(status: string) {
       return <Badge variant="default" className="bg-emerald-600 text-white" data-testid="badge-status-hit">Hit</Badge>;
     case "miss":
       return <Badge variant="secondary" className="bg-red-500/15 text-red-500 dark:text-red-400" data-testid="badge-status-miss">Miss</Badge>;
+    case "invalidated":
+      return <Badge variant="secondary" className="bg-orange-500/15 text-orange-500 dark:text-orange-400" data-testid="badge-status-invalidated">Invalidated</Badge>;
     default:
       return <Badge variant="outline" data-testid="badge-status-pending">Pending</Badge>;
   }
@@ -408,13 +410,21 @@ export default function Dashboard() {
   const tradeNowSignals = pendingSignals.filter(s => s.activationStatus === "ACTIVE");
   const onDeckSignals = pendingSignals.filter(s => s.activationStatus === "NOT_ACTIVE");
 
+  const getEffectiveStatus = (s: Signal) => {
+    if (s.activationStatus === "INVALIDATED") return "invalidated";
+    return s.status;
+  };
+
   const resolvedSignals = allSignals
-    .filter(s => s.status !== "pending")
+    .filter(s => s.status !== "pending" || s.activationStatus === "INVALIDATED")
     .filter(s => matchesDate(s.targetDate))
     .filter(s => filterTier === "all" || s.tier === filterTier)
     .filter(s => filterSetup === "all" || s.setupType === filterSetup)
     .filter(s => filterTicker === "all" || s.ticker === filterTicker)
-    .filter(s => filterStatus === "all" || s.status === filterStatus)
+    .filter(s => {
+      if (filterStatus === "all") return true;
+      return getEffectiveStatus(s) === filterStatus;
+    })
     .sort((a, b) => {
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
@@ -691,9 +701,10 @@ export default function Dashboard() {
                   <SelectValue placeholder="Result" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Hit & Miss</SelectItem>
+                  <SelectItem value="all">All Results</SelectItem>
                   <SelectItem value="hit">Hit Only</SelectItem>
                   <SelectItem value="miss">Miss Only</SelectItem>
+                  <SelectItem value="invalidated">Invalidated</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -753,7 +764,7 @@ export default function Dashboard() {
                           {signal.pHit60 != null ? `${(signal.pHit60 * 100).toFixed(0)}%` : <span className="text-muted-foreground">--</span>}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{signal.targetDate}</TableCell>
-                        <TableCell>{getStatusBadge(signal.status)}</TableCell>
+                        <TableCell>{getStatusBadge(getEffectiveStatus(signal))}</TableCell>
                         <TableCell>
                           <Link href={`/symbol/${signal.ticker}`}>
                             <Button variant="ghost" size="icon" data-testid={`button-view-signal-${signal.id}`}>

@@ -8,7 +8,7 @@ import type { Signal } from "@shared/schema";
 export interface AlertEvent {
   signalId: number;
   ticker: string;
-  type: "hit" | "approaching" | "new_signal" | "miss" | "activated";
+  type: "hit" | "approaching" | "new_signal" | "miss" | "activated" | "invalidated";
   tier: string;
   qualityScore: number;
   message: string;
@@ -172,15 +172,20 @@ export async function runAlerts(): Promise<AlertEvent[]> {
   try {
     const activationEvents = await runActivationScan();
     for (const ae of activationEvents) {
+      const activationMinTier = settings.activationMinTier || "A";
+      const tierRank: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
+      const sigRank = tierRank[ae.tier] ?? 3;
+      const minRank = tierRank[activationMinTier] ?? 1;
+      const routed = sigRank <= minRank && shouldRoute(ae.tier, settings);
       events.push({
         signalId: ae.signalId,
         ticker: ae.ticker,
-        type: "activated",
+        type: ae.type === "invalidated" ? "invalidated" : "activated",
         tier: ae.tier,
         qualityScore: ae.qualityScore,
         message: ae.message,
         timestamp: ae.timestamp,
-        routed: true,
+        routed,
       });
     }
   } catch (err: any) {

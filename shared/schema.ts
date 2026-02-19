@@ -71,6 +71,9 @@ export const signals = pgTable("signals", {
   activationStatus: text("activation_status").notNull().default("NOT_ACTIVE"),
   activatedTs: text("activated_ts"),
   entryPriceAtActivation: real("entry_price_at_activation"),
+  stopPrice: real("stop_price"),
+  entryTriggerPrice: real("entry_trigger_price"),
+  invalidationTs: text("invalidation_ts"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

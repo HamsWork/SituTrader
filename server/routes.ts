@@ -367,7 +367,7 @@ export async function registerRoutes(
       if (!key || typeof key !== "string") {
         return res.status(400).json({ message: "Key required" });
       }
-      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode"];
+      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier"];
       if (!allowedKeys.includes(key)) {
         return res.status(400).json({ message: `Invalid setting key: ${key}` });
       }
