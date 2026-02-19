@@ -587,49 +587,109 @@ export class DatabaseStorage implements IStorage {
 
   async seedDefaultProfiles(): Promise<void> {
     const existing = await db.select().from(signalProfiles);
-    if (existing.length > 0) return;
 
-    const defaults: InsertSignalProfile[] = [
+    if (existing.length === 0) {
+      const defaults: InsertSignalProfile[] = [
+        {
+          name: "Win-Rate Focus (A/B)",
+          allowedSetups: ["A", "B"],
+          minTier: "A",
+          minQualityScore: 70,
+          minSampleSize: 50,
+          minHitRate: 0.70,
+          minExpectancyR: 0,
+          timePriorityMode: "EARLY",
+          isPinned: true,
+          isActive: true,
+        },
+        {
+          name: "Balanced",
+          allowedSetups: ["A", "B", "C"],
+          minTier: "B",
+          minQualityScore: 60,
+          minSampleSize: 30,
+          minHitRate: 0,
+          minExpectancyR: 0.15,
+          timePriorityMode: "BLEND",
+          isPinned: false,
+          isActive: false,
+        },
+        {
+          name: "Home Run",
+          allowedSetups: ["A", "B", "C", "D", "E", "F"],
+          minTier: "B",
+          minQualityScore: 50,
+          minSampleSize: 20,
+          minHitRate: 0,
+          minExpectancyR: 0.25,
+          timePriorityMode: "SAME_DAY",
+          isPinned: false,
+          isActive: false,
+        },
+        {
+          name: "A Only",
+          allowedSetups: ["A", "B", "C", "D", "E", "F"],
+          minTier: "A",
+          minQualityScore: 0,
+          minSampleSize: 0,
+          minHitRate: 0,
+          minExpectancyR: 0,
+          timePriorityMode: "BLEND",
+          isPinned: false,
+          isActive: false,
+        },
+        {
+          name: "All Together",
+          allowedSetups: ["A", "B", "C", "D", "E", "F"],
+          minTier: "C",
+          minQualityScore: 0,
+          minSampleSize: 0,
+          minHitRate: 0,
+          minExpectancyR: 0,
+          timePriorityMode: "BLEND",
+          isPinned: false,
+          isActive: false,
+        },
+      ];
+
+      for (const p of defaults) {
+        await db.insert(signalProfiles).values(p);
+      }
+      return;
+    }
+
+    const existingNames = new Set(existing.map(p => p.name));
+    const newProfiles: InsertSignalProfile[] = [
       {
-        name: "Win-Rate Focus (A/B)",
-        allowedSetups: ["A", "B"],
+        name: "A Only",
+        allowedSetups: ["A", "B", "C", "D", "E", "F"],
         minTier: "A",
-        minQualityScore: 70,
-        minSampleSize: 50,
-        minHitRate: 0.70,
-        minExpectancyR: 0,
-        timePriorityMode: "EARLY",
-        isPinned: true,
-        isActive: true,
-      },
-      {
-        name: "Balanced",
-        allowedSetups: ["A", "B", "C"],
-        minTier: "B",
-        minQualityScore: 60,
-        minSampleSize: 30,
+        minQualityScore: 0,
+        minSampleSize: 0,
         minHitRate: 0,
-        minExpectancyR: 0.15,
+        minExpectancyR: 0,
         timePriorityMode: "BLEND",
         isPinned: false,
         isActive: false,
       },
       {
-        name: "Home Run",
+        name: "All Together",
         allowedSetups: ["A", "B", "C", "D", "E", "F"],
-        minTier: "B",
-        minQualityScore: 50,
-        minSampleSize: 20,
+        minTier: "C",
+        minQualityScore: 0,
+        minSampleSize: 0,
         minHitRate: 0,
-        minExpectancyR: 0.25,
-        timePriorityMode: "SAME_DAY",
+        minExpectancyR: 0,
+        timePriorityMode: "BLEND",
         isPinned: false,
         isActive: false,
       },
     ];
 
-    for (const p of defaults) {
-      await db.insert(signalProfiles).values(p);
+    for (const p of newProfiles) {
+      if (!existingNames.has(p.name)) {
+        await db.insert(signalProfiles).values(p);
+      }
     }
   }
 

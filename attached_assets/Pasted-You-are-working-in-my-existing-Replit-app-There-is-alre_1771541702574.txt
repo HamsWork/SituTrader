@@ -1,0 +1,53 @@
+You are working in my existing Replit app. There is already a Profile dropdown in the dashboard header that currently lists: Balanced, Home Run, Win-Rate Focus (A/B). I want to add two new selectable options to that same dropdown:
+	1.	A Only — shows and alerts only Tier A and A+ signals (no B/C).
+	2.	All Together — shows and alerts all tiers (A+, A, B, C) with no tier restriction.
+
+IMPORTANT: I want these as real profiles, not hardcoded UI-only items. They must work everywhere profiles are used: filtering Trade Now, On Deck, Done, and alert eligibility.
+
+IMPLEMENTATION REQUIREMENTS
+
+A) Data / profile definition
+	•	Locate where profiles are defined (could be a profiles table, a seed list, or a constants array used to populate the dropdown).
+	•	Add two new profiles with stable IDs/keys:
+	•	id/key: A_ONLY
+	•	label: A Only
+	•	minTier: A (includes A+)
+	•	allowedTiers: [ "A+", "A" ] OR equivalent tier filter mechanism used today
+	•	setupTypes: keep same setupTypes behavior as the current “Balanced” profile (do not restrict setup types unless your profile system already does)
+	•	id/key: ALL_TOGETHER
+	•	label: All Together
+	•	tierFilter disabled (allows A+, A, B, C)
+	•	setupTypes: same as Balanced
+
+If your profile schema uses different fields (ex: minTier, allowedTiers, tierWhitelist, tierMask, tierMode), map these two profiles to the equivalent logic.
+
+B) Sorting behavior
+	•	Keep existing sorting (tier then quality).
+	•	For ALL_TOGETHER, do NOT change the sort; just allow everything through.
+	•	For A_ONLY, filter first (A+/A only), then keep normal sort.
+
+C) UI
+	•	Add the two new entries to the dropdown list:
+	•	Balanced
+	•	Home Run
+	•	Win-Rate Focus (A/B)
+	•	A Only
+	•	All Together
+	•	Make sure the selected profile shows a checkmark and updates the “Profile Active” indicator exactly like existing options.
+	•	Keep the existing pin emoji behavior consistent (only where it already appears; do not invent new pin rules unless the system already has them).
+
+D) Alerts
+	•	Ensure alert generation respects the active profile:
+	•	A Only: alerts only A+/A
+	•	All Together: alerts any tier
+	•	Do not change existing cooldowns or alert states.
+
+E) Persistence
+	•	If the app persists the selected profile (localStorage or DB), ensure these new profiles persist and survive refresh.
+
+QA CHECK
+	•	Switch to A Only: dashboard immediately hides B/C, only A+/A remain.
+	•	Switch to All Together: dashboard shows all tiers again.
+	•	Alerts obey the selected profile on the next refresh / scan.
+
+Now implement the changes across the relevant files (profile definitions + dropdown list + profile filter logic).
