@@ -131,28 +131,19 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
 
   const isSell = tp.bias === "SELL";
 
-  const stopEnd = resolvedStop;
-  const targetEnd = targetPrice;
-  const barMin = isSell ? Math.min(targetEnd, stopEnd) : Math.min(stopEnd, targetEnd);
-  const barMax = isSell ? Math.max(targetEnd, stopEnd) : Math.max(stopEnd, targetEnd);
-  const range = barMax - barMin || 1;
+  const priceMin = Math.min(targetPrice, resolvedEntry, resolvedStop);
+  const priceMax = Math.max(targetPrice, resolvedEntry, resolvedStop);
+  const range = priceMax - priceMin || 1;
 
-  const toNorm = (price: number) => {
-    const raw = ((price - barMin) / range) * 100;
-    const pct = isSell ? (100 - raw) : raw;
-    return Math.max(0, Math.min(100, pct));
-  };
+  const toPercent = (price: number) => Math.max(0, Math.min(100, ((price - priceMin) / range) * 100));
 
-  const stopPct = toNorm(resolvedStop);
-  const entryPct = toNorm(resolvedEntry);
-  const targetPct = toNorm(targetPrice);
+  const stopPct = toPercent(resolvedStop);
+  const entryPct = toPercent(resolvedEntry);
+  const targetPct = toPercent(targetPrice);
 
-  const rawCurrentNorm = currentPrice != null ? (() => {
-    const raw = ((currentPrice - barMin) / range) * 100;
-    return isSell ? (100 - raw) : raw;
-  })() : null;
-  const currentPct = rawCurrentNorm != null ? Math.max(0, Math.min(100, rawCurrentNorm)) : null;
-  const currentClamped = rawCurrentNorm != null && (rawCurrentNorm < 0 || rawCurrentNorm > 100);
+  const rawCurrentPct = currentPrice != null ? ((currentPrice - priceMin) / range) * 100 : null;
+  const currentPct = rawCurrentPct != null ? Math.max(0, Math.min(100, rawCurrentPct)) : null;
+  const currentClamped = rawCurrentPct != null && (rawCurrentPct < 0 || rawCurrentPct > 100);
 
   const beyondStop = currentPrice != null && ((isSell && currentPrice > resolvedStop) || (!isSell && currentPrice < resolvedStop));
   const pastTarget = currentPrice != null && ((isSell && currentPrice < targetPrice) || (!isSell && currentPrice > targetPrice));
@@ -171,6 +162,17 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
 
   return (
     <div data-testid={`progress-bar-${signal.id}`}>
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">LOW</span>
+        <span
+          className={`text-[9px] font-semibold tracking-wide ${isSell ? "text-red-400" : "text-emerald-500"}`}
+          data-testid={`label-profit-dir-${signal.id}`}
+        >
+          {isSell ? "← Profit" : "Profit →"}
+        </span>
+        <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">HIGH</span>
+      </div>
+
       {currentPct != null && currentPrice != null && (
         <div className="relative h-5 mb-0.5">
           <div
@@ -245,9 +247,19 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
       </div>
 
       <div className="flex justify-between text-[10px] text-muted-foreground px-0.5 mt-1">
-        <span title={`Stop: ${resolvedStop.toFixed(2)}`}>Stop {resolvedStop.toFixed(2)}</span>
-        <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
-        <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)}</span>
+        {isSell ? (
+          <>
+            <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></span>
+            <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
+            <span title={`Stop: ${resolvedStop.toFixed(2)}`}>Stop {resolvedStop.toFixed(2)} <span className="text-red-400/70">(Risk)</span></span>
+          </>
+        ) : (
+          <>
+            <span title={`Stop: ${resolvedStop.toFixed(2)}`}>Stop {resolvedStop.toFixed(2)} <span className="text-red-400/70">(Risk)</span></span>
+            <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
+            <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></span>
+          </>
+        )}
       </div>
     </div>
   );
