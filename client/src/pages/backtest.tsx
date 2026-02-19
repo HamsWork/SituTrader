@@ -41,7 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 export default function BacktestPage() {
   const { toast } = useToast();
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
-  const [selectedSetups, setSelectedSetups] = useState<string[]>(["A", "B", "C", "D"]);
+  const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("2024-01-01");
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
 
