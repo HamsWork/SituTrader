@@ -3,9 +3,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
-  universeMembers, tickerStats, setupExpectancy, signalProfiles,
+  universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
-  type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile,
+  type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
 } from "@shared/schema";
 
@@ -82,6 +82,10 @@ export interface IStorage {
   deleteProfile(id: number): Promise<void>;
   setActiveProfile(id: number): Promise<void>;
   seedDefaultProfiles(): Promise<void>;
+
+  getSchedulerState(): Promise<SchedulerState>;
+  updateSchedulerState(updates: Partial<Omit<SchedulerState, "key">>): Promise<SchedulerState>;
+  ensureSchedulerState(): Promise<SchedulerState>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -627,6 +631,38 @@ export class DatabaseStorage implements IStorage {
     for (const p of defaults) {
       await db.insert(signalProfiles).values(p);
     }
+  }
+
+  async getSchedulerState(): Promise<SchedulerState> {
+    const rows = await db.select().from(schedulerState).where(eq(schedulerState.key, "default"));
+    if (rows.length === 0) return this.ensureSchedulerState();
+    return rows[0];
+  }
+
+  async updateSchedulerState(updates: Partial<Omit<SchedulerState, "key">>): Promise<SchedulerState> {
+    await this.ensureSchedulerState();
+    await db.update(schedulerState).set(updates).where(eq(schedulerState.key, "default"));
+    return this.getSchedulerState();
+  }
+
+  async ensureSchedulerState(): Promise<SchedulerState> {
+    const rows = await db.select().from(schedulerState).where(eq(schedulerState.key, "default"));
+    if (rows.length > 0) return rows[0];
+    const defaults: SchedulerState = {
+      key: "default",
+      autoEnabled: true,
+      afterCloseEnabled: true,
+      preOpenEnabled: true,
+      liveMonitorEnabled: true,
+      lastAfterCloseRunTs: null,
+      lastPreOpenRunTs: null,
+      lastLiveMonitorRunTs: null,
+      lastRunSummaryJson: null,
+      nextAfterCloseTs: null,
+      nextPreOpenTs: null,
+    };
+    await db.insert(schedulerState).values(defaults);
+    return defaults;
   }
 }
 

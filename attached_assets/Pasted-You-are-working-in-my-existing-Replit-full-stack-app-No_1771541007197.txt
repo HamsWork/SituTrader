@@ -1,0 +1,152 @@
+You are working in my existing Replit full-stack app (Node/TypeScript server + React/TypeScript client) that already has:
+	•	GET /api/signals returning SignalApi[] (signals with optional live)
+	•	Dashboard uses a manual Refresh button today
+	•	Signals are based on daily-bar situational analysis (comparisons of prior day highs/lows that only become “true” after the market close)
+	•	Activation tracking / live monitoring exists or is in-progress for ACTIVE signals
+
+GOAL
+Make the system operate on a Hougaard-style workflow:
+	1.	Generate tomorrow’s best setups automatically after the daily bar is finalized (primary)
+	2.	Re-rank and sanity-check premarket (secondary)
+	3.	Monitor ACTIVE signals during RTH (live)
+Manual refresh remains as a secondary override.
+
+IMPLEMENT THIS WITH ONE SIMPLE “AUTO SCHEDULE” SYSTEM:
+
+SCHEDULE WINDOWS (America/Chicago local time)
+	•	After Close Scan (Primary): 3:10 PM CT (4:10 PM ET) weekdays
+	•	Pre-Open Scan (Secondary): 8:20 AM CT (9:20 AM ET) weekdays
+	•	RTH Live Monitor (ACTIVE only): every 60 seconds, only during RTH (8:30 AM–3:00 PM CT)
+
+IMPORTANT REQUIREMENTS
+	•	Auto jobs must not run on weekends or market holidays. Use an exchange calendar library or a simple holiday list fallback; if you can’t reliably detect holidays, at minimum skip weekends and still allow manual run.
+	•	Persist “last run time”, “last run result summary”, and “next scheduled run time” so UI can show status even after server restarts.
+	•	Do NOT spam Polygon: use batching by ticker (bulk snapshots) and only monitor ACTIVE tickers during RTH.
+	•	Manual Refresh button stays and triggers the same scan endpoints.
+
+PART 1 — DATABASE: Add a small table to persist scheduler state
+Add a new table scheduler_state with a single row keyed by key:
+
+Columns:
+	•	key (text primary key) — use “default”
+	•	autoEnabled (boolean, default true)
+	•	afterCloseEnabled (boolean, default true)
+	•	preOpenEnabled (boolean, default true)
+	•	liveMonitorEnabled (boolean, default true)
+	•	lastAfterCloseRunTs (timestamp nullable)
+	•	lastPreOpenRunTs (timestamp nullable)
+	•	lastLiveMonitorRunTs (timestamp nullable)
+	•	lastRunSummaryJson (jsonb nullable)  // { afterClose: {…}, preOpen: {…}, live: {…} }
+	•	nextAfterCloseTs (timestamp nullable)
+	•	nextPreOpenTs (timestamp nullable)
+
+Use your existing Drizzle schema patterns.
+
+PART 2 — SERVER: Create a job runner service
+Create server/jobs/scheduler.ts (or similar) that:
+	•	Uses node-cron (recommended) or node-schedule
+	•	Uses dayjs + timezone plugin (or luxon) to handle America/Chicago time correctly
+	•	Loads scheduler_state at startup, creates a default row if missing
+	•	Schedules 3 jobs:
+A) After Close Scan (3:10 PM CT)
+B) Pre-Open Scan (8:20 AM CT)
+C) Live Monitor loop (every 60 seconds) gated by market hours
+
+Market hours gating (CT):
+	•	RTH open: 8:30 AM CT
+	•	RTH close: 3:00 PM CT
+Only run live monitor inside that window on weekdays.
+
+Holiday gating:
+	•	Prefer an exchange calendar lib (ex: market-holidays / nyse-holidays / trading-calendar style). If none is available, implement a minimal “weekends only” gate and leave a TODO. Do NOT block build if holiday lib is unavailable.
+
+PART 3 — SERVER: Add endpoints to control and observe scheduler
+Add endpoints:
+	1.	GET /api/scheduler/state
+Returns the scheduler_state row plus computed “now” and “next run times” in CT.
+	2.	POST /api/scheduler/toggle
+Body: { autoEnabled?: boolean, afterCloseEnabled?: boolean, preOpenEnabled?: boolean, liveMonitorEnabled?: boolean }
+Updates scheduler_state and reconfigures jobs in memory (enable/disable).
+	3.	POST /api/scheduler/run
+Body: { job: “afterClose” | “preOpen” | “liveOnce” }
+Runs the job immediately (manual override). Returns summary.
+
+PART 4 — SERVER: Implement the actual job functions
+You already have scanning logic somewhere that generates pending signals and/or updates signals. Wire it into these jobs:
+
+A) After Close Scan job (primary)
+	•	Purpose: finalize today’s daily bar inputs and generate tomorrow’s pending signals.
+	•	Steps:
+	1.	Fetch/confirm daily bars for the last 2–5 trading days for your universe (use Polygon grouped/daily endpoints efficiently)
+	2.	Recompute your situational rules and generate/update signals for targetDate = next trading day
+	3.	Compute quality/tier/time probabilities as you already do
+	4.	Persist signals and mark them pending
+	5.	Save lastAfterCloseRunTs + a summary into lastRunSummaryJson (counts by tier, counts by setupType)
+
+B) Pre-Open Scan job (secondary)
+	•	Purpose: do NOT change the core “daily bar truth”; just re-rank and apply morning filters.
+	•	Steps:
+	1.	Pull latest premarket snapshots (bulk) for the universe
+	2.	Update only ranking fields (timeScore, universePass, or a “premarket context score” if you have one), but do NOT rewrite the underlying daily-based signal conditions
+	3.	Save lastPreOpenRunTs + summary
+
+C) Live Monitor (ACTIVE only)
+	•	Purpose: track activation and live progress; do not re-scan entire market.
+	•	Steps each minute during RTH:
+	1.	Query DB: pending signals where activationStatus === “ACTIVE” (or additionally include NOT_ACTIVE if you have an activation trigger system)
+	2.	Build a unique ticker list from those signals
+	3.	Fetch bulk snapshot (or latest intraday close) for those tickers
+	4.	Update live calculations (currentPrice, activeMinutes, progressToTarget, rNow) for ACTIVE signals
+	5.	If you have “hit/approaching/invalidation” logic, run it and emit alerts as needed
+	6.	Save lastLiveMonitorRunTs (don’t over-write lastRunSummaryJson too heavily; store just counts)
+
+Performance notes:
+	•	Batch all price pulls (bulk snapshot).
+	•	If no ACTIVE signals, skip any external calls.
+
+PART 5 — CLIENT: Add an “Auto Schedule” panel to the Dashboard
+In client/src/pages/dashboard.tsx (or a settings panel):
+	•	Add a small card at top of dashboard showing:
+	•	Auto Schedule: ON/OFF
+	•	After Close: ON/OFF
+	•	Pre-Open: ON/OFF
+	•	Live Monitor: ON/OFF
+	•	Last After Close run (timestamp)
+	•	Last Pre-Open run (timestamp)
+	•	Last Live tick (timestamp)
+	•	Next After Close run (timestamp)
+	•	Next Pre-Open run (timestamp)
+	•	Add buttons:
+	•	“Run After Close Now”
+	•	“Run Pre-Open Now”
+	•	“Run Live Tick Now”
+	•	Keep existing Refresh button; label it “Manual Refresh (override)”.
+
+Implement client calls:
+	•	useQuery to GET /api/scheduler/state (refetch every 30 seconds)
+	•	useMutation for toggle and run endpoints
+
+UI behavior:
+	•	If autoEnabled is OFF, show a subtle warning: “Auto schedule disabled — manual refresh only.”
+
+PART 6 — INTEGRATION: Make manual Refresh reuse the new job endpoints
+When the user clicks Refresh:
+	•	If during RTH: call POST /api/scheduler/run with { job: “liveOnce” }
+	•	If outside RTH:
+	•	Default to { job: “preOpen” } in the morning window
+	•	Default to { job: “afterClose” } after close
+If you don’t want time logic, simply keep Refresh mapped to preOpen and add a dropdown beside it (After Close / Pre-Open / Live).
+
+PART 7 — ACCEPTANCE TESTS (DO THESE)
+	•	Start server: scheduler_state row exists and UI shows next scheduled times.
+	•	Toggle auto OFF: cron jobs stop firing; UI reflects OFF.
+	•	Run afterClose manually: signals update and lastAfterCloseRunTs updates.
+	•	Run preOpen manually: ranking updates and lastPreOpenRunTs updates.
+	•	During RTH with active signals: live monitor updates currentPrice and rNow each minute.
+	•	With no active signals: live monitor does not call Polygon.
+
+Now implement all of the above in the codebase:
+	•	DB migration/schema for scheduler_state
+	•	server job runner + endpoints
+	•	client UI panel + wiring
+	•	ensure everything compiles and runs on Replit with the existing environment

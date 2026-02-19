@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Switch } from "@/components/ui/switch";
 import {
   Activity,
   TrendingUp,
@@ -43,6 +44,10 @@ import {
   ThumbsUp,
   ThumbsDown,
   CircleDot,
+  Play,
+  CalendarClock,
+  Power,
+  AlertTriangle,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy } from "@shared/schema";
@@ -682,11 +687,13 @@ export default function Dashboard() {
   });
 
   const refreshMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/refresh"),
-    onSuccess: () => {
+    mutationFn: () => apiRequest("POST", "/api/scheduler/run", { job: "afterClose" }),
+    onSuccess: async (res) => {
+      const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      toast({ title: "Data refreshed", description: "Market data and signals updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduler/state"] });
+      toast({ title: "Data refreshed", description: `Full scan complete (${data.summary?.durationMs ?? 0}ms)` });
     },
     onError: (error: Error) => {
       toast({ title: "Refresh failed", description: error.message, variant: "destructive" });
@@ -722,6 +729,47 @@ export default function Dashboard() {
     },
     onError: (error: Error) => {
       toast({ title: "Alert scan failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const { data: schedulerState } = useQuery<{
+    autoEnabled: boolean;
+    afterCloseEnabled: boolean;
+    preOpenEnabled: boolean;
+    liveMonitorEnabled: boolean;
+    lastAfterCloseRunTs: string | null;
+    lastPreOpenRunTs: string | null;
+    lastLiveMonitorRunTs: string | null;
+    lastRunSummaryJson: any;
+    nextAfterCloseTs: string | null;
+    nextPreOpenTs: string | null;
+    nowCT: string;
+    isRTH: boolean;
+    computedNextAfterClose: string;
+    computedNextPreOpen: string;
+  }>({
+    queryKey: ["/api/scheduler/state"],
+    refetchInterval: 30000,
+  });
+
+  const schedulerToggle = useMutation({
+    mutationFn: (body: Record<string, boolean>) => apiRequest("POST", "/api/scheduler/toggle", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduler/state"] });
+    },
+  });
+
+  const schedulerRun = useMutation({
+    mutationFn: (job: string) => apiRequest("POST", "/api/scheduler/run", { job }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduler/state"] });
+      toast({ title: `${data.job} scan complete`, description: `Duration: ${data.summary?.durationMs ?? 0}ms` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Job run failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -918,6 +966,118 @@ export default function Dashboard() {
             {activeProfile.minSampleSize > 0 && ` · N≥${activeProfile.minSampleSize}`}
           </span>
         </div>
+      )}
+
+      {schedulerState && (
+        <Card className="border-dashed" data-testid="card-auto-schedule">
+          <CardContent className="pt-4 pb-3 px-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 text-primary" />
+                <span className="font-medium text-sm">Auto Schedule</span>
+                {schedulerState.isRTH && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/30">RTH</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{schedulerState.autoEnabled ? "ON" : "OFF"}</span>
+                <Switch
+                  checked={schedulerState.autoEnabled}
+                  onCheckedChange={(v) => schedulerToggle.mutate({ autoEnabled: v })}
+                  data-testid="switch-auto-schedule"
+                />
+              </div>
+            </div>
+
+            {!schedulerState.autoEnabled && (
+              <div className="flex items-center gap-1.5 mb-3 text-xs text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Auto schedule disabled — manual refresh only.</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="space-y-1.5 p-2 rounded-md bg-muted/40">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">After Close</span>
+                  <Switch
+                    checked={schedulerState.afterCloseEnabled}
+                    onCheckedChange={(v) => schedulerToggle.mutate({ afterCloseEnabled: v })}
+                    className="scale-75"
+                    data-testid="switch-after-close"
+                  />
+                </div>
+                <div className="text-muted-foreground">3:10 PM CT daily</div>
+                {schedulerState.lastAfterCloseRunTs && (
+                  <div className="text-muted-foreground">Last: {new Date(schedulerState.lastAfterCloseRunTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                )}
+                {schedulerState.computedNextAfterClose && (
+                  <div className="text-muted-foreground">Next: {new Date(schedulerState.computedNextAfterClose).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                )}
+                <Button
+                  variant="outline" size="sm" className="w-full mt-1"
+                  onClick={() => schedulerRun.mutate("afterClose")}
+                  disabled={schedulerRun.isPending}
+                  data-testid="button-run-after-close"
+                >
+                  <Play className="w-3 h-3 mr-1" />Run Now
+                </Button>
+              </div>
+
+              <div className="space-y-1.5 p-2 rounded-md bg-muted/40">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Pre-Open</span>
+                  <Switch
+                    checked={schedulerState.preOpenEnabled}
+                    onCheckedChange={(v) => schedulerToggle.mutate({ preOpenEnabled: v })}
+                    className="scale-75"
+                    data-testid="switch-pre-open"
+                  />
+                </div>
+                <div className="text-muted-foreground">8:20 AM CT daily</div>
+                {schedulerState.lastPreOpenRunTs && (
+                  <div className="text-muted-foreground">Last: {new Date(schedulerState.lastPreOpenRunTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                )}
+                {schedulerState.computedNextPreOpen && (
+                  <div className="text-muted-foreground">Next: {new Date(schedulerState.computedNextPreOpen).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                )}
+                <Button
+                  variant="outline" size="sm" className="w-full mt-1"
+                  onClick={() => schedulerRun.mutate("preOpen")}
+                  disabled={schedulerRun.isPending}
+                  data-testid="button-run-pre-open"
+                >
+                  <Play className="w-3 h-3 mr-1" />Run Now
+                </Button>
+              </div>
+
+              <div className="space-y-1.5 p-2 rounded-md bg-muted/40">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Live Monitor</span>
+                  <Switch
+                    checked={schedulerState.liveMonitorEnabled}
+                    onCheckedChange={(v) => schedulerToggle.mutate({ liveMonitorEnabled: v })}
+                    className="scale-75"
+                    data-testid="switch-live-monitor"
+                  />
+                </div>
+                <div className="text-muted-foreground">Every 60s during RTH</div>
+                {schedulerState.lastLiveMonitorRunTs && (
+                  <div className="text-muted-foreground">Last: {new Date(schedulerState.lastLiveMonitorRunTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                )}
+                <div className="text-muted-foreground">{schedulerState.isRTH ? "Status: Active" : "Status: Idle"}</div>
+                <Button
+                  variant="outline" size="sm" className="w-full mt-1"
+                  onClick={() => schedulerRun.mutate("liveOnce")}
+                  disabled={schedulerRun.isPending}
+                  data-testid="button-run-live-tick"
+                >
+                  <Play className="w-3 h-3 mr-1" />Run Now
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">

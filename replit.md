@@ -24,6 +24,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
 - **Signal Profiles**: Saved filter profiles that control dashboard visibility + alert eligibility. Each profile defines: allowed setups, min tier, min quality score, min sample size, min hit rate, min expectancy, time priority mode. Dropdown + banner on dashboard. "Show All" toggle bypasses profile filter. 3 default profiles seeded: Win-Rate Focus (A/B), Balanced, Home Run. Never deletes signal data — profiles only change what you see.
 - **Focus Mode**: Expectancy-based setup prioritization with 3 modes (WIN_RATE, EXPECTANCY, BARBELL). Gates alerts by setup category (PRIMARY/SECONDARY/OFF). Includes MAE-based tradeability filtering (CLEAN/CAUTION/AVOID).
+- **Auto Scheduler**: Hougaard-style 3-window automation. After Close (3:10 PM CT): full scan generating tomorrow's signals. Pre-Open (8:20 AM CT): re-rank and activation check. Live Monitor (every 60s during RTH 8:30 AM-3:00 PM CT): activation + alerts for active signals. Uses node-cron + dayjs timezone. Holiday/weekend gating via NYSE calendar. Persistent scheduler_state with last run times and next scheduled runs.
 - **Market Calendar**: NYSE holiday-aware date handling
 
 ## Project Structure
@@ -42,6 +43,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
 - `server/lib/expectancy.ts` - Expectancy computation: R-multiples, profit factor, tradeability, setup categorization
 - `server/lib/universe.ts` - Universe builder: Polygon grouped daily, ranking, top N persistence, 24h cache
+- `server/jobs/scheduler.ts` - Auto scheduler: 3 cron jobs (afterClose/preOpen/liveMonitor) with timezone + holiday gating
+- `server/jobs/jobFunctions.ts` - Job implementations wiring into existing scan/activation/alert logic
 - `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings)
 - `client/src/components/` - Reusable UI components
 
@@ -73,6 +76,9 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `PUT /api/profiles/:id` - Update profile
 - `DELETE /api/profiles/:id` - Delete profile
 - `POST /api/profiles/:id/activate` - Set profile as active (deactivates others)
+- `GET /api/scheduler/state` - Scheduler state (toggles, last/next run times, RTH status)
+- `POST /api/scheduler/toggle` - Toggle scheduler jobs (autoEnabled, afterCloseEnabled, preOpenEnabled, liveMonitorEnabled)
+- `POST /api/scheduler/run` - Manual job run (afterClose, preOpen, liveOnce)
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus
@@ -94,6 +100,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `setup_expectancy` - Setup-level expectancy stats (R-multiples, profit factor, tradeability, category per setup type/ticker)
 - `signal_profiles` - Saved filter profiles (name, allowedSetups[], minTier, minQualityScore, minSampleSize, minHitRate, minExpectancyR, timePriorityMode, isPinned, isActive)
 - `app_settings` - Key-value settings (includes focusMode, focusWinRateThreshold, focusExpectancyThreshold, focusMinSampleSize)
+- `scheduler_state` - Scheduler configuration and run history (single row, key="default")
 
 ## Environment
 - `POLYGON_API_KEY` - Required for market data

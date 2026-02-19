@@ -180,6 +180,22 @@ export const signalProfiles = pgTable("signal_profiles", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const schedulerState = pgTable("scheduler_state", {
+  key: text("key").primaryKey(),
+  autoEnabled: boolean("auto_enabled").notNull().default(true),
+  afterCloseEnabled: boolean("after_close_enabled").notNull().default(true),
+  preOpenEnabled: boolean("pre_open_enabled").notNull().default(true),
+  liveMonitorEnabled: boolean("live_monitor_enabled").notNull().default(true),
+  lastAfterCloseRunTs: text("last_after_close_run_ts"),
+  lastPreOpenRunTs: text("last_pre_open_run_ts"),
+  lastLiveMonitorRunTs: text("last_live_monitor_run_ts"),
+  lastRunSummaryJson: jsonb("last_run_summary_json"),
+  nextAfterCloseTs: text("next_after_close_ts"),
+  nextPreOpenTs: text("next_pre_open_ts"),
+});
+
+export type SchedulerState = typeof schedulerState.$inferSelect;
+
 export const insertSignalProfileSchema = createInsertSchema(signalProfiles).omit({ id: true, createdAt: true });
 
 export const insertSymbolSchema = createInsertSchema(symbols).omit({ id: true, createdAt: true });
