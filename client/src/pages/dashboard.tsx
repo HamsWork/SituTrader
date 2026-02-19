@@ -270,7 +270,7 @@ function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad";
   if (rNow != null && rNow >= 0.25 && progress != null && progress >= 0.25) {
     return { state: "good", title: "Trade Health: Good", Icon: ThumbsUp, className: "bg-emerald-500/10 text-emerald-500" };
   }
-  return { state: "neutral", title: "Trade Health: Neutral", Icon: Minus, className: "bg-muted/50 text-muted-foreground" };
+  return { state: "neutral", title: "Trade Health: Neutral", Icon: Minus, className: "bg-yellow-500/10 text-yellow-500" };
 }
 
 function TradeNowCard({ signal }: { signal: SignalApi }) {
