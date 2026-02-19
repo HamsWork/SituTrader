@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -15,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Save, Loader2, Bell, Star, Globe, Timer } from "lucide-react";
+import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer } from "lucide-react";
 import type { Symbol } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -40,14 +39,6 @@ export default function SettingsPage() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to add symbol", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const toggleSymbol = useMutation({
-    mutationFn: ({ ticker, enabled }: { ticker: string; enabled: boolean }) =>
-      apiRequest("PATCH", `/api/symbols/${ticker}`, { enabled }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/symbols"] });
     },
   });
 
@@ -97,60 +88,72 @@ export default function SettingsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-sm">Managed Symbols</CardTitle>
-          <Badge variant="outline">{symbolList?.length ?? 0}</Badge>
+          <Badge variant="outline">{symbolList?.length ?? 0} tickers</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-2">
-            <Input
-              placeholder="Enter ticker (e.g., AAPL)"
-              value={newTicker}
-              onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newTicker.trim()) addSymbol.mutate();
-              }}
-              className="max-w-xs"
-              data-testid="input-new-ticker"
-            />
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search or add ticker (e.g., AAPL)"
+                value={newTicker}
+                onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newTicker.trim()) addSymbol.mutate();
+                }}
+                className="pl-9"
+                data-testid="input-new-ticker"
+              />
+            </div>
             <Button
               onClick={() => addSymbol.mutate()}
               disabled={!newTicker.trim() || addSymbol.isPending}
               data-testid="button-add-ticker"
             >
-              <Plus className="w-4 h-4 mr-1" />
+              {addSymbol.isPending ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4 mr-1" />
+              )}
               Add
             </Button>
           </div>
 
-          <div className="space-y-2">
-            {symbolList?.map((sym) => (
-              <div
-                key={sym.ticker}
-                className="flex items-center justify-between gap-3 py-2 px-3 rounded-md bg-muted/30"
-                data-testid={`row-symbol-${sym.ticker}`}
-              >
-                <div className="flex items-center gap-3">
-                  <Switch
-                    checked={sym.enabled}
-                    onCheckedChange={(enabled) =>
-                      toggleSymbol.mutate({ ticker: sym.ticker, enabled })
-                    }
-                    data-testid={`switch-symbol-${sym.ticker}`}
-                  />
-                  <span className="font-medium text-sm">{sym.ticker}</span>
-                  {!sym.enabled && (
-                    <Badge variant="secondary" className="text-xs">Disabled</Badge>
-                  )}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => deleteSymbol.mutate(sym.ticker)}
-                  data-testid={`button-delete-${sym.ticker}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
-                </Button>
+          <div className="min-h-[120px] max-h-[320px] overflow-y-auto rounded-md border p-3">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-[100px] text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Loading symbols...
               </div>
-            ))}
+            ) : !symbolList?.length ? (
+              <div className="flex items-center justify-center h-[100px] text-sm text-muted-foreground">
+                No symbols added yet
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {symbolList
+                  .filter((sym) => !newTicker || sym.ticker.includes(newTicker.trim()))
+                  .map((sym) => (
+                    <Badge
+                      key={sym.ticker}
+                      variant="secondary"
+                      className="gap-1 pr-1 text-sm"
+                      data-testid={`badge-symbol-${sym.ticker}`}
+                    >
+                      {sym.ticker}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-4 w-4 ml-0.5 rounded-full hover-elevate"
+                        onClick={() => deleteSymbol.mutate(sym.ticker)}
+                        data-testid={`button-delete-${sym.ticker}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
