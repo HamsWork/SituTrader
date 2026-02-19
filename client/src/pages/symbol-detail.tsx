@@ -34,7 +34,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { Signal, DailyBar } from "@shared/schema";
-import { SETUP_LABELS, type SetupType, type TradePlan, type ConfidenceBreakdown } from "@shared/schema";
+import { SETUP_LABELS, TIER_LABELS, type SetupType, type TradePlan, type ConfidenceBreakdown, type QualityBreakdown } from "@shared/schema";
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -224,13 +224,25 @@ export default function SymbolDetail() {
                     <CardContent className="p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {signal.tier === "APLUS" && (
+                              <Badge className="bg-amber-500 text-white">{TIER_LABELS[signal.tier]}</Badge>
+                            )}
+                            {signal.tier === "A" && (
+                              <Badge className="bg-emerald-600 text-white">{TIER_LABELS[signal.tier]}</Badge>
+                            )}
+                            {signal.tier === "B" && (
+                              <Badge variant="secondary">{TIER_LABELS[signal.tier]}</Badge>
+                            )}
+                            {signal.tier === "C" && (
+                              <Badge variant="outline">{TIER_LABELS[signal.tier]}</Badge>
+                            )}
                             <Badge variant="outline" className="text-xs">
                               Setup {signal.setupType}
                             </Badge>
                             {getStatusBadge(signal.status)}
                             <span className="text-xs text-muted-foreground">
-                              {SETUP_LABELS[signal.setupType as SetupType]}
+                              Q{signal.qualityScore}
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

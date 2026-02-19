@@ -6,9 +6,12 @@ import { formatDate, getTradingDaysBack, nextTradingDay, prevTradingDay } from "
 import { detectAllSetups } from "./lib/rules";
 import { validateMagnetTouch } from "./lib/validate";
 import { computeConfidence, computeATR, computeAvgVolume } from "./lib/confidence";
+import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./lib/quality";
 import { generateTradePlan } from "./lib/tradeplan";
 import { runBacktest } from "./lib/backtest";
+import { runAlerts } from "./lib/alerts";
 import { log } from "./index";
+import type { SetupType } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "NVDA", "TSLA"];
 
@@ -197,7 +200,14 @@ export async function registerRoutes(
 
           const atr = computeATR(allDailyBars);
           const avgVol = computeAvgVolume(allDailyBars);
+          const avgDollarVol = computeAvgDollarVolume(allDailyBars);
           const lastBar = allDailyBars[allDailyBars.length - 1];
+
+          const avgRange20d = allDailyBars.slice(-20).length > 0
+            ? allDailyBars.slice(-20).reduce((s, b) => s + (b.high - b.low), 0) / allDailyBars.slice(-20).length
+            : 0;
+
+          const watchlistTickers = (settings.watchlistPriority || "SPY,QQQ,NVDA,TSLA").split(",").map(t => t.trim().toUpperCase());
 
           for (const setup of setups) {
             if (setup.targetDate < from15) continue;
@@ -219,6 +229,29 @@ export async function registerRoutes(
               avgRange,
               atr
             );
+
+            const historicalHitRate = await storage.getHitRateForTickerSetup(sym.ticker, setup.setupType);
+
+            const qualityResult = computeQualityScore({
+              setupType: setup.setupType as SetupType,
+              triggerMargin: setup.triggerMargin,
+              lastClose: lastBar.close,
+              magnetPrice: setup.magnetPrice,
+              atr14: atr,
+              avgDollarVolume20d: avgDollarVol,
+              todayTrueRange: triggerDayRange,
+              avgTrueRange20d: avgRange20d,
+              todayVolume: triggerDayVolume,
+              avgVolume20d: avgVol,
+              historicalHitRate,
+            });
+
+            let tier = qualityScoreToTier(qualityResult.total);
+            if (watchlistTickers.includes(sym.ticker) && tier === "B") {
+              tier = "A";
+            } else if (watchlistTickers.includes(sym.ticker) && tier === "C") {
+              tier = "B";
+            }
 
             const tradePlan = generateTradePlan(
               lastBar.close,
@@ -265,6 +298,11 @@ export async function registerRoutes(
               missReason,
               tradePlanJson: tradePlan as any,
               confidenceBreakdown: confidence as any,
+              qualityScore: qualityResult.total,
+              tier,
+              alertState: "new",
+              nextAlertEligibleAt: null,
+              qualityBreakdown: qualityResult as any,
             });
           }
 
@@ -297,7 +335,7 @@ export async function registerRoutes(
       if (!key || typeof key !== "string") {
         return res.status(400).json({ message: "Key required" });
       }
-      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd"];
+      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC"];
       if (!allowedKeys.includes(key)) {
         return res.status(400).json({ message: `Invalid setting key: ${key}` });
       }
@@ -353,6 +391,47 @@ export async function registerRoutes(
     try {
       const bts = await storage.getBacktests();
       res.json(bts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/alerts/run", async (_req, res) => {
+    try {
+      const events = await runAlerts();
+      res.json({ ok: true, events });
+    } catch (err: any) {
+      log(`Alert run error: ${err.message}`, "alerts");
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/alerts/events", async (_req, res) => {
+    try {
+      const allSignals = await storage.getSignals(undefined, 200);
+      const events = allSignals
+        .filter(s => s.alertState && s.alertState !== "new")
+        .map(s => ({
+          signalId: s.id,
+          ticker: s.ticker,
+          setupType: s.setupType,
+          type: s.alertState,
+          tier: s.tier,
+          qualityScore: s.qualityScore,
+          status: s.status,
+          magnetPrice: s.magnetPrice,
+          direction: s.direction,
+          asofDate: s.asofDate,
+          targetDate: s.targetDate,
+          confidence: s.confidence,
+        }))
+        .sort((a, b) => {
+          const tierOrder: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
+          const tierDiff = (tierOrder[a.tier] ?? 3) - (tierOrder[b.tier] ?? 3);
+          if (tierDiff !== 0) return tierDiff;
+          return b.qualityScore - a.qualityScore;
+        });
+      res.json(events);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

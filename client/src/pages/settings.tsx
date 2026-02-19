@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Save, Loader2 } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Bell, Star } from "lucide-react";
 import type { Symbol } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -75,6 +75,11 @@ export default function SettingsPage() {
     stopMode: settings?.stopMode ?? "atr",
     sessionStart: settings?.sessionStart ?? "09:30",
     sessionEnd: settings?.sessionEnd ?? "16:00",
+    watchlistPriority: settings?.watchlistPriority ?? "SPY,QQQ,NVDA,TSLA",
+    alertTierAplus: settings?.alertTierAplus ?? "in-app",
+    alertTierA: settings?.alertTierA ?? "in-app",
+    alertTierB: settings?.alertTierB ?? "in-app",
+    alertTierC: settings?.alertTierC ?? "log-only",
   };
 
   return (
@@ -233,6 +238,109 @@ export default function SettingsPage() {
                 placeholder="16:00"
                 data-testid="input-session-end"
               />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Star className="w-4 h-4 text-amber-500" />
+            <CardTitle className="text-sm">Watchlist Priority</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Tickers on the priority watchlist get bumped one tier up when scoring signals.
+          </p>
+          <div className="space-y-2">
+            <Label className="text-xs">Priority Tickers (comma-separated)</Label>
+            <Input
+              value={currentSettings.watchlistPriority}
+              onChange={(e) => saveSetting.mutate({ key: "watchlistPriority", value: e.target.value })}
+              placeholder="SPY,QQQ,NVDA,TSLA"
+              data-testid="input-watchlist-priority"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Bell className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Alert Routing</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Configure how alerts are routed for each quality tier.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="text-xs">A+ Tier (90-100)</Label>
+              <Select
+                value={currentSettings.alertTierAplus}
+                onValueChange={(value) => saveSetting.mutate({ key: "alertTierAplus", value })}
+              >
+                <SelectTrigger data-testid="select-alert-aplus">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="in-app">In-App</SelectItem>
+                  <SelectItem value="log-only">Log Only</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">A Tier (80-89)</Label>
+              <Select
+                value={currentSettings.alertTierA}
+                onValueChange={(value) => saveSetting.mutate({ key: "alertTierA", value })}
+              >
+                <SelectTrigger data-testid="select-alert-a">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="in-app">In-App</SelectItem>
+                  <SelectItem value="log-only">Log Only</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">B Tier (70-79)</Label>
+              <Select
+                value={currentSettings.alertTierB}
+                onValueChange={(value) => saveSetting.mutate({ key: "alertTierB", value })}
+              >
+                <SelectTrigger data-testid="select-alert-b">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="in-app">In-App</SelectItem>
+                  <SelectItem value="log-only">Log Only</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">C Tier (under 70)</Label>
+              <Select
+                value={currentSettings.alertTierC}
+                onValueChange={(value) => saveSetting.mutate({ key: "alertTierC", value })}
+              >
+                <SelectTrigger data-testid="select-alert-c">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="in-app">In-App</SelectItem>
+                  <SelectItem value="log-only">Log Only</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>

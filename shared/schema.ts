@@ -55,6 +55,11 @@ export const signals = pgTable("signals", {
   missReason: text("miss_reason"),
   tradePlanJson: jsonb("trade_plan_json"),
   confidenceBreakdown: jsonb("confidence_breakdown"),
+  qualityScore: integer("quality_score").notNull().default(0),
+  tier: text("tier").notNull().default("C"),
+  alertState: text("alert_state").notNull().default("new"),
+  nextAlertEligibleAt: text("next_alert_eligible_at"),
+  qualityBreakdown: jsonb("quality_breakdown"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -108,6 +113,16 @@ export const SETUP_LABELS: Record<SetupType, string> = {
   F: "Weak Extreme",
 };
 
+export const TIER_LABELS: Record<string, string> = {
+  "APLUS": "A+",
+  "A": "A",
+  "B": "B",
+  "C": "C",
+};
+
+export const ALERT_EVENT_TYPES = ["hit", "approaching", "new_signal", "miss"] as const;
+export type AlertEventType = typeof ALERT_EVENT_TYPES[number];
+
 export interface TradePlan {
   bias: "BUY" | "SELL";
   entryTrigger: string;
@@ -125,6 +140,15 @@ export interface ConfidenceBreakdown {
   volumeBoost?: number;
   vixProxy?: number;
   distancePenalty?: number;
+  total: number;
+}
+
+export interface QualityBreakdown {
+  edgeStrength: number;
+  magnetDistance: number;
+  liquidity: number;
+  movementEnv: number;
+  historicalHitRate: number;
   total: number;
 }
 

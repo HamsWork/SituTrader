@@ -1,0 +1,128 @@
+Yes — and you should, otherwise you’ll drown in noise. The clean way is to turn every alert into a scored event, then gate + route it by “quality tier”.
+
+1) Build a Quality Score (0–100) for every signal
+
+Make the app compute a single QualityScore with an auditable breakdown. Example weights (simple, works):
+
+A) Setup edge strength (0–35)
+	•	Setup A or B (your “situational” edges): +25 base
+	•	Gap fill: +18 base
+	•	Inside day: +15 base
+	•	PDH/PDL sweep watch: +10 base
+	•	Weak-extreme proxy: +12 base
+
+Then add edge margin:
+	•	Margin = how “clean” the trigger is (ex: ThuHigh − FriHigh as % of price)
+	•	Add +0 to +10 based on margin size
+
+B) Magnet distance vs ATR (0–25)
+	•	Distance = abs(last price − magnet)
+	•	ATR = ATR(14) daily
+	•	Score it like this:
+	•	Distance ≤ 0.40×ATR → +25 (close enough to be realistic today)
+	•	0.40–0.80×ATR → +18
+	•	0.80–1.25×ATR → +10
+	•	1.25×ATR → +0 (usually takes longer / less reliable)
+
+C) Liquidity + tradability (0–15)
+	•	Use average dollar volume (20d):
+	•	5B → +15
+	•	1B–5B → +10
+	•	250M–1B → +6
+	•	< 250M → +0
+
+D) “Movement environment” filter (0–15)
+
+You want magnets when the market is actually moving.
+	•	If today’s true range > 20d average true range → +10
+	•	If volume > 20d average → +5
+(If both weak, score low.)
+
+E) Historical hit rate for that ticker + setup (0–10)
+
+From your own backtest table:
+	•	Hit rate > 75% → +10
+	•	65–75% → +7
+	•	55–65% → +4
+	•	< 55% → +0
+
+Total = 0–100, clamp and store.
+
+⸻
+
+2) Convert Score into alert “tiers”
+
+Keep it brutally simple:
+	•	A+ (90–100): Must notify immediately (Discord + push/SMS if enabled)
+	•	A (80–89): Notify (Discord + in-app)
+	•	B (70–79): In-app only (digest optional)
+	•	C (<70): Log only (no alert unless user manually opts in)
+
+Also add a “Do Not Disturb” rule:
+	•	No alerts outside RTH unless it’s “new signal created after close” (daily setups).
+
+⸻
+
+3) Prioritize what type of alert you send
+
+Not all alerts are equal. You want to prioritize events, not just setups.
+
+Event types (ranked)
+	1.	HIT alert (magnet touched during RTH) — highest value
+	2.	Approaching alert (price within X% or X×ATR of magnet)
+	3.	New signal created (after daily close or at open for gaps)
+	4.	Miss alert (end of day) — lowest, can be digest-only
+
+Approaching alert is the secret sauce:
+	•	Trigger when price gets within:
+	•	A+ tier: 0.10×ATR
+	•	A tier: 0.15×ATR
+	•	B tier: 0.20×ATR
+	•	Rate limit: once per magnet per day.
+
+⸻
+
+4) Route alerts by channel (so “quality” feels real)
+
+Example routing policy (configurable in Settings):
+	•	A+ → Discord + SMS (optional) + in-app
+	•	A → Discord + in-app
+	•	B → in-app only (or Discord digest every 60 minutes)
+	•	C → no notifications, just stored in feed
+
+Add a “Watchlist override”:
+	•	If ticker is on your priority list (SPY, QQQ, NVDA, TSLA), bump one tier up.
+
+⸻
+
+5) Add a “single feed” view so you can scan like a trader
+
+Dashboard should have:
+	•	Filters: Tier (A+/A/B/C), Setup type, Ticker, Status
+	•	Sort: default by Tier → Confidence → Time
+	•	A “Top 5 Today” widget: only A+ and A pending signals
+
+⸻
+
+6) Implementation detail (so Replit builds it clean)
+
+Add these fields to signals:
+	•	quality_score (int)
+	•	tier (enum: APLUS, A, B, C)
+	•	alert_state (json): what’s been sent already (to rate limit)
+	•	next_alert_eligible_at (timestamp)
+
+Add an alert_rules table (optional) or store in settings JSON.
+
+Create a server job/route:
+	•	/api/alerts/run:
+	•	scans pending signals
+	•	checks current price (Polygon snapshot or latest 1m bar)
+	•	triggers approaching/hit alerts
+	•	respects tier + rate limits
+
+If you want it to run automatically, schedule that endpoint every 1–5 minutes during RTH.
+
+⸻
+
+If you want the best prioritization, the one extra thing to add is “time-to-hit probability” by setup (from your backtests): some setups hit early, some late. That lets you prioritize alerts at the right time window instead of blasting you all day.

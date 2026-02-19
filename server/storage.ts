@@ -28,13 +28,17 @@ export interface IStorage {
   upsertSignal(signal: Omit<Signal, "id" | "createdAt">): Promise<Signal>;
   getSignals(ticker?: string, limit?: number): Promise<Signal[]>;
   getActiveSignals(): Promise<Signal[]>;
+  getAlertEligibleSignals(): Promise<Signal[]>;
   updateSignalStatus(id: number, status: string, hitTs?: string, missReason?: string): Promise<void>;
+  updateSignalAlert(id: number, alertState: string, nextEligibleAt: string | null): Promise<void>;
   getSignalStats(): Promise<{
     activeCount: number;
     hitRate60d: number;
     totalSignals: number;
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
+    topSignalsToday: Signal[];
   }>;
+  getHitRateForTickerSetup(ticker: string, setupType: string): Promise<number | null>;
 
   upsertBacktest(bt: Omit<Backtest, "id" | "createdAt">): Promise<Backtest>;
   getBacktests(): Promise<Backtest[]>;
@@ -153,6 +157,11 @@ export class DatabaseStorage implements IStorage {
           missReason: signal.missReason,
           tradePlanJson: signal.tradePlanJson,
           confidenceBreakdown: signal.confidenceBreakdown,
+          qualityScore: signal.qualityScore,
+          tier: signal.tier,
+          alertState: signal.alertState,
+          nextAlertEligibleAt: signal.nextAlertEligibleAt,
+          qualityBreakdown: signal.qualityBreakdown,
         })
         .where(eq(signals.id, existing[0].id));
       return { ...existing[0], ...signal };
@@ -176,7 +185,19 @@ export class DatabaseStorage implements IStorage {
   async getActiveSignals(): Promise<Signal[]> {
     return db.select().from(signals)
       .where(eq(signals.status, "pending"))
-      .orderBy(desc(signals.confidence));
+      .orderBy(desc(signals.qualityScore), desc(signals.confidence));
+  }
+
+  async getAlertEligibleSignals(): Promise<Signal[]> {
+    const now = new Date().toISOString();
+    return db.select().from(signals)
+      .where(
+        and(
+          eq(signals.status, "pending"),
+          sql`(${signals.nextAlertEligibleAt} IS NULL OR ${signals.nextAlertEligibleAt} <= ${now})`
+        )
+      )
+      .orderBy(desc(signals.qualityScore));
   }
 
   async updateSignalStatus(id: number, status: string, hitTs?: string, missReason?: string): Promise<void> {
@@ -186,15 +207,37 @@ export class DatabaseStorage implements IStorage {
     await db.update(signals).set(updates).where(eq(signals.id, id));
   }
 
+  async updateSignalAlert(id: number, alertState: string, nextEligibleAt: string | null): Promise<void> {
+    await db.update(signals).set({
+      alertState,
+      nextAlertEligibleAt: nextEligibleAt,
+    }).where(eq(signals.id, id));
+  }
+
+  async getHitRateForTickerSetup(ticker: string, setupType: string): Promise<number | null> {
+    const resolved = await db.select().from(signals).where(
+      and(
+        eq(signals.ticker, ticker),
+        eq(signals.setupType, setupType),
+        sql`${signals.status} IN ('hit', 'miss')`
+      )
+    );
+    if (resolved.length < 5) return null;
+    const hits = resolved.filter(s => s.status === "hit").length;
+    return hits / resolved.length;
+  }
+
   async getSignalStats(): Promise<{
     activeCount: number;
     hitRate60d: number;
     totalSignals: number;
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
+    topSignalsToday: Signal[];
   }> {
     const allSignals = await db.select().from(signals);
     const now = new Date();
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = now.toISOString().slice(0, 10);
 
     const activeCount = allSignals.filter((s) => s.status === "pending").length;
     const totalSignals = allSignals.length;
@@ -217,7 +260,12 @@ export class DatabaseStorage implements IStorage {
       entry.rate = entry.total > 0 ? entry.hits / entry.total : 0;
     }
 
-    return { activeCount, hitRate60d, totalSignals, hitRateBySetup };
+    const topSignalsToday = allSignals
+      .filter(s => s.status === "pending" && (s.tier === "APLUS" || s.tier === "A"))
+      .sort((a, b) => b.qualityScore - a.qualityScore)
+      .slice(0, 5);
+
+    return { activeCount, hitRate60d, totalSignals, hitRateBySetup, topSignalsToday };
   }
 
   async upsertBacktest(bt: Omit<Backtest, "id" | "createdAt">): Promise<Backtest> {
