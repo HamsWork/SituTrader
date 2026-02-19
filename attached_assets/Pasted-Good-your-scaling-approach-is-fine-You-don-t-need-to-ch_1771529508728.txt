@@ -1,0 +1,145 @@
+Good — your scaling approach is fine. You don’t need to change positioning math. What you do need is to make the NOW marker unmissable, and make the bar communicate risk / target / progress instead of just “a line with dots.”
+
+Here are the exact changes I’d make.
+
+⸻
+
+1) Keep the same toPercent() math
+
+Your current logic:
+	•	priceMin/priceMax from (stop, entry, magnet, current)
+	•	toPercent(price) → 0–100%
+
+✅ This is correct for a “mini range map.”
+
+The only tweak: ensure stop and target are always included, even if missing from allPrices in edge cases. Otherwise the range compresses weirdly.
+
+Rule
+	•	Always include: stopPrice ?? inferredStop, entryPriceAtActivation ?? entryTriggerPrice, t1/magnetPrice, and currentPrice if exists.
+
+⸻
+
+2) Make NOW marker visually dominant + labeled
+
+Right now it sounds like NOW is “just another dot.” That’s why it feels unclear.
+
+Change: NOW marker should be a “pill + pin”
+	•	A small vertical pin line at currentPct
+	•	A pill label above it: NOW 685.47
+	•	Color should follow bias:
+	•	BUY: green-ish
+	•	SELL: red-ish
+	•	If NOW is between entry and stop, add a warning style.
+
+Pseudo-structure:
+	•	Track line
+	•	Stop marker (left/right)
+	•	Entry marker
+	•	Target marker
+	•	NOW pin (highest z-index, always visible)
+
+Important: place NOW label above the bar so it doesn’t collide with the line.
+
+⸻
+
+3) Add “progress fill” behind the line (this is the big UX win)
+
+You already compute entryPct and targetPct. Use them to fill the segment between entry and NOW.
+
+For BUY
+	•	fill from entryPct → currentPct
+
+For SELL
+	•	fill from currentPct → entryPct (because progress is moving left)
+
+This makes it instantly obvious:
+	•	“we’ve moved X% toward the target”
+	•	not just “we are somewhere on the line”
+
+You already compute progress in signal.live.progressToTarget — but the bar should show it visually too.
+
+⸻
+
+4) Show numeric tooltips on hover (optional, low effort)
+
+On hover of each marker:
+	•	Stop: Stop 682.53
+	•	Entry: Entry 684.88
+	•	Target: T1 686.29
+	•	Now: Now 685.47
+
+This is easy and makes the UI feel “pro”.
+
+⸻
+
+5) Marker positioning edge cases to handle (important)
+
+Case A: currentPrice outside the min/max range
+
+Even if you include currentPrice in allPrices, it can still be slightly outside if rounding or missing values.
+
+Fix
+	•	If currentPct clamps to 0 or 100, add a small “cap” indicator at the edge and keep label visible. Otherwise user thinks it’s broken.
+
+Case B: target is on the “wrong side”
+
+Sometimes magnet might already be passed (should probably be HIT). If that happens:
+	•	show a badge: “Past T1” and cap.
+
+⸻
+
+6) What I’d ask you to change in code (precise)
+
+You said you already have:
+	•	currentPct = toPercent(currentPrice) and it positions correctly.
+
+So the changes are:
+
+A) z-index + label placement
+	•	NOW marker container: absolute with left: ${currentPct}%
+	•	Add translateX(-50%)
+	•	Add z-20 or higher
+	•	Add a label <div className="...">NOW {price}</div> above.
+
+B) Add progress fill
+
+Compute:
+	•	fillLeft = Math.min(entryPct, currentPct)
+	•	fillRight = Math.max(entryPct, currentPct)
+	•	fillWidth = fillRight - fillLeft
+
+Render behind the markers but above track background:
+	•	absolute block from left: fillLeft%, width: fillWidth%
+
+C) Color changes based on state
+	•	If trade is BUY and currentPrice < entry → fill red-ish (losing)
+	•	If trade is BUY and currentPrice > entry → fill green-ish
+Similarly inverted for SELL.
+
+⸻
+
+7) One more thing: your bar scale is “global” and that’s okay
+
+Some people want the bar normalized strictly between stop and target. Yours uses min/max across included prices. That’s fine because:
+	•	it ensures NOW is always on the line
+	•	it keeps the bar readable
+
+If you want it more “trader-like”, the alternative is:
+
+Normalize between stop and target only
+	•	priceMin = min(stop, target)
+	•	priceMax = max(stop, target)
+	•	current can clamp outside
+
+But I don’t think you need that. Your current approach is good.
+
+⸻
+
+Final directive (copy to agent)
+	1.	Keep existing toPercent math.
+	2.	Make NOW marker dominant: pin + pill label + higher z-index.
+	3.	Add “progress fill” between entry and NOW (direction aware).
+	4.	Add edge-case handling: clamped NOW shows cap indicator + still labeled.
+	5.	Ensure stop/entry/target always included in range.
+
+If you paste the actual ProgressBar JSX, I’ll give you the exact modified JSX block (drop-in replacement) without guesswork.
