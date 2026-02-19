@@ -1,0 +1,194 @@
+You’re right: what you built can act like an alert tool, but the current UI is probably rendering it like a backtest dashboard. That’s a UI/UX failure, not a logic failure.
+
+Here’s the buy/sell timing function in plain terms, then a UI redesign that makes it impossible to miss “what to do now.”
+
+⸻
+
+1) What the tool is supposed to do in real time
+
+The system produces 3 different “moments” of action
+
+Think of every signal as a magnet level + a time window.
+
+Moment A — Pre-market / pre-open
+	•	“A+ pending signal detected for tomorrow/today.”
+	•	This is not an entry by itself. It’s a plan: direction, magnet target, and what must happen for an entry.
+
+Moment B — Entry trigger (your actual buy/sell timing)
+	•	The trade should only “activate” when the entry trigger condition fires.
+	•	Example: a SELL-to-magnet signal becomes a SELL entry only when:
+	•	price breaks down on a 5-min close in the magnet direction (or your aggressive trigger),
+	•	then confirms (retest / hold).
+
+Moment C — Manage / exit
+	•	As price approaches magnet, you get:
+	•	“Approaching” alert (optional)
+	•	“Hit” alert when touched
+	•	Your default target is the magnet (T1). That’s the expected “fill.”
+
+The UI must separate these states
+
+Right now it’s mixing:
+	•	plan creation (signal)
+	•	trade activation (entry)
+	•	outcome tracking (hit/miss)
+
+That’s why it feels historical.
+
+⸻
+
+2) What exactly is “Buy/Sell timing” in this tool?
+
+The signal is NOT “buy now”
+
+The signal is: “We expect price to touch magnet level during RTH.”
+
+Then the app decides:
+	•	BUY bias if magnet above current price (up-to-magnet)
+	•	SELL bias if magnet below current price (down-to-magnet)
+
+But the timing comes from your entry trigger mode:
+
+Conservative entry (default)
+	•	Wait for a 5-min close in the direction of the magnet
+	•	Then require a retest that holds without invalidating
+This avoids chop traps, but it means you’ll miss some early fills.
+
+Aggressive entry
+	•	Enter on the first 5-min close in the direction of the magnet after 9:35 ET
+This is “get in early,” but will whipsaw more.
+
+So: alerts must fire when the entry trigger becomes TRUE, not when the signal is created.
+
+Right now you’re alerting mostly on “signal created” and “hit/miss.” That’s why it feels like a tracker.
+
+⸻
+
+3) UI redesign: make it a Trading Command Center
+
+A) Dashboard must be 3 columns (not one table)
+
+1) TRADE NOW (Activated)
+Only show signals where the entry trigger has fired.
+Each card shows:
+	•	BIG: BUY or SELL
+	•	Ticker
+	•	Entry price (current trigger break level)
+	•	Stop
+	•	Targets: T1 magnet, T2 optional
+	•	R:R
+	•	Time window: “p60 = 0.62 (early-biased)”
+	•	Button: “Send to Discord” / “Copy Trade Plan”
+
+This is the only section that should feel urgent.
+
+2) ON DECK (High-quality Pending)
+Only A+/A signals that are pending but not activated.
+Each card shows:
+	•	“SELL bias → magnet 498.12”
+	•	“Trigger to activate: 5m close below 502.30” (example)
+	•	“Invalidation: 5m close back above 503.10”
+	•	“Best window: first 60m (62% hit-by-60)”
+	•	Distance-to-magnet in ATR
+
+This is the “watchlist” section.
+
+3) DONE (Resolved)
+Hits and misses, collapsible. This can look historical—fine.
+
+⸻
+
+B) Each signal should have a “progress bar” (super important)
+
+Instead of a row, show a visual:
+
+Price → Entry Trigger → Magnet Target
+
+Example:
+	•	A little horizontal bar:
+	•	left marker = current price
+	•	middle marker = entry trigger level
+	•	right marker = magnet
+	•	Color the bar based on direction (up-to-magnet vs down-to-magnet)
+
+This instantly makes it actionable.
+
+⸻
+
+C) Replace “confidence” with “When + How likely”
+
+Traders care about:
+	•	Hit probability (p390)
+	•	Time-to-hit (p60, p120)
+	•	Distance (ATR)
+
+So show it as:
+	•	Early Hit: 62%
+	•	Same-day Hit: 81%
+	•	Distance: 0.55 ATR
+
+…and stop burying that in tooltips.
+
+⸻
+
+4) Critical missing feature: “Entry Trigger Alerts”
+
+If you want it to feel like an alert tool, you need alerts like:
+	•	✅ ACTIVATED (SELL) SPY
+Trigger: 5m close below 502.30
+Stop: 503.10
+Target: 498.12
+Tier: A+ | p60 0.62
+
+This requires one extra logic piece:
+
+“Activation tracking” (lightweight)
+
+For each pending signal:
+	•	compute its entry trigger level (based on your selected entry mode)
+	•	scan intraday bars during RTH
+	•	when the trigger condition first becomes true → set activated_ts and alert
+
+Add to DB:
+	•	activation_status: NOT_ACTIVE | ACTIVE | INVALIDATED
+	•	activated_ts
+	•	entry_price_at_activation
+
+Without this, it will always feel like a logbook.
+
+⸻
+
+5) What I would change immediately (no debate)
+
+1) Default view = “Today Only”
+
+Toggle at top:
+	•	Today | This Week | All
+
+2) Remove resolved signals from the default view
+
+Resolved belongs in a separate tab.
+
+3) Trade Plan Card must be the primary UI component
+
+Not a table.
+
+4) Add a “one-line trade plan” line
+
+Example:
+SELL trigger below 502.30 → target 498.12 → stop 503.10 → p60 62%
+
+That’s what you want to read in 2 seconds.
+
+⸻
+
+6) If you want, paste me one screenshot OR the current dashboard component code
+
+If you paste:
+	•	app/page.tsx (dashboard) + the SignalTable/SignalRow component
+I’ll rewrite it into the Trade Now / On Deck / Done layout with the progress bar and activation states.
+
+But even without code, the direction is clear:
+	•	signals are plans
+	•	activation is the trade
+	•	UI must treat them differently or you’ll never trust it live.
