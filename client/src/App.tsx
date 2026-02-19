@@ -12,6 +12,7 @@ import Dashboard from "@/pages/dashboard";
 import SymbolDetail from "@/pages/symbol-detail";
 import BacktestPage from "@/pages/backtest";
 import SettingsPage from "@/pages/settings";
+import GuidePage from "@/pages/guide";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -19,6 +20,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/symbol/:ticker" component={SymbolDetail} />
+      <Route path="/guide" component={GuidePage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
