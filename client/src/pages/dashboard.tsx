@@ -39,6 +39,7 @@ import {
   ChevronUp,
   Radio,
   Eye,
+  Database,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Signal, TradePlan } from "@shared/schema";
@@ -345,6 +346,15 @@ export default function Dashboard() {
     queryKey: ["/api/stats"],
   });
 
+  const { data: universeStatus } = useQuery<{
+    lastRebuild: string | null;
+    universeDate: string | null;
+    memberCount: number;
+    topTickers: { ticker: string; avgDollarVol20d: number; rank: number }[];
+  }>({
+    queryKey: ["/api/universe/status"],
+  });
+
   const refreshMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/refresh"),
     onSuccess: () => {
@@ -559,6 +569,18 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {universeStatus && universeStatus.memberCount > 0 && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap" data-testid="text-universe-info">
+          <div className="flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5" />
+            <span>Universe: {universeStatus.memberCount} tickers</span>
+          </div>
+          {universeStatus.lastRebuild && (
+            <span>Updated {new Date(universeStatus.lastRebuild).toLocaleDateString()}</span>
+          )}
+        </div>
+      )}
 
       <div>
         <div className="flex items-center gap-2 mb-3">

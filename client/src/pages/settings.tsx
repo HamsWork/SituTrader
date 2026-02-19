@@ -14,9 +14,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer } from "lucide-react";
+import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer, Database, RefreshCw } from "lucide-react";
 import type { Symbol } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+
+function formatDollarVol(val: number): string {
+  if (val >= 1e12) return `$${(val / 1e12).toFixed(1)}T`;
+  if (val >= 1e9) return `$${(val / 1e9).toFixed(1)}B`;
+  if (val >= 1e6) return `$${(val / 1e6).toFixed(0)}M`;
+  return `$${val.toLocaleString()}`;
+}
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -28,6 +35,15 @@ export default function SettingsPage() {
 
   const { data: settings } = useQuery<Record<string, string>>({
     queryKey: ["/api/settings"],
+  });
+
+  const { data: universeStatus } = useQuery<{
+    lastRebuild: string | null;
+    universeDate: string | null;
+    memberCount: number;
+    topTickers: { ticker: string; avgDollarVol20d: number; rank: number }[];
+  }>({
+    queryKey: ["/api/universe/status"],
   });
 
   const addSymbol = useMutation({
@@ -59,6 +75,22 @@ export default function SettingsPage() {
     },
   });
 
+  const rebuildUniverse = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/universe/rebuild", { force: true }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/universe/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/symbols"] });
+      toast({
+        title: "Universe rebuilt",
+        description: `${data.included} tickers included in universe`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Universe rebuild failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const currentSettings = {
     intradayTimeframe: settings?.intradayTimeframe ?? "5",
     gapThreshold: settings?.gapThreshold ?? "0.30",
@@ -72,30 +104,167 @@ export default function SettingsPage() {
     alertTierB: settings?.alertTierB ?? "in-app",
     alertTierC: settings?.alertTierC ?? "log-only",
     universeMode: settings?.universeMode ?? "HYBRID",
-    liquidityThreshold: settings?.liquidityThreshold ?? "250000000",
+    liquidityThreshold: settings?.liquidityThreshold ?? "1000000000",
+    topNUniverse: settings?.topNUniverse ?? "150",
+    alertLiquidityGateEnabled: settings?.alertLiquidityGateEnabled ?? "true",
     timePriorityMode: settings?.timePriorityMode ?? "BLEND",
   };
+
+  const watchlistCount = symbolList?.filter(s => s.isWatchlist).length ?? 0;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
       <div>
         <h1 className="text-xl font-semibold" data-testid="text-page-title">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Configure symbols, trading parameters, and session hours
+          Configure universe, symbols, trading parameters, and alert routing
         </p>
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-sm">Managed Symbols</CardTitle>
-          <Badge variant="outline">{symbolList?.length ?? 0} tickers</Badge>
+          <div className="flex items-center gap-2">
+            <Database className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Universe Builder</CardTitle>
+          </div>
+          <div className="flex items-center gap-2">
+            {universeStatus?.memberCount != null && (
+              <Badge variant="outline" data-testid="badge-universe-count">
+                {universeStatus.memberCount} tickers
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => rebuildUniverse.mutate()}
+              disabled={rebuildUniverse.isPending}
+              data-testid="button-rebuild-universe"
+            >
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${rebuildUniverse.isPending ? "animate-spin" : ""}`} />
+              {rebuildUniverse.isPending ? "Rebuilding..." : "Rebuild Now"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Automatically discovers the most liquid US stocks by average dollar volume.
+            The universe refreshes every 24 hours during data refresh, or click Rebuild Now.
+          </p>
+
+          {universeStatus?.lastRebuild && (
+            <div className="text-xs text-muted-foreground" data-testid="text-universe-last-rebuild">
+              Last rebuild: {new Date(universeStatus.lastRebuild).toLocaleString()}
+              {universeStatus.universeDate && ` (${universeStatus.universeDate})`}
+            </div>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label className="text-xs">Universe Mode</Label>
+              <Select
+                value={currentSettings.universeMode}
+                onValueChange={(value) => saveSetting.mutate({ key: "universeMode", value })}
+              >
+                <SelectTrigger data-testid="select-universe-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HYBRID">Hybrid (watchlist + liquidity)</SelectItem>
+                  <SelectItem value="WATCHLIST_ONLY">Watchlist Only</SelectItem>
+                  <SelectItem value="LIQUIDITY_ONLY">Liquidity Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Top N Tickers</Label>
+              <Select
+                value={currentSettings.topNUniverse}
+                onValueChange={(value) => saveSetting.mutate({ key: "topNUniverse", value })}
+              >
+                <SelectTrigger data-testid="select-top-n">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                  <SelectItem value="150">150</SelectItem>
+                  <SelectItem value="200">200</SelectItem>
+                  <SelectItem value="300">300</SelectItem>
+                  <SelectItem value="500">500</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Liquidity Floor (Alert Gate)</Label>
+              <Select
+                value={currentSettings.liquidityThreshold}
+                onValueChange={(value) => saveSetting.mutate({ key: "liquidityThreshold", value })}
+              >
+                <SelectTrigger data-testid="select-liquidity-threshold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="100000000">$100M</SelectItem>
+                  <SelectItem value="250000000">$250M</SelectItem>
+                  <SelectItem value="500000000">$500M</SelectItem>
+                  <SelectItem value="1000000000">$1B</SelectItem>
+                  <SelectItem value="5000000000">$5B</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Alert Liquidity Gate</Label>
+            <Select
+              value={currentSettings.alertLiquidityGateEnabled}
+              onValueChange={(value) => saveSetting.mutate({ key: "alertLiquidityGateEnabled", value })}
+            >
+              <SelectTrigger data-testid="select-liquidity-gate">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">Enabled (suppress alerts for low-liquidity non-watchlist tickers)</SelectItem>
+                <SelectItem value="false">Disabled (alert for all tickers)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {universeStatus?.topTickers && universeStatus.topTickers.length > 0 && (
+            <div>
+              <Label className="text-xs mb-2 block">Top Universe Members</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {universeStatus.topTickers.map(t => (
+                  <Badge key={t.ticker} variant="outline" className="text-[10px] gap-1" data-testid={`badge-universe-${t.ticker}`}>
+                    #{t.rank} {t.ticker}
+                    <span className="text-muted-foreground">{formatDollarVol(t.avgDollarVol20d)}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Star className="w-4 h-4 text-amber-500" />
+            <CardTitle className="text-sm">Watchlist</CardTitle>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{watchlistCount} watchlist / {symbolList?.length ?? 0} total</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Watchlist tickers are always scanned regardless of universe mode. They get tier bumps and bypass the liquidity gate for alerts.
+          </p>
           <div className="flex items-center gap-2">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search or add ticker (e.g., AAPL)"
+                placeholder="Add ticker to watchlist (e.g., AAPL)"
                 value={newTicker}
                 onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
                 onKeyDown={(e) => {
@@ -119,19 +288,20 @@ export default function SettingsPage() {
             </Button>
           </div>
 
-          <div className="min-h-[120px] max-h-[320px] overflow-y-auto rounded-md border p-3">
+          <div className="min-h-[80px] max-h-[280px] overflow-y-auto rounded-md border p-3">
             {isLoading ? (
-              <div className="flex items-center justify-center h-[100px] text-sm text-muted-foreground">
+              <div className="flex items-center justify-center h-[80px] text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Loading symbols...
               </div>
             ) : !symbolList?.length ? (
-              <div className="flex items-center justify-center h-[100px] text-sm text-muted-foreground">
+              <div className="flex items-center justify-center h-[80px] text-sm text-muted-foreground">
                 No symbols added yet
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {symbolList
+                  .filter((sym) => sym.isWatchlist)
                   .filter((sym) => !newTicker || sym.ticker.includes(newTicker.trim()))
                   .map((sym) => (
                     <Badge
@@ -154,6 +324,19 @@ export default function SettingsPage() {
                   ))}
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Watchlist Priority Override (comma-separated)</Label>
+            <Input
+              value={currentSettings.watchlistPriority}
+              onChange={(e) => saveSetting.mutate({ key: "watchlistPriority", value: e.target.value })}
+              placeholder="SPY,QQQ,NVDA,TSLA"
+              data-testid="input-watchlist-priority"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              These tickers get tier-bumped during quality scoring
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -244,79 +427,6 @@ export default function SettingsPage() {
                 placeholder="16:00"
                 data-testid="input-session-end"
               />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <div className="flex items-center gap-2">
-            <Star className="w-4 h-4 text-amber-500" />
-            <CardTitle className="text-sm">Watchlist Priority</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Tickers on the priority watchlist get bumped one tier up when scoring signals.
-          </p>
-          <div className="space-y-2">
-            <Label className="text-xs">Priority Tickers (comma-separated)</Label>
-            <Input
-              value={currentSettings.watchlistPriority}
-              onChange={(e) => saveSetting.mutate({ key: "watchlistPriority", value: e.target.value })}
-              placeholder="SPY,QQQ,NVDA,TSLA"
-              data-testid="input-watchlist-priority"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <div className="flex items-center gap-2">
-            <Globe className="w-4 h-4 text-muted-foreground" />
-            <CardTitle className="text-sm">Universe Filter</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            Controls which tickers are eligible for signal generation and alerts.
-          </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label className="text-xs">Universe Mode</Label>
-              <Select
-                value={currentSettings.universeMode}
-                onValueChange={(value) => saveSetting.mutate({ key: "universeMode", value })}
-              >
-                <SelectTrigger data-testid="select-universe-mode">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="HYBRID">Hybrid (watchlist OR liquidity)</SelectItem>
-                  <SelectItem value="WATCHLIST_ONLY">Watchlist Only</SelectItem>
-                  <SelectItem value="LIQUIDITY_ONLY">Liquidity Only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Liquidity Threshold (20d Avg $ Vol)</Label>
-              <Select
-                value={currentSettings.liquidityThreshold}
-                onValueChange={(value) => saveSetting.mutate({ key: "liquidityThreshold", value })}
-              >
-                <SelectTrigger data-testid="select-liquidity-threshold">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="100000000">$100M</SelectItem>
-                  <SelectItem value="250000000">$250M</SelectItem>
-                  <SelectItem value="500000000">$500M</SelectItem>
-                  <SelectItem value="1000000000">$1B</SelectItem>
-                  <SelectItem value="5000000000">$5B</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
         </CardContent>

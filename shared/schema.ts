@@ -7,6 +7,7 @@ export const symbols = pgTable("symbols", {
   id: serial("id").primaryKey(),
   ticker: text("ticker").notNull().unique(),
   enabled: boolean("enabled").notNull().default(true),
+  isWatchlist: boolean("is_watchlist").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -119,12 +120,35 @@ export const appSettings = pgTable("app_settings", {
   value: text("value").notNull(),
 });
 
+export const universeMembers = pgTable("universe_members", {
+  id: serial("id").primaryKey(),
+  universeDate: text("universe_date").notNull(),
+  ticker: text("ticker").notNull(),
+  avgDollarVol20d: real("avg_dollar_vol_20d").notNull().default(0),
+  rank: integer("rank").notNull().default(0),
+  included: boolean("included").notNull().default(true),
+}, (table) => [
+  unique("um_date_ticker").on(table.universeDate, table.ticker),
+]);
+
+export const tickerStats = pgTable("ticker_stats", {
+  id: serial("id").primaryKey(),
+  ticker: text("ticker").notNull().unique(),
+  avgDollarVol20d: real("avg_dollar_vol_20d").notNull().default(0),
+  avgVol20d: real("avg_vol_20d").notNull().default(0),
+  atr14: real("atr_14").notNull().default(0),
+  lastPrice: real("last_price"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const insertSymbolSchema = createInsertSchema(symbols).omit({ id: true, createdAt: true });
 export const insertSignalSchema = createInsertSchema(signals).omit({ id: true, createdAt: true });
 export const insertBacktestSchema = createInsertSchema(backtests).omit({ id: true, createdAt: true });
 export const insertDailyBarSchema = createInsertSchema(dailyBars).omit({ id: true });
 export const insertIntradayBarSchema = createInsertSchema(intradayBars).omit({ id: true });
 export const insertTimeToHitStatsSchema = createInsertSchema(timeToHitStats).omit({ id: true, updatedAt: true });
+export const insertUniverseMemberSchema = createInsertSchema(universeMembers).omit({ id: true });
+export const insertTickerStatsSchema = createInsertSchema(tickerStats).omit({ id: true, updatedAt: true });
 
 export type InsertSymbol = z.infer<typeof insertSymbolSchema>;
 export type Symbol = typeof symbols.$inferSelect;
@@ -134,6 +158,8 @@ export type Signal = typeof signals.$inferSelect;
 export type Backtest = typeof backtests.$inferSelect;
 export type TimeToHitStat = typeof timeToHitStats.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
+export type UniverseMember = typeof universeMembers.$inferSelect;
+export type TickerStat = typeof tickerStats.$inferSelect;
 
 export const SETUP_TYPES = ["F", "C", "D", "E", "A", "B"] as const;
 export type SetupType = typeof SETUP_TYPES[number];

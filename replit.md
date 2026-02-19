@@ -16,6 +16,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **TimeScore (0-25)**: Uses time-to-hit probabilities (p60/p390) with configurable mode (EARLY/SAME_DAY/BLEND)
 - **Tier System**: A+ (quality>=90 AND p60>=0.55), A (quality>=80 AND p120>=0.60), B (70-79), C (<70) with watchlist priority bumping
 - **Time-to-Hit Probability Engine**: Computes p15/p30/p60/p120/p240/p390 distributions from backtest data
+- **Universe Builder**: Auto-discovers top N (default 150) US tickers by 20-day avg dollar volume via Polygon grouped daily endpoint. Configurable Top N (50-500), 24-hour rebuild cache, alert liquidity gate
 - **Universe Filter**: WATCHLIST_ONLY, LIQUIDITY_ONLY, HYBRID modes with configurable liquidity threshold
 - **Alert Engine**: HIT/Approaching/New Signal/Miss/Activated events with tier-based routing, rate limiting, and universe_pass filtering
 - **Activation Engine**: Entry trigger scanning that checks intraday bars against trade plan conditions, tracks ACTIVE/NOT_ACTIVE/INVALIDATED states
@@ -37,6 +38,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/activation.ts` - Activation engine: entry trigger scanning, ACTIVE/NOT_ACTIVE/INVALIDATED tracking
 - `server/lib/tradeplan.ts` - Trade plan generation
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
+- `server/lib/universe.ts` - Universe builder: Polygon grouped daily, ranking, top N persistence, 24h cache
 - `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings)
 - `client/src/components/` - Reusable UI components
 
@@ -57,6 +59,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/activation/scan` - Scan pending signals for entry trigger activation
 - `POST /api/alerts/run` - Scan pending signals and generate alert events
 - `GET /api/alerts/events` - List alert events sorted by tier/quality
+- `POST /api/universe/rebuild` - Rebuild liquidity universe (force=true bypasses 24h cache)
+- `GET /api/universe/status` - Universe status (lastRebuild, memberCount, topTickers)
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus
@@ -67,12 +71,14 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - TimeScore (0-25): From time-to-hit probabilities. EARLY: 25*p60, SAME_DAY: 25*p390, BLEND: 15*p60+10*p390
 
 ## Database Tables
-- `symbols` - Managed tickers
+- `symbols` - Managed tickers (includes isWatchlist flag to distinguish manual watchlist from auto-discovered)
 - `daily_bars` - OHLCV daily data
 - `intraday_bars` - OHLCV intraday data
 - `signals` - Generated signals with quality/tier/alert/probability/activation fields (includes stop_price, entry_trigger_price, invalidation_ts)
 - `backtests` - Backtest results with details
 - `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
+- `universe_members` - Universe membership per date (universeDate, ticker, avgDollarVol20d, rank, included)
+- `ticker_stats` - Latest ticker statistics (avgDollarVol20d, avgVol20d, atr14, lastPrice)
 - `app_settings` - Key-value settings
 
 ## Environment

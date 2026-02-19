@@ -3,7 +3,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
+  universeMembers, tickerStats,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
+  type UniverseMember, type TickerStat,
   type InsertSymbol,
 } from "@shared/schema";
 
@@ -52,6 +54,19 @@ export interface IStorage {
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
   getAllSettings(): Promise<Record<string, string>>;
+
+  upsertUniverseMember(member: Omit<UniverseMember, "id">): Promise<void>;
+  getUniverseMembers(universeDate: string): Promise<UniverseMember[]>;
+  getLatestUniverseDate(): Promise<string | null>;
+  clearUniverseDate(universeDate: string): Promise<void>;
+
+  upsertTickerStats(stat: Omit<TickerStat, "id" | "updatedAt">): Promise<void>;
+  getTickerStats(ticker: string): Promise<TickerStat | null>;
+  getAllTickerStats(): Promise<TickerStat[]>;
+
+  setSymbolWatchlist(ticker: string, isWatchlist: boolean): Promise<void>;
+  getWatchlistSymbols(): Promise<Symbol[]>;
+  getScanList(mode: string): Promise<string[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -63,10 +78,16 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(symbols).where(eq(symbols.enabled, true)).orderBy(asc(symbols.ticker));
   }
 
-  async upsertSymbol(ticker: string, enabled: boolean = true): Promise<Symbol> {
+  async upsertSymbol(ticker: string, enabled: boolean = true, isWatchlist: boolean = true): Promise<Symbol> {
     const existing = await db.select().from(symbols).where(eq(symbols.ticker, ticker));
-    if (existing.length > 0) return existing[0];
-    const [result] = await db.insert(symbols).values({ ticker, enabled }).returning();
+    if (existing.length > 0) {
+      if (isWatchlist && !existing[0].isWatchlist) {
+        await db.update(symbols).set({ isWatchlist: true }).where(eq(symbols.ticker, ticker));
+        return { ...existing[0], isWatchlist: true };
+      }
+      return existing[0];
+    }
+    const [result] = await db.insert(symbols).values({ ticker, enabled, isWatchlist }).returning();
     return result;
   }
 
@@ -390,6 +411,84 @@ export class DatabaseStorage implements IStorage {
       result[row.key] = row.value;
     }
     return result;
+  }
+
+  async upsertUniverseMember(member: Omit<UniverseMember, "id">): Promise<void> {
+    await db.insert(universeMembers).values(member)
+      .onConflictDoUpdate({
+        target: [universeMembers.universeDate, universeMembers.ticker],
+        set: { avgDollarVol20d: member.avgDollarVol20d, rank: member.rank, included: member.included },
+      });
+  }
+
+  async getUniverseMembers(universeDate: string): Promise<UniverseMember[]> {
+    return db.select().from(universeMembers)
+      .where(and(eq(universeMembers.universeDate, universeDate), eq(universeMembers.included, true)))
+      .orderBy(asc(universeMembers.rank));
+  }
+
+  async getLatestUniverseDate(): Promise<string | null> {
+    const result = await db.select({ maxDate: sql<string>`max(${universeMembers.universeDate})` })
+      .from(universeMembers);
+    return result[0]?.maxDate ?? null;
+  }
+
+  async clearUniverseDate(universeDate: string): Promise<void> {
+    await db.delete(universeMembers).where(eq(universeMembers.universeDate, universeDate));
+  }
+
+  async upsertTickerStats(stat: Omit<TickerStat, "id" | "updatedAt">): Promise<void> {
+    await db.insert(tickerStats).values(stat)
+      .onConflictDoUpdate({
+        target: [tickerStats.ticker],
+        set: {
+          avgDollarVol20d: stat.avgDollarVol20d,
+          avgVol20d: stat.avgVol20d,
+          atr14: stat.atr14,
+          lastPrice: stat.lastPrice,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  async getTickerStats(ticker: string): Promise<TickerStat | null> {
+    const result = await db.select().from(tickerStats).where(eq(tickerStats.ticker, ticker));
+    return result[0] ?? null;
+  }
+
+  async getAllTickerStats(): Promise<TickerStat[]> {
+    return db.select().from(tickerStats).orderBy(desc(tickerStats.avgDollarVol20d));
+  }
+
+  async setSymbolWatchlist(ticker: string, isWatchlist: boolean): Promise<void> {
+    await db.update(symbols).set({ isWatchlist }).where(eq(symbols.ticker, ticker));
+  }
+
+  async getWatchlistSymbols(): Promise<Symbol[]> {
+    return db.select().from(symbols)
+      .where(and(eq(symbols.enabled, true), eq(symbols.isWatchlist, true)))
+      .orderBy(asc(symbols.ticker));
+  }
+
+  async getScanList(mode: string): Promise<string[]> {
+    if (mode === "WATCHLIST_ONLY") {
+      const wl = await this.getWatchlistSymbols();
+      return wl.map(s => s.ticker);
+    }
+
+    const latestDate = await this.getLatestUniverseDate();
+    const universeTickers = latestDate
+      ? (await this.getUniverseMembers(latestDate)).map(m => m.ticker)
+      : [];
+
+    if (mode === "LIQUIDITY_ONLY") {
+      return universeTickers;
+    }
+
+    const wl = await this.getWatchlistSymbols();
+    const watchlistTickers = wl.map(s => s.ticker);
+    const combined = new Set([...watchlistTickers, ...universeTickers]);
+    return Array.from(combined).sort();
   }
 }
 

@@ -11,6 +11,7 @@ import { generateTradePlan } from "./lib/tradeplan";
 import { runBacktest, computeAndStoreTimeToHitStats } from "./lib/backtest";
 import { runAlerts } from "./lib/alerts";
 import { runActivationScan } from "./lib/activation";
+import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
 import { log } from "./index";
 import type { SetupType } from "@shared/schema";
 
@@ -142,28 +143,46 @@ export async function registerRoutes(
 
   app.post("/api/refresh", async (_req, res) => {
     try {
-      const enabledSymbols = await storage.getEnabledSymbols();
-      if (enabledSymbols.length === 0) {
-        return res.status(400).json({ message: "No enabled symbols" });
-      }
-
       const settings = await storage.getAllSettings();
+      const universeMode = settings.universeMode || "HYBRID";
       const timeframe = settings.intradayTimeframe || "5";
       const gapThreshold = parseFloat(settings.gapThreshold || "0.30") / 100;
+      const scanMaxTickers = parseInt(settings.scanMaxTickers || "200", 10);
+      const liquidityFloor = parseFloat(settings.liquidityThreshold || "1000000000");
+      const topN = parseInt(settings.topNUniverse || "150", 10);
+      const alertGateEnabled = settings.alertLiquidityGateEnabled !== "false";
+
+      if (universeMode !== "WATCHLIST_ONLY") {
+        try {
+          await rebuildUniverse({ topN, liquidityFloor });
+        } catch (err: any) {
+          log(`Universe rebuild during refresh: ${err.message}`, "refresh");
+        }
+      }
+
+      const scanList = await storage.getScanList(universeMode);
+      if (scanList.length === 0) {
+        return res.status(400).json({ message: "No tickers in scan list" });
+      }
+
+      const tickersToScan = scanList.slice(0, scanMaxTickers);
 
       const today = formatDate(new Date());
       const from200 = getTradingDaysBack(today, 200);
       const from15 = getTradingDaysBack(today, 15);
 
-      log(`Refreshing data for ${enabledSymbols.length} symbols...`, "refresh");
+      const watchlist = await storage.getWatchlistSymbols();
+      const watchlistSet = new Set(watchlist.map(s => s.ticker));
 
-      for (const sym of enabledSymbols) {
+      log(`Refreshing data for ${tickersToScan.length} tickers (mode: ${universeMode})...`, "refresh");
+
+      for (const ticker of tickersToScan) {
         try {
-          const dailyPolygon = await fetchDailyBars(sym.ticker, from200, today);
+          const dailyPolygon = await fetchDailyBars(ticker, from200, today);
           for (const bar of dailyPolygon) {
             const date = formatDate(new Date(bar.t));
             await storage.upsertDailyBar({
-              ticker: sym.ticker,
+              ticker,
               date,
               open: bar.o,
               high: bar.h,
@@ -174,13 +193,13 @@ export async function registerRoutes(
               source: "polygon",
             });
           }
-          log(`Fetched ${dailyPolygon.length} daily bars for ${sym.ticker}`, "refresh");
+          log(`Fetched ${dailyPolygon.length} daily bars for ${ticker}`, "refresh");
 
-          const intradayPolygon = await fetchIntradayBars(sym.ticker, from15, today, timeframe);
+          const intradayPolygon = await fetchIntradayBars(ticker, from15, today, timeframe);
           for (const bar of intradayPolygon) {
             const ts = new Date(bar.t).toISOString();
             await storage.upsertIntradayBar({
-              ticker: sym.ticker,
+              ticker,
               ts,
               open: bar.o,
               high: bar.h,
@@ -191,9 +210,9 @@ export async function registerRoutes(
               source: "polygon",
             });
           }
-          log(`Fetched ${intradayPolygon.length} intraday bars for ${sym.ticker}`, "refresh");
+          log(`Fetched ${intradayPolygon.length} intraday bars for ${ticker}`, "refresh");
 
-          const allDailyBars = await storage.getDailyBars(sym.ticker);
+          const allDailyBars = await storage.getDailyBars(ticker);
           if (allDailyBars.length < 5) continue;
 
           const recentBars = allDailyBars.slice(-30);
@@ -208,7 +227,7 @@ export async function registerRoutes(
             ? allDailyBars.slice(-20).reduce((s, b) => s + (b.high - b.low), 0) / allDailyBars.slice(-20).length
             : 0;
 
-          const watchlistTickers = (settings.watchlistPriority || "SPY,QQQ,NVDA,TSLA").split(",").map(t => t.trim().toUpperCase());
+          const isOnWatchlist = watchlistSet.has(ticker);
 
           for (const setup of setups) {
             if (setup.targetDate < from15) continue;
@@ -231,8 +250,8 @@ export async function registerRoutes(
               atr
             );
 
-            const historicalHitRate = await storage.getHitRateForTickerSetup(sym.ticker, setup.setupType);
-            const tthStats = await storage.getTimeToHitStats(sym.ticker, setup.setupType);
+            const historicalHitRate = await storage.getHitRateForTickerSetup(ticker, setup.setupType);
+            const tthStats = await storage.getTimeToHitStats(ticker, setup.setupType);
             const timePriorityMode = (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND";
 
             const qualityResult = computeQualityScore({
@@ -257,20 +276,14 @@ export async function registerRoutes(
             const sigP390 = tthStats?.p390 ?? null;
 
             let universePass = true;
-            const universeMode = settings.universeMode || "HYBRID";
-            const liquidityThreshold = parseFloat(settings.liquidityThreshold || "250000000");
-            if (universeMode === "WATCHLIST_ONLY") {
-              universePass = watchlistTickers.includes(sym.ticker);
-            } else if (universeMode === "LIQUIDITY_ONLY") {
-              universePass = avgDollarVol >= liquidityThreshold;
-            } else {
-              universePass = watchlistTickers.includes(sym.ticker) || avgDollarVol >= liquidityThreshold;
+            if (alertGateEnabled) {
+              universePass = isOnWatchlist || avgDollarVol >= liquidityFloor;
             }
 
             let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
-            if (watchlistTickers.includes(sym.ticker) && tier === "B") {
+            if (isOnWatchlist && tier === "B") {
               tier = "A";
-            } else if (watchlistTickers.includes(sym.ticker) && tier === "C") {
+            } else if (isOnWatchlist && tier === "C") {
               tier = "B";
             }
 
@@ -286,7 +299,7 @@ export async function registerRoutes(
             let hitTs: string | null = null;
             let missReason: string | null = null;
 
-            const intradayBarsData = await storage.getIntradayBars(sym.ticker, setup.targetDate, timeframe);
+            const intradayBarsData = await storage.getIntradayBars(ticker, setup.targetDate, timeframe);
             if (intradayBarsData.length > 0) {
               const result = validateMagnetTouch(
                 intradayBarsData.map((b) => ({ ts: b.ts, high: b.high, low: b.low })),
@@ -306,7 +319,7 @@ export async function registerRoutes(
             }
 
             await storage.upsertSignal({
-              ticker: sym.ticker,
+              ticker,
               setupType: setup.setupType,
               asofDate: setup.asofDate,
               targetDate: setup.targetDate,
@@ -338,9 +351,9 @@ export async function registerRoutes(
             });
           }
 
-          log(`Generated ${setups.length} setups for ${sym.ticker}`, "refresh");
+          log(`Generated ${setups.length} setups for ${ticker}`, "refresh");
         } catch (err: any) {
-          log(`Error refreshing ${sym.ticker}: ${err.message}`, "refresh");
+          log(`Error refreshing ${ticker}: ${err.message}`, "refresh");
         }
       }
 
@@ -367,7 +380,7 @@ export async function registerRoutes(
       if (!key || typeof key !== "string") {
         return res.status(400).json({ message: "Key required" });
       }
-      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier"];
+      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode", "activationMinTier", "topNUniverse", "alertLiquidityGateEnabled"];
       if (!allowedKeys.includes(key)) {
         return res.status(400).json({ message: `Invalid setting key: ${key}` });
       }
@@ -467,6 +480,29 @@ export async function registerRoutes(
       res.json({ ok: true, events });
     } catch (err: any) {
       log(`Alert run error: ${err.message}`, "alerts");
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/universe/rebuild", async (req, res) => {
+    try {
+      const settings = await storage.getAllSettings();
+      const topN = parseInt(settings.topNUniverse || "150", 10);
+      const liquidityFloor = parseFloat(settings.liquidityThreshold || "1000000000");
+      const force = req.body?.force === true;
+      const result = await rebuildUniverse({ topN, liquidityFloor, force });
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      log(`Universe rebuild error: ${err.message}`, "universe");
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/universe/status", async (_req, res) => {
+    try {
+      const status = await getUniverseStatus();
+      res.json(status);
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

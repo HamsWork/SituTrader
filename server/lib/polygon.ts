@@ -78,6 +78,33 @@ export async function fetchIntradayBars(
   }
 }
 
+export interface GroupedBar extends PolygonBar {
+  T: string;
+}
+
+export async function fetchGroupedDaily(date: string): Promise<GroupedBar[]> {
+  try {
+    const data = await polygonGet(
+      `/v2/aggs/grouped/locale/us/market/stocks/${date}`,
+      { adjusted: "true" }
+    );
+    return (data.results ?? []).map((r: any) => ({
+      o: r.o,
+      h: r.h,
+      l: r.l,
+      c: r.c,
+      v: r.v,
+      vw: r.vw,
+      t: r.t,
+      n: r.n,
+      T: r.T,
+    }));
+  } catch (err: any) {
+    log(`Error fetching grouped daily for ${date}: ${err.message}`, "polygon");
+    return [];
+  }
+}
+
 export async function fetchSnapshot(ticker: string): Promise<{
   lastPrice: number;
   change: number;
