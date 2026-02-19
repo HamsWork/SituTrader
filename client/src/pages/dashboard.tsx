@@ -103,57 +103,59 @@ function oneLinePlan(signal: Signal): string {
   return `${biasLabel} → target $${t1Num.toFixed(2)} → Early Hit ${earlyHit}`;
 }
 
-function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: number }) {
+function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice?: number }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   if (!tp) return null;
 
-  const magnetPrice = signal.magnetPrice;
-  const entryPrice = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? (tp.bias === "SELL"
-    ? magnetPrice + (tp.stopDistance ?? 0) * 2
-    : magnetPrice - (tp.stopDistance ?? 0) * 2);
-  const stopPrice = signal.stopPrice ?? (tp.bias === "SELL"
-    ? entryPrice + (tp.stopDistance ?? 0)
-    : entryPrice - (tp.stopDistance ?? 0));
+  const targetPrice = (tp.t1 ?? signal.magnetPrice);
+
+  const entryPrice = signal.entryPriceAtActivation ?? null;
+  const stopPrice = signal.stopPrice ?? null;
+  if (signal.activationStatus === "ACTIVE" && (entryPrice == null || stopPrice == null)) return null;
+
+  const resolvedEntry =
+    entryPrice ??
+    signal.entryTriggerPrice ??
+    (tp.bias === "SELL"
+      ? targetPrice + (tp.stopDistance ?? 0) * 2
+      : targetPrice - (tp.stopDistance ?? 0) * 2);
+
+  const resolvedStop =
+    stopPrice ??
+    (tp.bias === "SELL"
+      ? resolvedEntry + (tp.stopDistance ?? 0)
+      : resolvedEntry - (tp.stopDistance ?? 0));
 
   const isSell = tp.bias === "SELL";
 
-  const allPrices = [magnetPrice, entryPrice, stopPrice];
-  if (currentPrice != null) allPrices.push(currentPrice);
-  const priceMin = Math.min(...allPrices);
-  const priceMax = Math.max(...allPrices);
+  const priceMin = Math.min(targetPrice, resolvedEntry, resolvedStop);
+  const priceMax = Math.max(targetPrice, resolvedEntry, resolvedStop);
   const range = priceMax - priceMin || 1;
 
   const toPercent = (price: number) => Math.max(0, Math.min(100, ((price - priceMin) / range) * 100));
 
-  const entryPct = toPercent(entryPrice);
-  const magnetPct = toPercent(magnetPrice);
-  const stopPct = toPercent(stopPrice);
+  const entryPct = toPercent(resolvedEntry);
+  const targetPct = toPercent(targetPrice);
+  const stopPct = toPercent(resolvedStop);
 
   const rawCurrentPct = currentPrice != null ? ((currentPrice - priceMin) / range) * 100 : null;
   const currentPct = rawCurrentPct != null ? Math.max(0, Math.min(100, rawCurrentPct)) : null;
   const currentClamped = rawCurrentPct != null && (rawCurrentPct < 0 || rawCurrentPct > 100);
 
-  const beyondStop = currentPrice != null && (
-    (isSell && currentPrice > stopPrice) ||
-    (!isSell && currentPrice < stopPrice)
-  );
-
-  const pastTarget = currentPrice != null && (
-    (isSell && currentPrice < magnetPrice) ||
-    (!isSell && currentPrice > magnetPrice)
-  );
+  const beyondStop = currentPrice != null && ((isSell && currentPrice > resolvedStop) || (!isSell && currentPrice < resolvedStop));
+  const pastTarget = currentPrice != null && ((isSell && currentPrice < targetPrice) || (!isSell && currentPrice > targetPrice));
 
   const progressFillLeft = currentPct != null ? Math.min(entryPct, currentPct) : null;
   const progressFillWidth = currentPct != null ? Math.abs(currentPct - entryPct) : null;
 
-  const isWinning = currentPrice != null && (
-    (!isSell && currentPrice > entryPrice) ||
-    (isSell && currentPrice < entryPrice)
-  );
+  const isWinning =
+    currentPrice != null && ((!isSell && currentPrice > resolvedEntry) || (isSell && currentPrice < resolvedEntry));
 
-  const nowPillAnchor = currentPct != null
-    ? currentPct > 85 ? "right" : currentPct < 15 ? "left" : "center"
-    : "center";
+  const nowPillAnchor =
+    currentPct != null ? (currentPct > 85 ? "right" : currentPct < 15 ? "left" : "center") : "center";
+
+  const delta =
+    currentPrice != null ? (isSell ? (resolvedEntry - currentPrice) : (currentPrice - resolvedEntry)) : null;
 
   return (
     <div className="space-y-0.5" data-testid={`progress-bar-${signal.id}`}>
@@ -163,9 +165,8 @@ function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: 
             className="absolute z-30 flex flex-col items-center"
             style={{
               left: `${currentPct}%`,
-              transform: nowPillAnchor === "center" ? "translateX(-50%)"
-                : nowPillAnchor === "right" ? "translateX(-90%)"
-                : "translateX(-10%)",
+              transform:
+                nowPillAnchor === "center" ? "translateX(-50%)" : nowPillAnchor === "right" ? "translateX(-90%)" : "translateX(-10%)",
               top: 0,
             }}
             data-testid={`marker-now-${signal.id}`}
@@ -183,14 +184,11 @@ function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: 
               data-testid={`text-now-price-${signal.id}`}
             >
               NOW {currentPrice.toFixed(2)}
-              {currentClamped && beyondStop && " ⚠"}
+              {delta != null && ` (${delta >= 0 ? "+" : ""}${delta.toFixed(2)})`}
+              {currentClamped && " ⚠"}
               {pastTarget && " Past T1"}
             </span>
-            <div
-              className={`w-0.5 h-2.5 ${
-                beyondStop ? "bg-red-500" : isWinning ? "bg-emerald-500" : "bg-amber-500"
-              }`}
-            />
+            <div className={`w-0.5 h-2.5 ${beyondStop ? "bg-red-500" : isWinning ? "bg-emerald-500" : "bg-amber-500"}`} />
           </div>
         )}
 
@@ -198,9 +196,7 @@ function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: 
           {progressFillLeft != null && progressFillWidth != null && progressFillWidth > 0 && (
             <div
               className={`absolute h-full rounded-full transition-all duration-300 ${
-                isWinning
-                  ? "bg-emerald-400/50 dark:bg-emerald-500/40"
-                  : "bg-red-400/50 dark:bg-red-500/40"
+                isWinning ? "bg-emerald-400/50 dark:bg-emerald-500/40" : "bg-red-400/50 dark:bg-red-500/40"
               }`}
               style={{ left: `${progressFillLeft}%`, width: `${progressFillWidth}%` }}
               data-testid={`fill-progress-${signal.id}`}
@@ -210,27 +206,27 @@ function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: 
           <div
             className="absolute w-1.5 h-full rounded-sm bg-red-400/70 dark:bg-red-400/60"
             style={{ left: `${stopPct}%`, transform: "translateX(-50%)" }}
-            title={`Stop: $${stopPrice.toFixed(2)}`}
+            title={`Stop: ${resolvedStop.toFixed(2)}`}
             data-testid={`marker-stop-${signal.id}`}
           />
+
           <div
             className="absolute w-2.5 h-2.5 rounded-full bg-muted-foreground/80 border-2 border-background top-[1px]"
             style={{ left: `${entryPct}%`, transform: "translateX(-50%)" }}
-            title={`Entry: $${entryPrice.toFixed(2)}`}
+            title={`Entry: ${resolvedEntry.toFixed(2)}`}
             data-testid={`marker-entry-${signal.id}`}
           />
+
           <div
             className={`absolute w-2.5 h-2.5 rounded-full top-[1px] border-2 border-background ${isSell ? "bg-red-500" : "bg-emerald-500"}`}
-            style={{ left: `${magnetPct}%`, transform: "translateX(-50%)" }}
-            title={`Target: $${magnetPrice.toFixed(2)}`}
+            style={{ left: `${targetPct}%`, transform: "translateX(-50%)" }}
+            title={`T1: ${targetPrice.toFixed(2)}`}
             data-testid={`marker-target-${signal.id}`}
           />
 
           {currentPct != null && (
             <div
-              className={`absolute w-0.5 h-full z-20 ${
-                beyondStop ? "bg-red-500" : isWinning ? "bg-emerald-500" : "bg-amber-500"
-              }`}
+              className={`absolute w-0.5 h-full z-20 ${beyondStop ? "bg-red-500" : isWinning ? "bg-emerald-500" : "bg-amber-500"}`}
               style={{ left: `${currentPct}%`, transform: "translateX(-50%)" }}
             />
           )}
@@ -238,9 +234,9 @@ function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: 
       </div>
 
       <div className="flex justify-between text-[10px] text-muted-foreground px-0.5">
-        <span title={`Stop: $${stopPrice.toFixed(2)}`}>Stop {stopPrice.toFixed(2)}</span>
-        <span title={`Entry: $${entryPrice.toFixed(2)}`}>Entry {entryPrice.toFixed(2)}</span>
-        <span title={`Target: $${magnetPrice.toFixed(2)}`}>T1 {magnetPrice.toFixed(2)}</span>
+        <span title={`Stop: ${resolvedStop.toFixed(2)}`}>Stop {resolvedStop.toFixed(2)}</span>
+        <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
+        <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)}</span>
       </div>
     </div>
   );
