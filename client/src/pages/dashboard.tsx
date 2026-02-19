@@ -762,10 +762,10 @@ export default function Dashboard() {
       return distToTrigger(a) - distToTrigger(b);
     });
 
+  const tradeNowSignals = pendingSignals.filter(s => s.activationStatus === "ACTIVE");
   const filteredPending = showAll ? pendingSignals : pendingSignals.filter(s => passesProfile(s, activeProfile));
-  const tradeNowSignals = filteredPending.filter(s => s.activationStatus === "ACTIVE");
   const onDeckSignals = filteredPending.filter(s => s.activationStatus !== "ACTIVE");
-  const hiddenByProfile = pendingSignals.length - filteredPending.length;
+  const hiddenByProfile = pendingSignals.filter(s => s.activationStatus !== "ACTIVE").length - onDeckSignals.length;
 
   const getEffectiveStatus = (s: Signal) => {
     if (s.activationStatus === "INVALIDATED") return "invalidated";
@@ -789,8 +789,27 @@ export default function Dashboard() {
     });
 
   const uniqueTickers = Array.from(new Set(allSignals.map(s => s.ticker))).sort();
-  const hitCount = allSignals.filter(s => s.status === "hit").length;
-  const missCount = allSignals.filter(s => s.status === "miss").length;
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  const sixtyDaysAgoStr = sixtyDaysAgo.toISOString().split("T")[0];
+  const profileResolvedSignals = allSignals
+    .filter(s => (s.status === "hit" || s.status === "miss") && s.targetDate >= sixtyDaysAgoStr)
+    .filter(s => showAll || passesProfile(s, activeProfile));
+  const hitCount = profileResolvedSignals.filter(s => s.status === "hit").length;
+  const missCount = profileResolvedSignals.filter(s => s.status === "miss").length;
+  const profileHitRate = profileResolvedSignals.length > 0 ? hitCount / profileResolvedSignals.length : 0;
+  const profileHitRateBySetup: Record<string, { hits: number; total: number; rate: number }> = {};
+  for (const s of profileResolvedSignals) {
+    if (!profileHitRateBySetup[s.setupType]) {
+      profileHitRateBySetup[s.setupType] = { hits: 0, total: 0, rate: 0 };
+    }
+    profileHitRateBySetup[s.setupType].total++;
+    if (s.status === "hit") profileHitRateBySetup[s.setupType].hits++;
+  }
+  for (const key of Object.keys(profileHitRateBySetup)) {
+    const entry = profileHitRateBySetup[key];
+    entry.rate = entry.total > 0 ? entry.hits / entry.total : 0;
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -940,10 +959,10 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-stat-hit-rate">
-                  {stats?.hitRate60d ? `${(stats.hitRate60d * 100).toFixed(1)}%` : "N/A"}
+                  {profileResolvedSignals.length > 0 ? `${(profileHitRate * 100).toFixed(1)}%` : "N/A"}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 flex-wrap">
-                  {stats?.hitRate60d && stats.hitRate60d > 0.5 && <TrendingUp className="w-3 h-3 text-emerald-500" />}
+                  {profileHitRate > 0.5 && <TrendingUp className="w-3 h-3 text-emerald-500" />}
                   {hitCount} hits / {missCount} misses
                 </p>
               </CardContent>
@@ -1036,11 +1055,11 @@ export default function Dashboard() {
         )}
       </div>
 
-      {stats?.hitRateBySetup && Object.keys(stats.hitRateBySetup).length > 0 && (
+      {Object.keys(profileHitRateBySetup).length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground mb-2">Setup Hit Rates</h2>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-            {Object.entries(stats.hitRateBySetup).map(([setup, data]) => (
+            {Object.entries(profileHitRateBySetup).map(([setup, data]) => (
               <Card key={setup}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between gap-1 mb-1">
