@@ -6,7 +6,8 @@ export function generateTradePlan(
   magnetPrice: number,
   dailyBars: DailyBar[],
   entryMode: string = "conservative",
-  stopMode: string = "atr"
+  stopMode: string = "atr",
+  atrMultiplier: number = 0.25
 ): TradePlan {
   const atr = computeATR(dailyBars);
   const bias: "BUY" | "SELL" = lastClose > magnetPrice ? "SELL" : "BUY";
@@ -23,7 +24,7 @@ export function generateTradePlan(
   if (stopMode === "fixed") {
     stopDistance = lastClose * 0.0015;
   } else {
-    stopDistance = Math.max(0.25 * atr, lastClose * 0.0015);
+    stopDistance = Math.max(atrMultiplier * atr, lastClose * 0.0015);
   }
 
   const t1 = magnetPrice;

@@ -419,12 +419,23 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
             <div className="rounded-md bg-muted/50 p-2.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5 flex items-center gap-1">
                 <Shield className="w-3 h-3" /> Stop
+                {live?.stopStage === "BE" && (
+                  <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 border-green-500 text-green-600 dark:text-green-400" data-testid={`badge-stop-be-${signal.id}`}>BE</Badge>
+                )}
+                {live?.stopStage === "TIME_TIGHTENED" && (
+                  <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 border-amber-500 text-amber-600 dark:text-amber-400" data-testid={`badge-stop-time-${signal.id}`}>TIME</Badge>
+                )}
               </div>
               <p className="text-xs leading-relaxed" data-testid={`text-stop-${signal.id}`}>
                 {signal.stopPrice != null
                   ? `$${signal.stopPrice.toFixed(2)}`
                   : tp.invalidation}
               </p>
+              {live?.timeStopMinutesLeft != null && live.timeStopMinutesLeft > 0 && live.stopStage === "INITIAL" && (
+                <p className="text-[10px] text-muted-foreground mt-0.5" data-testid={`text-time-stop-countdown-${signal.id}`}>
+                  Time stop in {live.timeStopMinutesLeft}min
+                </p>
+              )}
             </div>
             <div className="rounded-md bg-muted/50 p-2.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5 flex items-center gap-1">

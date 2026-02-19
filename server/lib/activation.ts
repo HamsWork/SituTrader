@@ -7,7 +7,7 @@ import type { Signal, TradePlan } from "@shared/schema";
 export interface ActivationEvent {
   signalId: number;
   ticker: string;
-  type: "activated" | "invalidated";
+  type: "activated" | "invalidated" | "stop_to_be" | "time_stop";
   tier: string;
   qualityScore: number;
   entryPrice: number;
@@ -97,15 +97,80 @@ function checkEntryTrigger(
 function checkInvalidation(
   currentPrice: number,
   tradePlan: TradePlan,
-  entryPrice: number
+  entryPrice: number,
+  stopPrice: number | null
 ): boolean {
-  const stopDistance = tradePlan.stopDistance;
-  if (!stopDistance || stopDistance <= 0) return false;
-  if (tradePlan.bias === "SELL") {
-    return currentPrice > entryPrice + stopDistance * 1.5;
-  } else {
-    return currentPrice < entryPrice - stopDistance * 1.5;
+  const effectiveStop = stopPrice;
+  if (effectiveStop == null) {
+    const stopDistance = tradePlan.stopDistance;
+    if (!stopDistance || stopDistance <= 0) return false;
+    if (tradePlan.bias === "SELL") {
+      return currentPrice > entryPrice + stopDistance * 1.5;
+    } else {
+      return currentPrice < entryPrice - stopDistance * 1.5;
+    }
   }
+  if (tradePlan.bias === "SELL") {
+    return currentPrice > effectiveStop;
+  } else {
+    return currentPrice < effectiveStop;
+  }
+}
+
+function computeRNow(
+  currentPrice: number,
+  entryPrice: number,
+  stopPrice: number,
+  isSell: boolean
+): number {
+  const stopDist = Math.abs(entryPrice - stopPrice);
+  if (stopDist === 0) return 0;
+  return isSell
+    ? (entryPrice - currentPrice) / stopDist
+    : (currentPrice - entryPrice) / stopDist;
+}
+
+function computeProgressToTarget(
+  currentPrice: number,
+  entryPrice: number,
+  targetPrice: number,
+  isSell: boolean
+): number {
+  let progress: number;
+  if (isSell) {
+    progress = (entryPrice - targetPrice) !== 0 ? (entryPrice - currentPrice) / (entryPrice - targetPrice) : 0;
+  } else {
+    progress = (targetPrice - entryPrice) !== 0 ? (currentPrice - entryPrice) / (targetPrice - entryPrice) : 0;
+  }
+  return Math.max(0, Math.min(1, progress));
+}
+
+interface StopConfig {
+  stopMode: string;
+  beProgressThreshold: number;
+  beRThreshold: number;
+  timeStopMinutes: number;
+  timeStopProgressThreshold: number;
+  timeStopTightenFactor: number;
+}
+
+function getStopConfig(settings: Record<string, string>): StopConfig {
+  return {
+    stopMode: settings.stopManagementMode || "VOLATILITY_ONLY",
+    beProgressThreshold: parseFloat(settings.beProgressThreshold || "0.25"),
+    beRThreshold: parseFloat(settings.beRThreshold || "0.5"),
+    timeStopMinutes: parseInt(settings.timeStopMinutes || "120"),
+    timeStopProgressThreshold: parseFloat(settings.timeStopProgressThreshold || "0.15"),
+    timeStopTightenFactor: parseFloat(settings.timeStopTightenFactor || "0.5"),
+  };
+}
+
+function shouldApplyBE(stopMode: string): boolean {
+  return stopMode === "VOLATILITY_BE" || stopMode === "FULL";
+}
+
+function shouldApplyTimeStop(stopMode: string): boolean {
+  return stopMode === "VOLATILITY_TIME" || stopMode === "FULL";
 }
 
 export async function runActivationScan(): Promise<ActivationEvent[]> {
@@ -117,6 +182,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   const settings = await storage.getAllSettings();
   const entryMode = settings.entryMode || "conservative";
   const timeframe = settings.intradayTimeframe || "5";
+  const stopCfg = getStopConfig(settings);
 
   const activeSignals = await storage.getActiveSignals();
   if (activeSignals.length === 0) return events;
@@ -144,7 +210,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       if (!tp) continue;
 
       if (sig.activationStatus === "ACTIVE") {
-        if (currentPrice && checkInvalidation(currentPrice, tp, sig.entryPriceAtActivation ?? currentPrice)) {
+        const entryPrice = sig.entryPriceAtActivation ?? 0;
+        const isSell = tp.bias === "SELL";
+
+        if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
           await storage.updateSignalInvalidation(sig.id, nowIso);
           events.push({
             signalId: sig.id,
@@ -152,11 +221,61 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
             type: "invalidated",
             tier: sig.tier,
             qualityScore: sig.qualityScore,
-            entryPrice: sig.entryPriceAtActivation ?? 0,
-            message: `INVALIDATED: ${ticker} ${sig.setupType} entry at ${(sig.entryPriceAtActivation ?? 0).toFixed(2)} stopped out at ${currentPrice?.toFixed(2)}`,
+            entryPrice,
+            message: `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice?.toFixed(2)}`,
             timestamp: nowIso,
           });
+          continue;
         }
+
+        if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
+          const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
+          const progress = computeProgressToTarget(currentPrice, entryPrice, tp.t1, isSell);
+          const activeMinutes = sig.activatedTs
+            ? Math.floor((now.getTime() - new Date(sig.activatedTs).getTime()) / 60000)
+            : 0;
+
+          if (shouldApplyBE(stopCfg.stopMode) && sig.stopStage === "INITIAL") {
+            const beEarned = rNow >= stopCfg.beRThreshold || progress >= stopCfg.beProgressThreshold;
+            if (beEarned) {
+              await storage.updateSignalStopStage(sig.id, "BE", entryPrice, nowIso);
+              events.push({
+                signalId: sig.id,
+                ticker,
+                type: "stop_to_be",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                entryPrice,
+                message: `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress*100).toFixed(0)}%)`,
+                timestamp: nowIso,
+              });
+              continue;
+            }
+          }
+
+          if (shouldApplyTimeStop(stopCfg.stopMode) && sig.stopStage !== "TIME_TIGHTENED" && !sig.timeStopTriggeredTs) {
+            if (activeMinutes >= stopCfg.timeStopMinutes && progress < stopCfg.timeStopProgressThreshold) {
+              const stopDist = Math.abs(entryPrice - sig.stopPrice);
+              const tightenedDist = stopDist * stopCfg.timeStopTightenFactor;
+              const newStop = isSell
+                ? entryPrice + tightenedDist
+                : entryPrice - tightenedDist;
+              await storage.updateSignalStopStage(sig.id, "TIME_TIGHTENED", newStop, undefined, nowIso);
+              events.push({
+                signalId: sig.id,
+                ticker,
+                type: "time_stop",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                entryPrice,
+                message: `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress*100).toFixed(0)}% progress`,
+                timestamp: nowIso,
+              });
+              continue;
+            }
+          }
+        }
+
         continue;
       }
 

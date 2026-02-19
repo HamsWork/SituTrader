@@ -158,6 +158,7 @@ export async function registerRoutes(
   app.get("/api/signals", async (_req, res) => {
     try {
       const sigs = await storage.getSignals(undefined, 100);
+      const appSettings = await storage.getAllSettings();
 
       const pendingSignals = sigs.filter(s => s.status === "pending");
       if (pendingSignals.length === 0) {
@@ -206,7 +207,7 @@ export async function registerRoutes(
           if (currentPrice != null) {
             return {
               ...sig,
-              live: { currentPrice, activeMinutes: null, progressToTarget: 0, rNow: null, distToTargetAtr: null, distToStopAtr: null, atr14: atrMap.get(sig.ticker) ?? null },
+              live: { currentPrice, activeMinutes: null, progressToTarget: 0, rNow: null, distToTargetAtr: null, distToStopAtr: null, atr14: atrMap.get(sig.ticker) ?? null, stopStage: sig.stopStage || "INITIAL", timeStopMinutesLeft: null },
             };
           }
           return sig;
@@ -252,6 +253,11 @@ export async function registerRoutes(
         const distToTargetAtr = atr > 0 ? Math.abs(T - currentPrice) / atr : null;
         const distToStopAtr = atr > 0 && S != null ? Math.abs(currentPrice - S) / atr : null;
 
+        const mgmtMode = appSettings.stopManagementMode || "VOLATILITY_ONLY";
+        const timeStopEnabled = mgmtMode === "VOLATILITY_TIME" || mgmtMode === "FULL";
+        const timeStopMinutes = parseInt(appSettings.timeStopMinutes || "120");
+        const timeStopMinutesLeft = timeStopEnabled && activeMinutes != null ? Math.max(0, timeStopMinutes - activeMinutes) : null;
+
         return {
           ...sig,
           live: {
@@ -262,6 +268,8 @@ export async function registerRoutes(
             distToTargetAtr: distToTargetAtr != null ? Math.round(distToTargetAtr * 100) / 100 : null,
             distToStopAtr: distToStopAtr != null ? Math.round(distToStopAtr * 100) / 100 : null,
             atr14: atr > 0 ? atr : null,
+            stopStage: sig.stopStage || "INITIAL",
+            timeStopMinutesLeft,
           },
         };
       });
@@ -483,12 +491,14 @@ export async function registerRoutes(
               tier = "B";
             }
 
+            const atrMult = parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25;
             const tradePlan = generateTradePlan(
               lastBar.close,
               setup.magnetPrice,
               allDailyBars,
               settings.entryMode || "conservative",
-              settings.stopMode || "atr"
+              settings.stopMode || "atr",
+              atrMult
             );
 
             let status = "pending";
@@ -547,6 +557,9 @@ export async function registerRoutes(
               stopPrice: tradePlan.stopDistance ? (tradePlan.bias === "SELL" ? lastBar.close + tradePlan.stopDistance : lastBar.close - tradePlan.stopDistance) : null,
               entryTriggerPrice: null,
               invalidationTs: null,
+              stopStage: "INITIAL",
+              stopMovedToBeTs: null,
+              timeStopTriggeredTs: null,
             });
           }
 

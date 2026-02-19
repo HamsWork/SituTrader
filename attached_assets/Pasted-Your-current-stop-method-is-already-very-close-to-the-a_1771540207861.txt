@@ -1,0 +1,51 @@
+Your current stop method is already very close to the author’s published methodology — and yes, the “situational analysis” patterns you quoted are from Tom Hougaard (TraderTom).  ￼
+
+What the author actually publishes about stops
+
+Hougaard has a published stop-loss note where he explicitly ties stops to volatility using ATR, and gives an example of using a 20% ATR stop (and pairing it with a larger target).  ￼
+
+So your default:
+	•	stopDistance = max(0.25 * ATR14, 0.15% of price)
+
+…is basically the same class of idea as his: volatility-adjusted stops, with your 25% ATR being slightly wider than his 20% ATR example.  ￼
+
+Typical timeframe (based on the author’s setup)
+
+The specific situational patterns you’re coding (Fri–Mon “revisit Friday low”, Mon–Thu/Wed–Thu revisit behavior) are short-horizon, next-session style ideas—meant to resolve quickly (usually next trading day / next session). That’s how they’re framed in the clips circulating from Hougaard.  ￼
+
+Is ATR-percent the “best” stop for maximizing win rate?
+
+It’s a strong baseline, but here’s the hard truth:
+	•	ATR-percent stops are volatility-aware (good). ATR itself was created to measure volatility regimes.  ￼
+	•	But if your stop is not aligned to “invalidation,” you’ll still get chopped out on noise in choppy names (bad for win rate).
+
+Hougaard’s own stop material is volatility-based, but the broader “published methodology” world (position sizing / R-multiples) strongly emphasizes defining “1R” consistently and then managing the trade around that. Van Tharp is one of the most-cited names here; he frames stops as the foundation for R-multiples and position sizing, often using ATR-based approaches.  ￼
+
+My recommendation (grounded in published methodology)
+
+Keep your current method as the fallback, but upgrade the system to a published-style volatility stop + time-stop hybrid (this is the part that usually boosts your already-strong A/B win rate while shrinking losers):
+
+1) Keep volatility stop as baseline (author-consistent)
+	•	Default to 20%–25% of ATR(14) (you’re already there). Hougaard’s published example uses 20% ATR.  ￼
+	•	Keep your minimum floor (0.15% price) to avoid micro-stops on high-priced names (good practical engineering).
+
+2) Add a “time stop” because situational setups are time-bound
+
+If the whole edge is “this should happen soon,” your stop system should reflect that:
+	•	If the trade hasn’t made meaningful progress by a specific time window (example: by late morning or by end of RTH), you reduce risk or exit.
+This aligns with the situational nature of the pattern itself (next-session revisit), not a multi-week hold.  ￼
+
+3) Add a break-even rule tied to “proof”
+
+Hougaard’s stop note describes moving stop to breakeven under certain conditions (he references reacting to a counter-signal while in profit).  ￼
+In your app terms:
+	•	Only move to BE after the trade earns it (ex: +0.5R or 25% progress-to-target). This is how you minimize loss without choking winners.
+
+Why this will maximize win rate and minimize loss
+	•	Volatility stop reduces random stop-outs in higher ATR names (published ATR logic).  ￼
+	•	Time-stop cuts the worst category of losers for “must-happen-soon” patterns: the slow drift that later breaks you.
+	•	BE-on-proof protects the equity curve while keeping winners alive.
+
+If you want, I’ll convert this into one single master prompt for Replit that adds:
+	•	Stop Mode selector: Volatility (20–25% ATR) vs Volatility + Time Stop vs Volatility + BE-on-proof
+	•	Profile-level settings so you can apply it only to A/B setups without touching C setups.

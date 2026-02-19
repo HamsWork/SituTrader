@@ -19,7 +19,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Universe Builder**: Auto-discovers top N (default 150) US tickers by 20-day avg dollar volume via Polygon grouped daily endpoint. Configurable Top N (50-500), 24-hour rebuild cache, alert liquidity gate
 - **Universe Filter**: WATCHLIST_ONLY, LIQUIDITY_ONLY, HYBRID modes with configurable liquidity threshold
 - **Alert Engine**: HIT/Approaching/New Signal/Miss/Activated events with tier-based routing, rate limiting, and universe_pass filtering
-- **Activation Engine**: Entry trigger scanning that checks intraday bars against trade plan conditions, tracks ACTIVE/NOT_ACTIVE/INVALIDATED states
+- **Activation Engine**: Entry trigger scanning that checks intraday bars against trade plan conditions, tracks ACTIVE/NOT_ACTIVE/INVALIDATED states. 3-part stop management: volatility baseline (configurable ATR multiplier), break-even protection (moves stop to entry after +0.5R or 25% progress), time stops (tightens stop if no meaningful progress by configurable window). Stop stages: INITIAL/BE/TIME_TIGHTENED. Management modes: VOLATILITY_ONLY, VOLATILITY_BE, VOLATILITY_TIME, FULL.
 - **RTH Validation**: All hit/miss validation uses Regular Trading Hours only (09:30-16:00 ET)
 - **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
 - **Signal Profiles**: Saved filter profiles that control dashboard visibility + alert eligibility. Each profile defines: allowed setups, min tier, min quality score, min sample size, min hit rate, min expectancy, time priority mode. Dropdown + banner on dashboard. "Show All" toggle bypasses profile filter. 3 default profiles seeded: Win-Rate Focus (A/B), Balanced, Home Run. Never deletes signal data — profiles only change what you see.
@@ -86,7 +86,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `symbols` - Managed tickers (includes isWatchlist flag to distinguish manual watchlist from auto-discovered)
 - `daily_bars` - OHLCV daily data
 - `intraday_bars` - OHLCV intraday data
-- `signals` - Generated signals with quality/tier/alert/probability/activation fields (includes stop_price, entry_trigger_price, invalidation_ts)
+- `signals` - Generated signals with quality/tier/alert/probability/activation fields (includes stop_price, entry_trigger_price, invalidation_ts, stop_stage, stop_moved_to_be_ts, time_stop_triggered_ts)
 - `backtests` - Backtest results with details
 - `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
 - `universe_members` - Universe membership per date (universeDate, ticker, avgDollarVol20d, rank, included)

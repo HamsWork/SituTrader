@@ -112,6 +112,13 @@ export default function SettingsPage() {
     focusWinRateThreshold: settings?.focusWinRateThreshold ?? "0.70",
     focusExpectancyThreshold: settings?.focusExpectancyThreshold ?? "0.15",
     focusMinSampleSize: settings?.focusMinSampleSize ?? "50",
+    stopAtrMultiplier: settings?.stopAtrMultiplier ?? "0.25",
+    stopManagementMode: settings?.stopManagementMode ?? "VOLATILITY_ONLY",
+    beProgressThreshold: settings?.beProgressThreshold ?? "0.25",
+    beRThreshold: settings?.beRThreshold ?? "0.5",
+    timeStopMinutes: settings?.timeStopMinutes ?? "120",
+    timeStopProgressThreshold: settings?.timeStopProgressThreshold ?? "0.15",
+    timeStopTightenFactor: settings?.timeStopTightenFactor ?? "0.5",
   };
 
   const watchlistCount = symbolList?.filter(s => s.isWatchlist).length ?? 0;
@@ -395,7 +402,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs">Stop Mode</Label>
+              <Label className="text-xs">Stop Baseline</Label>
               <Select
                 value={currentSettings.stopMode}
                 onValueChange={(value) => saveSetting.mutate({ key: "stopMode", value })}
@@ -404,11 +411,135 @@ export default function SettingsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="atr">ATR-based (0.25 * ATR)</SelectItem>
+                  <SelectItem value="atr">ATR-based</SelectItem>
                   <SelectItem value="fixed">Fixed (0.15% of price)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {currentSettings.stopMode === "atr" && (
+            <div className="space-y-2">
+              <Label className="text-xs">ATR Multiplier</Label>
+              <Input
+                type="number"
+                step="0.05"
+                min="0.1"
+                max="2.0"
+                value={currentSettings.stopAtrMultiplier}
+                onChange={(e) => saveSetting.mutate({ key: "stopAtrMultiplier", value: e.target.value })}
+                data-testid="input-stop-atr-multiplier"
+              />
+              <p className="text-[10px] text-muted-foreground">Stop distance = multiplier x ATR(14). Default 0.25.</p>
+            </div>
+          )}
+
+          <Separator />
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Stop Management</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">After entry, manage stops dynamically with break-even and time rules.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs">Management Mode</Label>
+              <Select
+                value={currentSettings.stopManagementMode}
+                onValueChange={(value) => saveSetting.mutate({ key: "stopManagementMode", value })}
+              >
+                <SelectTrigger data-testid="select-stop-management-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="VOLATILITY_ONLY">Volatility Only (no adjustment)</SelectItem>
+                  <SelectItem value="VOLATILITY_BE">Volatility + Break-Even</SelectItem>
+                  <SelectItem value="VOLATILITY_TIME">Volatility + Time Stop</SelectItem>
+                  <SelectItem value="FULL">Full (Volatility + BE + Time)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(currentSettings.stopManagementMode === "VOLATILITY_BE" || currentSettings.stopManagementMode === "FULL") && (
+              <div className="rounded-md border p-3 space-y-3">
+                <p className="text-xs font-medium">Break-Even Rules</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Progress Threshold</Label>
+                    <Input
+                      type="number"
+                      step="0.05"
+                      min="0.1"
+                      max="1.0"
+                      value={currentSettings.beProgressThreshold}
+                      onChange={(e) => saveSetting.mutate({ key: "beProgressThreshold", value: e.target.value })}
+                      data-testid="input-be-progress"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Move to BE at this % of target (0.25 = 25%)</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">R-Multiple Threshold</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="3.0"
+                      value={currentSettings.beRThreshold}
+                      onChange={(e) => saveSetting.mutate({ key: "beRThreshold", value: e.target.value })}
+                      data-testid="input-be-r"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Or move to BE at this R-multiple (0.5 = +0.5R)</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {(currentSettings.stopManagementMode === "VOLATILITY_TIME" || currentSettings.stopManagementMode === "FULL") && (
+              <div className="rounded-md border p-3 space-y-3">
+                <p className="text-xs font-medium">Time Stop Rules</p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Time Window (min)</Label>
+                    <Input
+                      type="number"
+                      step="15"
+                      min="30"
+                      max="390"
+                      value={currentSettings.timeStopMinutes}
+                      onChange={(e) => saveSetting.mutate({ key: "timeStopMinutes", value: e.target.value })}
+                      data-testid="input-time-stop-minutes"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Minutes before time stop triggers</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Min Progress</Label>
+                    <Input
+                      type="number"
+                      step="0.05"
+                      min="0.0"
+                      max="1.0"
+                      value={currentSettings.timeStopProgressThreshold}
+                      onChange={(e) => saveSetting.mutate({ key: "timeStopProgressThreshold", value: e.target.value })}
+                      data-testid="input-time-stop-progress"
+                    />
+                    <p className="text-[10px] text-muted-foreground">If below this progress, tighten stop</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tighten Factor</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="1.0"
+                      value={currentSettings.timeStopTightenFactor}
+                      onChange={(e) => saveSetting.mutate({ key: "timeStopTightenFactor", value: e.target.value })}
+                      data-testid="input-time-stop-tighten"
+                    />
+                    <p className="text-[10px] text-muted-foreground">New stop distance = factor x original (0.5 = halved)</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <Separator />

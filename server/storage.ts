@@ -35,6 +35,7 @@ export interface IStorage {
   updateSignalAlert(id: number, alertState: string, nextEligibleAt: string | null): Promise<void>;
   updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number, stopPrice?: number, entryTriggerPrice?: number): Promise<void>;
   updateSignalInvalidation(id: number, invalidationTs: string): Promise<void>;
+  updateSignalStopStage(id: number, stopStage: string, stopPrice: number, stopMovedToBeTs?: string, timeStopTriggeredTs?: string): Promise<void>;
   getSignalStats(profileFilter?: { allowedSetups: string[] } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
@@ -269,6 +270,13 @@ export class DatabaseStorage implements IStorage {
       activationStatus: "INVALIDATED",
       invalidationTs,
     }).where(eq(signals.id, id));
+  }
+
+  async updateSignalStopStage(id: number, stopStage: string, stopPrice: number, stopMovedToBeTs?: string, timeStopTriggeredTs?: string): Promise<void> {
+    const update: Record<string, any> = { stopStage, stopPrice };
+    if (stopMovedToBeTs) update.stopMovedToBeTs = stopMovedToBeTs;
+    if (timeStopTriggeredTs) update.timeStopTriggeredTs = timeStopTriggeredTs;
+    await db.update(signals).set(update).where(eq(signals.id, id));
   }
 
   async getHitRateForTickerSetup(ticker: string, setupType: string): Promise<number | null> {

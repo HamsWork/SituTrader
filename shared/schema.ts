@@ -75,6 +75,9 @@ export const signals = pgTable("signals", {
   stopPrice: real("stop_price"),
   entryTriggerPrice: real("entry_trigger_price"),
   invalidationTs: text("invalidation_ts"),
+  stopStage: text("stop_stage").notNull().default("INITIAL"),
+  stopMovedToBeTs: text("stop_moved_to_be_ts"),
+  timeStopTriggeredTs: text("time_stop_triggered_ts"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -171,6 +174,7 @@ export const signalProfiles = pgTable("signal_profiles", {
   minHitRate: real("min_hit_rate").notNull().default(0),
   minExpectancyR: real("min_expectancy_r").notNull().default(0),
   timePriorityMode: text("time_priority_mode").notNull().default("BLEND"),
+  stopMode: text("stop_mode").notNull().default("VOLATILITY_ONLY"),
   isPinned: boolean("is_pinned").notNull().default(false),
   isActive: boolean("is_active").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -230,6 +234,12 @@ export const TIER_LABELS: Record<string, string> = {
   "C": "C",
 };
 
+export const STOP_MODES = ["VOLATILITY_ONLY", "VOLATILITY_TIME", "VOLATILITY_BE", "FULL"] as const;
+export type StopMode = typeof STOP_MODES[number];
+
+export const STOP_STAGES = ["INITIAL", "BE", "TIME_TIGHTENED"] as const;
+export type StopStage = typeof STOP_STAGES[number];
+
 export const ALERT_EVENT_TYPES = ["hit", "approaching", "new_signal", "miss", "activated"] as const;
 export const ACTIVATION_STATUSES = ["NOT_ACTIVE", "ACTIVE", "INVALIDATED"] as const;
 export type ActivationStatus = typeof ACTIVATION_STATUSES[number];
@@ -254,6 +264,8 @@ export type SignalLive = {
   distToTargetAtr: number | null;
   distToStopAtr: number | null;
   atr14: number | null;
+  stopStage: string;
+  timeStopMinutesLeft: number | null;
 };
 
 export type SignalApi = Signal & { live?: SignalLive };
