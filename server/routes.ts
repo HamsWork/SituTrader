@@ -10,6 +10,7 @@ import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from 
 import { generateTradePlan } from "./lib/tradeplan";
 import { runBacktest, computeAndStoreTimeToHitStats } from "./lib/backtest";
 import { runAlerts } from "./lib/alerts";
+import { runActivationScan } from "./lib/activation";
 import { log } from "./index";
 import type { SetupType } from "@shared/schema";
 
@@ -331,6 +332,9 @@ export async function registerRoutes(
               pHit390: sigP390,
               timeScore: qualityResult.timeScore ?? null,
               universePass,
+              activationStatus: "NOT_ACTIVE",
+              activatedTs: null,
+              entryPriceAtActivation: null,
             });
           }
 
@@ -443,6 +447,16 @@ export async function registerRoutes(
       const bts = await storage.getBacktests();
       res.json(bts);
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/activation/scan", async (_req, res) => {
+    try {
+      const events = await runActivationScan();
+      res.json({ ok: true, events });
+    } catch (err: any) {
+      log(`Activation scan error: ${err.message}`, "activation");
       res.status(500).json({ message: err.message });
     }
   });

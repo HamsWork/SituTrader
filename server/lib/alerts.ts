@@ -1,13 +1,14 @@
 import { storage } from "../storage";
 import { fetchSnapshot } from "./polygon";
 import { computeATR } from "./confidence";
+import { runActivationScan } from "./activation";
 import { log } from "../index";
 import type { Signal } from "@shared/schema";
 
 export interface AlertEvent {
   signalId: number;
   ticker: string;
-  type: "hit" | "approaching" | "new_signal" | "miss";
+  type: "hit" | "approaching" | "new_signal" | "miss" | "activated";
   tier: string;
   qualityScore: number;
   message: string;
@@ -166,6 +167,24 @@ export async function runAlerts(): Promise<AlertEvent[]> {
         await storage.updateSignalAlert(sig.id, "notified", nextEligible);
       }
     }
+  }
+
+  try {
+    const activationEvents = await runActivationScan();
+    for (const ae of activationEvents) {
+      events.push({
+        signalId: ae.signalId,
+        ticker: ae.ticker,
+        type: "activated",
+        tier: ae.tier,
+        qualityScore: ae.qualityScore,
+        message: ae.message,
+        timestamp: ae.timestamp,
+        routed: true,
+      });
+    }
+  } catch (err: any) {
+    log(`Alert: activation scan failed: ${err.message}`, "alerts");
   }
 
   log(`Alert scan complete: ${events.length} events generated (${events.filter(e => e.routed).length} routed)`, "alerts");

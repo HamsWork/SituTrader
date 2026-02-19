@@ -68,6 +68,9 @@ export const signals = pgTable("signals", {
   pHit390: real("p_hit_390"),
   timeScore: real("time_score"),
   universePass: boolean("universe_pass").notNull().default(true),
+  activationStatus: text("activation_status").notNull().default("NOT_ACTIVE"),
+  activatedTs: text("activated_ts"),
+  entryPriceAtActivation: real("entry_price_at_activation"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -148,7 +151,9 @@ export const TIER_LABELS: Record<string, string> = {
   "C": "C",
 };
 
-export const ALERT_EVENT_TYPES = ["hit", "approaching", "new_signal", "miss"] as const;
+export const ALERT_EVENT_TYPES = ["hit", "approaching", "new_signal", "miss", "activated"] as const;
+export const ACTIVATION_STATUSES = ["NOT_ACTIVE", "ACTIVE", "INVALIDATED"] as const;
+export type ActivationStatus = typeof ACTIVATION_STATUSES[number];
 export type AlertEventType = typeof ALERT_EVENT_TYPES[number];
 
 export interface TradePlan {

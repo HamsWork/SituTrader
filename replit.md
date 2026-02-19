@@ -17,7 +17,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Tier System**: A+ (quality>=90 AND p60>=0.55), A (quality>=80 AND p120>=0.60), B (70-79), C (<70) with watchlist priority bumping
 - **Time-to-Hit Probability Engine**: Computes p15/p30/p60/p120/p240/p390 distributions from backtest data
 - **Universe Filter**: WATCHLIST_ONLY, LIQUIDITY_ONLY, HYBRID modes with configurable liquidity threshold
-- **Alert Engine**: HIT/Approaching/New Signal/Miss events with tier-based routing, rate limiting, and universe_pass filtering
+- **Alert Engine**: HIT/Approaching/New Signal/Miss/Activated events with tier-based routing, rate limiting, and universe_pass filtering
+- **Activation Engine**: Entry trigger scanning that checks intraday bars against trade plan conditions, tracks ACTIVE/NOT_ACTIVE/INVALIDATED states
 - **RTH Validation**: All hit/miss validation uses Regular Trading Hours only (09:30-16:00 ET)
 - **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
 - **Market Calendar**: NYSE holiday-aware date handling
@@ -33,6 +34,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/confidence.ts` - Confidence scoring (0-1 scale)
 - `server/lib/quality.ts` - Quality scoring (0-100 scale) with TimeScore component and tier mapping
 - `server/lib/alerts.ts` - Alert engine with rate limiting, tier-based routing, universe_pass check
+- `server/lib/activation.ts` - Activation engine: entry trigger scanning, ACTIVE/NOT_ACTIVE/INVALIDATED tracking
 - `server/lib/tradeplan.ts` - Trade plan generation
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
 - `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings)
@@ -52,6 +54,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `GET /api/backtests` - List backtest results
 - `GET /api/time-to-hit-stats/:ticker/:setup` - Get per-ticker time-to-hit stats
 - `GET /api/time-to-hit-stats?setup=X` - Get overall time-to-hit stats for a setup type
+- `POST /api/activation/scan` - Scan pending signals for entry trigger activation
 - `POST /api/alerts/run` - Scan pending signals and generate alert events
 - `GET /api/alerts/events` - List alert events sorted by tier/quality
 
@@ -67,7 +70,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `symbols` - Managed tickers
 - `daily_bars` - OHLCV daily data
 - `intraday_bars` - OHLCV intraday data
-- `signals` - Generated signals with quality/tier/alert/probability fields
+- `signals` - Generated signals with quality/tier/alert/probability/activation fields
 - `backtests` - Backtest results with details
 - `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
 - `app_settings` - Key-value settings
