@@ -129,16 +129,16 @@ export type Backtest = typeof backtests.$inferSelect;
 export type TimeToHitStat = typeof timeToHitStats.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
 
-export const SETUP_TYPES = ["A", "B", "C", "D", "E", "F"] as const;
+export const SETUP_TYPES = ["F", "C", "D", "E", "A", "B"] as const;
 export type SetupType = typeof SETUP_TYPES[number];
 
 export const SETUP_LABELS: Record<SetupType, string> = {
-  A: "Thu-Fri-Mon Magnet",
-  B: "Mon-Wed-Thu Magnet",
+  F: "Weak Extreme",
   C: "Gap Fill Magnet",
   D: "Inside Day Expansion",
   E: "PDH/PDL Sweep",
-  F: "Weak Extreme",
+  A: "Thu-Fri-Mon Magnet",
+  B: "Mon-Wed-Thu Magnet",
 };
 
 export const TIER_LABELS: Record<string, string> = {
