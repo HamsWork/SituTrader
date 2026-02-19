@@ -8,12 +8,12 @@ import { validateMagnetTouch } from "./lib/validate";
 import { computeConfidence, computeATR, computeAvgVolume } from "./lib/confidence";
 import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./lib/quality";
 import { generateTradePlan } from "./lib/tradeplan";
-import { runBacktest } from "./lib/backtest";
+import { runBacktest, computeAndStoreTimeToHitStats } from "./lib/backtest";
 import { runAlerts } from "./lib/alerts";
 import { log } from "./index";
 import type { SetupType } from "@shared/schema";
 
-const SEED_SYMBOLS = ["SPY", "QQQ", "NVDA", "TSLA"];
+const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
 
 async function seedSymbols() {
   try {
@@ -231,6 +231,8 @@ export async function registerRoutes(
             );
 
             const historicalHitRate = await storage.getHitRateForTickerSetup(sym.ticker, setup.setupType);
+            const tthStats = await storage.getTimeToHitStats(sym.ticker, setup.setupType);
+            const timePriorityMode = (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND";
 
             const qualityResult = computeQualityScore({
               setupType: setup.setupType as SetupType,
@@ -244,9 +246,27 @@ export async function registerRoutes(
               todayVolume: triggerDayVolume,
               avgVolume20d: avgVol,
               historicalHitRate,
+              p60: tthStats?.p60 ?? null,
+              p390: tthStats?.p390 ?? null,
+              timePriorityMode,
             });
 
-            let tier = qualityScoreToTier(qualityResult.total);
+            const sigP60 = tthStats?.p60 ?? null;
+            const sigP120 = tthStats?.p120 ?? null;
+            const sigP390 = tthStats?.p390 ?? null;
+
+            let universePass = true;
+            const universeMode = settings.universeMode || "HYBRID";
+            const liquidityThreshold = parseFloat(settings.liquidityThreshold || "250000000");
+            if (universeMode === "WATCHLIST_ONLY") {
+              universePass = watchlistTickers.includes(sym.ticker);
+            } else if (universeMode === "LIQUIDITY_ONLY") {
+              universePass = avgDollarVol >= liquidityThreshold;
+            } else {
+              universePass = watchlistTickers.includes(sym.ticker) || avgDollarVol >= liquidityThreshold;
+            }
+
+            let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
             if (watchlistTickers.includes(sym.ticker) && tier === "B") {
               tier = "A";
             } else if (watchlistTickers.includes(sym.ticker) && tier === "C") {
@@ -289,12 +309,15 @@ export async function registerRoutes(
               setupType: setup.setupType,
               asofDate: setup.asofDate,
               targetDate: setup.targetDate,
+              targetDate2: null,
+              targetDate3: null,
               magnetPrice: setup.magnetPrice,
               magnetPrice2: setup.magnetPrice2 ?? null,
               direction: setup.direction,
               confidence: confidence.total,
               status,
               hitTs,
+              timeToHitMin: null,
               missReason,
               tradePlanJson: tradePlan as any,
               confidenceBreakdown: confidence as any,
@@ -303,6 +326,11 @@ export async function registerRoutes(
               alertState: "new",
               nextAlertEligibleAt: null,
               qualityBreakdown: qualityResult as any,
+              pHit60: sigP60,
+              pHit120: sigP120,
+              pHit390: sigP390,
+              timeScore: qualityResult.timeScore ?? null,
+              universePass,
             });
           }
 
@@ -335,7 +363,7 @@ export async function registerRoutes(
       if (!key || typeof key !== "string") {
         return res.status(400).json({ message: "Key required" });
       }
-      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC"];
+      const allowedKeys = ["intradayTimeframe", "gapThreshold", "entryMode", "stopMode", "sessionStart", "sessionEnd", "watchlistPriority", "alertTierAplus", "alertTierA", "alertTierB", "alertTierC", "universeMode", "liquidityThreshold", "timePriorityMode"];
       if (!allowedKeys.includes(key)) {
         return res.status(400).json({ message: `Invalid setting key: ${key}` });
       }
@@ -377,12 +405,35 @@ export async function registerRoutes(
           const result = await runBacktest(ticker, setup, startDate, endDate, timeframe);
           const saved = await storage.upsertBacktest(result);
           results.push(saved);
+          await computeAndStoreTimeToHitStats(ticker, setup, timeframe);
         }
       }
 
       res.json(results);
     } catch (err: any) {
       log(`Backtest error: ${err.message}`, "backtest");
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/time-to-hit-stats/:ticker/:setup", async (req, res) => {
+    try {
+      const { ticker, setup } = req.params;
+      const stat = await storage.getTimeToHitStats(ticker, setup);
+      if (!stat) return res.json(null);
+      res.json(stat);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/time-to-hit-stats", async (req, res) => {
+    try {
+      const setup = req.query.setup as string;
+      if (!setup) return res.status(400).json({ message: "setup query param required" });
+      const stat = await storage.getOverallTimeToHitStats(setup);
+      res.json(stat);
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

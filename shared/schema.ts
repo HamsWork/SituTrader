@@ -46,12 +46,15 @@ export const signals = pgTable("signals", {
   setupType: text("setup_type").notNull(),
   asofDate: text("asof_date").notNull(),
   targetDate: text("target_date").notNull(),
+  targetDate2: text("target_date_2"),
+  targetDate3: text("target_date_3"),
   magnetPrice: real("magnet_price").notNull(),
   magnetPrice2: real("magnet_price_2"),
   direction: text("direction").notNull(),
   confidence: real("confidence").notNull().default(0.5),
   status: text("status").notNull().default("pending"),
   hitTs: text("hit_ts"),
+  timeToHitMin: real("time_to_hit_min"),
   missReason: text("miss_reason"),
   tradePlanJson: jsonb("trade_plan_json"),
   confidenceBreakdown: jsonb("confidence_breakdown"),
@@ -60,6 +63,11 @@ export const signals = pgTable("signals", {
   alertState: text("alert_state").notNull().default("new"),
   nextAlertEligibleAt: text("next_alert_eligible_at"),
   qualityBreakdown: jsonb("quality_breakdown"),
+  pHit60: real("p_hit_60"),
+  pHit120: real("p_hit_120"),
+  pHit390: real("p_hit_390"),
+  timeScore: real("time_score"),
+  universePass: boolean("universe_pass").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -81,6 +89,24 @@ export const backtests = pgTable("backtests", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const timeToHitStats = pgTable("time_to_hit_stats", {
+  id: serial("id").primaryKey(),
+  ticker: text("ticker").notNull(),
+  setupType: text("setup_type").notNull(),
+  timeframe: text("timeframe").notNull().default("5"),
+  sampleSize: integer("sample_size").notNull().default(0),
+  p15: real("p15").notNull().default(0),
+  p30: real("p30").notNull().default(0),
+  p60: real("p60").notNull().default(0),
+  p120: real("p120").notNull().default(0),
+  p240: real("p240").notNull().default(0),
+  p390: real("p390").notNull().default(0),
+  medianTimeToHitMin: real("median_time_to_hit_min"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("tth_ticker_setup_tf").on(table.ticker, table.setupType, table.timeframe),
+]);
+
 export const appSettings = pgTable("app_settings", {
   id: serial("id").primaryKey(),
   key: text("key").notNull().unique(),
@@ -92,6 +118,7 @@ export const insertSignalSchema = createInsertSchema(signals).omit({ id: true, c
 export const insertBacktestSchema = createInsertSchema(backtests).omit({ id: true, createdAt: true });
 export const insertDailyBarSchema = createInsertSchema(dailyBars).omit({ id: true });
 export const insertIntradayBarSchema = createInsertSchema(intradayBars).omit({ id: true });
+export const insertTimeToHitStatsSchema = createInsertSchema(timeToHitStats).omit({ id: true, updatedAt: true });
 
 export type InsertSymbol = z.infer<typeof insertSymbolSchema>;
 export type Symbol = typeof symbols.$inferSelect;
@@ -99,6 +126,7 @@ export type DailyBar = typeof dailyBars.$inferSelect;
 export type IntradayBar = typeof intradayBars.$inferSelect;
 export type Signal = typeof signals.$inferSelect;
 export type Backtest = typeof backtests.$inferSelect;
+export type TimeToHitStat = typeof timeToHitStats.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
 
 export const SETUP_TYPES = ["A", "B", "C", "D", "E", "F"] as const;
@@ -149,6 +177,7 @@ export interface QualityBreakdown {
   liquidity: number;
   movementEnv: number;
   historicalHitRate: number;
+  timeScore?: number;
   total: number;
 }
 

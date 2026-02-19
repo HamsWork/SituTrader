@@ -3,7 +3,7 @@ import { detectAllSetups, type SetupResult } from "./rules";
 import { validateMagnetTouch, computeMAEMFE, filterRTHBars } from "./validate";
 import { fetchIntradayBars } from "./polygon";
 import { formatDate } from "./calendar";
-import type { BacktestDetail, Backtest } from "@shared/schema";
+import type { BacktestDetail, Backtest, TimeToHitStat } from "@shared/schema";
 import { log } from "../index";
 
 export async function runBacktest(
@@ -146,4 +146,76 @@ export async function runBacktest(
     details,
     notes: null,
   };
+}
+
+export function computeProbabilities(timesToHit: number[], totalOccurrences: number): {
+  p15: number; p30: number; p60: number; p120: number; p240: number; p390: number;
+  medianTimeToHitMin: number | null;
+} {
+  if (totalOccurrences === 0) {
+    return { p15: 0, p30: 0, p60: 0, p120: 0, p240: 0, p390: 0, medianTimeToHitMin: null };
+  }
+
+  const countBelow = (threshold: number) =>
+    timesToHit.filter(t => t <= threshold).length / totalOccurrences;
+
+  const sorted = [...timesToHit].sort((a, b) => a - b);
+  const medianTimeToHitMin = sorted.length > 0
+    ? sorted.length % 2 === 0
+      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+      : sorted[Math.floor(sorted.length / 2)]
+    : null;
+
+  return {
+    p15: countBelow(15),
+    p30: countBelow(30),
+    p60: countBelow(60),
+    p120: countBelow(120),
+    p240: countBelow(240),
+    p390: countBelow(390),
+    medianTimeToHitMin,
+  };
+}
+
+export async function computeAndStoreTimeToHitStats(
+  ticker: string,
+  setupType: string,
+  timeframe: string = "5"
+): Promise<Omit<TimeToHitStat, "id" | "updatedAt"> | null> {
+  const backtestResults = await storage.getBacktests();
+  const relevant = backtestResults.filter(
+    bt => bt.ticker === ticker && bt.setupType === setupType
+  );
+
+  if (relevant.length === 0) return null;
+
+  const allTimesToHit: number[] = [];
+  let totalOccurrences = 0;
+
+  for (const bt of relevant) {
+    const details = bt.details as BacktestDetail[] | null;
+    if (!details) continue;
+    for (const d of details) {
+      if (!d.triggered) continue;
+      totalOccurrences++;
+      if (d.hit && d.timeToHitMin !== undefined) {
+        allTimesToHit.push(d.timeToHitMin);
+      }
+    }
+  }
+
+  if (totalOccurrences === 0) return null;
+
+  const probs = computeProbabilities(allTimesToHit, totalOccurrences);
+
+  const stat = {
+    ticker,
+    setupType,
+    timeframe,
+    sampleSize: totalOccurrences,
+    ...probs,
+  };
+
+  await storage.upsertTimeToHitStats(stat);
+  return stat;
 }

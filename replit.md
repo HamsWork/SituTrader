@@ -1,7 +1,7 @@
 # Situational Signals
 
 ## Overview
-A full-stack web application that detects multi-day "situational analysis" setups in stock markets and produces actionable Buy/Sell bias signals with quantified hit rates. Uses real market data from Polygon.io API. Includes a quality scoring system (0-100) with tier-based alert routing.
+A full-stack web application that detects multi-day "situational analysis" setups in stock markets and produces actionable Buy/Sell bias signals with quantified hit rates. Uses real market data from Polygon.io API. Includes a quality scoring system (0-100) with tier-based alert routing, time-to-hit probability engine, and universe filtering.
 
 ## Architecture
 - **Frontend**: React + TypeScript + Tailwind CSS + Shadcn UI + Recharts
@@ -12,11 +12,14 @@ A full-stack web application that detects multi-day "situational analysis" setup
 ## Key Features
 - **6 Setup Detectors**: Thu-Fri-Mon Magnet (A), Mon-Wed-Thu Magnet (B), Gap Fill (C), Inside Day Expansion (D), PDH/PDL Sweep (E), Weak Extreme (F)
 - **Signal Generation**: Confidence scoring, trade plans with entry/stop/targets
-- **Quality Scoring (0-100)**: 5-component system (edge strength, magnet distance, liquidity, movement environment, historical hit rate)
-- **Tier System**: A+ (90-100), A (80-89), B (70-79), C (<70) with watchlist priority bumping
-- **Alert Engine**: HIT/Approaching/New Signal/Miss events with tier-based routing and rate limiting
+- **Quality Scoring (0-100)**: 6-component system (edge strength, magnet distance, liquidity, movement environment, historical hit rate, TimeScore)
+- **TimeScore (0-25)**: Uses time-to-hit probabilities (p60/p390) with configurable mode (EARLY/SAME_DAY/BLEND)
+- **Tier System**: A+ (quality>=90 AND p60>=0.55), A (quality>=80 AND p120>=0.60), B (70-79), C (<70) with watchlist priority bumping
+- **Time-to-Hit Probability Engine**: Computes p15/p30/p60/p120/p240/p390 distributions from backtest data
+- **Universe Filter**: WATCHLIST_ONLY, LIQUIDITY_ONLY, HYBRID modes with configurable liquidity threshold
+- **Alert Engine**: HIT/Approaching/New Signal/Miss events with tier-based routing, rate limiting, and universe_pass filtering
 - **RTH Validation**: All hit/miss validation uses Regular Trading Hours only (09:30-16:00 ET)
-- **Backtesting Engine**: Historical validation with MAE/MFE analytics
+- **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
 - **Market Calendar**: NYSE holiday-aware date handling
 
 ## Project Structure
@@ -28,10 +31,10 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/rules.ts` - Setup detection logic
 - `server/lib/validate.ts` - RTH intraday validation
 - `server/lib/confidence.ts` - Confidence scoring (0-1 scale)
-- `server/lib/quality.ts` - Quality scoring (0-100 scale) with tier mapping
-- `server/lib/alerts.ts` - Alert engine with rate limiting and tier-based routing
+- `server/lib/quality.ts` - Quality scoring (0-100 scale) with TimeScore component and tier mapping
+- `server/lib/alerts.ts` - Alert engine with rate limiting, tier-based routing, universe_pass check
 - `server/lib/tradeplan.ts` - Trade plan generation
-- `server/lib/backtest.ts` - Backtest engine
+- `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
 - `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings)
 - `client/src/components/` - Reusable UI components
 
@@ -40,13 +43,15 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/symbols` - Add symbol
 - `PATCH /api/symbols/:ticker` - Toggle enabled
 - `DELETE /api/symbols/:ticker` - Remove symbol
-- `GET /api/signals` - List signals (includes qualityScore, tier, alertState)
+- `GET /api/signals` - List signals (includes qualityScore, tier, alertState, pHit60, pHit120, pHit390, timeScore, universePass)
 - `GET /api/stats` - Dashboard statistics (includes topSignalsToday)
 - `GET /api/symbol/:ticker` - Symbol detail with bars, signals, coverage
-- `POST /api/refresh` - Fetch market data, generate signals with quality scores
-- `GET/POST /api/settings` - App settings (includes watchlistPriority, alert routing)
-- `POST /api/backtest/run` - Run backtest
+- `POST /api/refresh` - Fetch market data, generate signals with quality scores and time-to-hit stats
+- `GET/POST /api/settings` - App settings (includes watchlistPriority, alert routing, universeMode, liquidityThreshold, timePriorityMode)
+- `POST /api/backtest/run` - Run backtest (auto-computes time-to-hit stats after each run)
 - `GET /api/backtests` - List backtest results
+- `GET /api/time-to-hit-stats/:ticker/:setup` - Get per-ticker time-to-hit stats
+- `GET /api/time-to-hit-stats?setup=X` - Get overall time-to-hit stats for a setup type
 - `POST /api/alerts/run` - Scan pending signals and generate alert events
 - `GET /api/alerts/events` - List alert events sorted by tier/quality
 
@@ -56,8 +61,18 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - Liquidity (0-15): Average dollar volume (20d)
 - Movement Environment (0-15): True range vs avg + volume vs avg
 - Historical Hit Rate (0-10): From resolved signals for ticker+setup
+- TimeScore (0-25): From time-to-hit probabilities. EARLY: 25*p60, SAME_DAY: 25*p390, BLEND: 15*p60+10*p390
+
+## Database Tables
+- `symbols` - Managed tickers
+- `daily_bars` - OHLCV daily data
+- `intraday_bars` - OHLCV intraday data
+- `signals` - Generated signals with quality/tier/alert/probability fields
+- `backtests` - Backtest results with details
+- `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
+- `app_settings` - Key-value settings
 
 ## Environment
 - `POLYGON_API_KEY` - Required for market data
 - `DATABASE_URL` - PostgreSQL connection (auto-configured)
-- Default seed symbols: SPY, QQQ, NVDA, TSLA
+- Default seed symbols: SPY, QQQ, AAPL, MSFT, AMZN, NVDA, GOOGL, META, TSLA, ARM, AMD, PLTR, NFLX, DIS, LLY, UNH, BABA

@@ -446,8 +446,11 @@ export default function Dashboard() {
                     <TableHead className="text-right">Magnet</TableHead>
                     <TableHead className="text-right">Quality</TableHead>
                     <TableHead className="text-right">Confidence</TableHead>
+                    <TableHead className="text-right">p60</TableHead>
+                    <TableHead className="text-right">p390</TableHead>
                     <TableHead>Target Date</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Alert</TableHead>
                     <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -482,8 +485,19 @@ export default function Dashboard() {
                           {(signal.confidence * 100).toFixed(0)}%
                         </span>
                       </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {signal.pHit60 != null ? `${(signal.pHit60 * 100).toFixed(0)}%` : <span className="text-muted-foreground">--</span>}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {signal.pHit390 != null ? `${(signal.pHit390 * 100).toFixed(0)}%` : <span className="text-muted-foreground">--</span>}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{signal.targetDate}</TableCell>
                       <TableCell>{getStatusBadge(signal.status)}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px]" data-testid={`badge-alert-${signal.id}`}>
+                          {signal.alertState}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         <Link href={`/symbol/${signal.ticker}`}>
                           <Button variant="ghost" size="icon" data-testid={`button-view-signal-${signal.id}`}>

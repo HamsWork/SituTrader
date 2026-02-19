@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Save, Loader2, Bell, Star } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Bell, Star, Globe, Timer } from "lucide-react";
 import type { Symbol } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -80,6 +80,9 @@ export default function SettingsPage() {
     alertTierA: settings?.alertTierA ?? "in-app",
     alertTierB: settings?.alertTierB ?? "in-app",
     alertTierC: settings?.alertTierC ?? "log-only",
+    universeMode: settings?.universeMode ?? "HYBRID",
+    liquidityThreshold: settings?.liquidityThreshold ?? "250000000",
+    timePriorityMode: settings?.timePriorityMode ?? "BLEND",
   };
 
   return (
@@ -262,6 +265,86 @@ export default function SettingsPage() {
               placeholder="SPY,QQQ,NVDA,TSLA"
               data-testid="input-watchlist-priority"
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Universe Filter</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Controls which tickers are eligible for signal generation and alerts.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="text-xs">Universe Mode</Label>
+              <Select
+                value={currentSettings.universeMode}
+                onValueChange={(value) => saveSetting.mutate({ key: "universeMode", value })}
+              >
+                <SelectTrigger data-testid="select-universe-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HYBRID">Hybrid (watchlist OR liquidity)</SelectItem>
+                  <SelectItem value="WATCHLIST_ONLY">Watchlist Only</SelectItem>
+                  <SelectItem value="LIQUIDITY_ONLY">Liquidity Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Liquidity Threshold (20d Avg $ Vol)</Label>
+              <Select
+                value={currentSettings.liquidityThreshold}
+                onValueChange={(value) => saveSetting.mutate({ key: "liquidityThreshold", value })}
+              >
+                <SelectTrigger data-testid="select-liquidity-threshold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="100000000">$100M</SelectItem>
+                  <SelectItem value="250000000">$250M</SelectItem>
+                  <SelectItem value="500000000">$500M</SelectItem>
+                  <SelectItem value="1000000000">$1B</SelectItem>
+                  <SelectItem value="5000000000">$5B</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Timer className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Time Priority Mode</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Controls how the TimeScore quality component weights early vs same-day hit probabilities.
+          </p>
+          <div className="space-y-2">
+            <Label className="text-xs">Mode</Label>
+            <Select
+              value={currentSettings.timePriorityMode}
+              onValueChange={(value) => saveSetting.mutate({ key: "timePriorityMode", value })}
+            >
+              <SelectTrigger data-testid="select-time-priority-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BLEND">Blend (15*p60 + 10*p390)</SelectItem>
+                <SelectItem value="EARLY">Early (25*p60)</SelectItem>
+                <SelectItem value="SAME_DAY">Same Day (25*p390)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

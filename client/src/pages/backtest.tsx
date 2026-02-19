@@ -34,7 +34,7 @@ import {
   Cell,
 } from "recharts";
 import { BarChart3, Play, Download, Loader2 } from "lucide-react";
-import type { Symbol, Backtest } from "@shared/schema";
+import type { Symbol, Backtest, BacktestDetail } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -251,6 +251,70 @@ export default function BacktestPage() {
           </CardContent>
         </Card>
       )}
+
+      {backtests && backtests.length > 0 && (() => {
+        const buckets = [
+          { label: "0-15m", min: 0, max: 15 },
+          { label: "15-30m", min: 15, max: 30 },
+          { label: "30-60m", min: 30, max: 60 },
+          { label: "60-120m", min: 60, max: 120 },
+          { label: "120-240m", min: 120, max: 240 },
+          { label: "240-390m", min: 240, max: 390 },
+          { label: "No Hit", min: -1, max: -1 },
+        ];
+        const counts = buckets.map(b => ({ label: b.label, count: 0 }));
+        for (const bt of backtests) {
+          const details = bt.details as BacktestDetail[] | null;
+          if (!details) continue;
+          for (const d of details) {
+            if (!d.triggered) continue;
+            if (d.hit && d.timeToHitMin !== undefined) {
+              for (let i = 0; i < buckets.length - 1; i++) {
+                if (d.timeToHitMin >= buckets[i].min && d.timeToHitMin < buckets[i].max) {
+                  counts[i].count++;
+                  break;
+                }
+              }
+            } else {
+              counts[counts.length - 1].count++;
+            }
+          }
+        }
+        const hasData = counts.some(c => c.count > 0);
+        if (!hasData) return null;
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Time-to-Hit Distribution</CardTitle>
+            </CardHeader>
+            <CardContent className="p-2">
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={counts}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                      }}
+                      formatter={(value: number) => [value, "Count"]}
+                    />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {counts.map((_, i) => (
+                        <Cell key={i} fill={i < counts.length - 1 ? `hsl(var(--chart-${(i % 5) + 1}))` : "hsl(var(--muted-foreground))"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">

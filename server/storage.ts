@@ -2,8 +2,8 @@ import { eq, and, desc, gte, sql, asc, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  symbols, dailyBars, intradayBars, signals, backtests, appSettings,
-  type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest,
+  symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
+  type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
   type InsertSymbol,
 } from "@shared/schema";
 
@@ -42,6 +42,10 @@ export interface IStorage {
 
   upsertBacktest(bt: Omit<Backtest, "id" | "createdAt">): Promise<Backtest>;
   getBacktests(): Promise<Backtest[]>;
+
+  upsertTimeToHitStats(stat: Omit<TimeToHitStat, "id" | "updatedAt">): Promise<TimeToHitStat>;
+  getTimeToHitStats(ticker: string, setupType: string, timeframe?: string): Promise<TimeToHitStat | null>;
+  getOverallTimeToHitStats(setupType: string, timeframe?: string): Promise<{ p15: number; p30: number; p60: number; p120: number; p240: number; p390: number; sampleSize: number; medianTimeToHitMin: number | null } | null>;
 
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
@@ -287,6 +291,61 @@ export class DatabaseStorage implements IStorage {
 
   async getBacktests(): Promise<Backtest[]> {
     return db.select().from(backtests).orderBy(desc(backtests.createdAt));
+  }
+
+  async upsertTimeToHitStats(stat: Omit<TimeToHitStat, "id" | "updatedAt">): Promise<TimeToHitStat> {
+    const existing = await db.select().from(timeToHitStats).where(
+      and(
+        eq(timeToHitStats.ticker, stat.ticker),
+        eq(timeToHitStats.setupType, stat.setupType),
+        eq(timeToHitStats.timeframe, stat.timeframe),
+      )
+    );
+    if (existing.length > 0) {
+      await db.update(timeToHitStats)
+        .set({ ...stat, updatedAt: new Date() })
+        .where(eq(timeToHitStats.id, existing[0].id));
+      return { ...existing[0], ...stat, updatedAt: new Date() };
+    }
+    const [result] = await db.insert(timeToHitStats).values(stat).returning();
+    return result;
+  }
+
+  async getTimeToHitStats(ticker: string, setupType: string, timeframe: string = "5"): Promise<TimeToHitStat | null> {
+    const result = await db.select().from(timeToHitStats).where(
+      and(
+        eq(timeToHitStats.ticker, ticker),
+        eq(timeToHitStats.setupType, setupType),
+        eq(timeToHitStats.timeframe, timeframe),
+      )
+    );
+    return result[0] ?? null;
+  }
+
+  async getOverallTimeToHitStats(setupType: string, timeframe: string = "5"): Promise<{ p15: number; p30: number; p60: number; p120: number; p240: number; p390: number; sampleSize: number; medianTimeToHitMin: number | null } | null> {
+    const allStats = await db.select().from(timeToHitStats).where(
+      and(
+        eq(timeToHitStats.setupType, setupType),
+        eq(timeToHitStats.timeframe, timeframe),
+      )
+    );
+    if (allStats.length === 0) return null;
+    const totalSamples = allStats.reduce((s, r) => s + r.sampleSize, 0);
+    if (totalSamples === 0) return null;
+    const weighted = (field: keyof TimeToHitStat) =>
+      allStats.reduce((s, r) => s + (r[field] as number) * r.sampleSize, 0) / totalSamples;
+    const medians = allStats.filter(r => r.medianTimeToHitMin !== null).map(r => r.medianTimeToHitMin!);
+    const overallMedian = medians.length > 0 ? medians.sort((a, b) => a - b)[Math.floor(medians.length / 2)] : null;
+    return {
+      p15: weighted("p15"),
+      p30: weighted("p30"),
+      p60: weighted("p60"),
+      p120: weighted("p120"),
+      p240: weighted("p240"),
+      p390: weighted("p390"),
+      sampleSize: totalSamples,
+      medianTimeToHitMin: overallMedian,
+    };
   }
 
   async getSetting(key: string): Promise<string | null> {

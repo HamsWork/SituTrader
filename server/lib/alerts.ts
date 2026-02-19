@@ -92,6 +92,13 @@ export async function runAlerts(): Promise<AlertEvent[]> {
     const atr = computeATR(dailyBars);
 
     for (const sig of sigs) {
+      if (!sig.universePass) {
+        if (sig.alertState === "new") {
+          await storage.updateSignalAlert(sig.id, "disabled", null);
+        }
+        continue;
+      }
+
       if (!shouldRoute(sig.tier, settings)) {
         if (sig.alertState === "new") {
           await storage.updateSignalAlert(sig.id, "disabled", null);

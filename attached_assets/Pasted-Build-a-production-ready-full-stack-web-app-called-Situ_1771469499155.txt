@@ -1,0 +1,358 @@
+Build a production-ready full-stack web app called “Situational Signals” that detects “situational analysis” magnet-level setups and produces tiered alerts prioritized by (1) historical time-to-hit probability and (2) liquidity filters. I have unlimited Polygon.io usage.
+
+TECH STACK (Replit-friendly):
+	•	Next.js 14+ (App Router) + TypeScript
+	•	Tailwind CSS
+	•	SQLite (better-sqlite3) for persistence
+	•	Server Actions (preferred) + API routes where needed
+	•	Recharts for charts
+	•	Testing: Vitest + Testing Library
+	•	Lint/format: ESLint + Prettier
+	•	Env vars:
+	•	POLYGON_API_KEY (required)
+	•	APP_TIMEZONE = “America/New_York” (default)
+	•	SESSION_RTH_START = “09:30”
+	•	SESSION_RTH_END = “16:00”
+
+PRIMARY GOAL:
+	1.	Detect daily “magnet” setups (levels likely to be revisited).
+	2.	Validate hits using intraday data during RTH only.
+	3.	Backtest each setup and compute “time-to-hit probability” curves.
+	4.	Produce alerts organized into tiers (A+, A, B, C) and optionally filtered to a high-liquidity universe and/or watchlist.
+
+CORE SESSION RULE:
+	•	ALL hit/miss validation uses intraday bars only between 09:30–16:00 ET.
+	•	If the target day is a holiday/weekend, roll forward to the next trading day.
+	•	Use a trading-day calendar helper.
+
+DATA SOURCES (Polygon):
+	•	Daily bars: /v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}
+	•	Intraday bars: /v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}
+	•	default intraday timeframe = 5 minute, with user toggle 1 minute vs 5 minute.
+	•	Snapshot (optional): /v2/snapshot/locale/us/markets/stocks/tickers/{ticker}
+	•	Use caching + idempotent writes. No duplicate bars.
+
+DEFAULT UNIVERSE (seed tickers):
+	•	Index/ETFs: SPY, QQQ
+	•	MAG7: AAPL, MSFT, AMZN, NVDA, GOOGL, META, TSLA
+	•	Additional liquid names (seed): ARM, AMD, PLTR, NFLX, DIS, LLY, UNH, BABA
+All tickers must be editable in the UI (add/remove/enable).
+
+SETUPS TO IMPLEMENT (minimum viable):
+Setup A — Thu–Fri–Mon Magnet
+	•	Trigger evaluated after Friday close:
+Condition: High(Fri) < High(Thu)
+Magnet: Low(Fri)
+Target day: next trading day after Friday (normally Monday)
+Hit definition: on target day RTH, intraday Low <= Magnet
+
+Setup B — Mon–Wed–Thu Magnet
+	•	Trigger evaluated after Wednesday close:
+Condition: High(Wed) < High(Mon)
+Magnet: Low(Wed)
+Target day: next trading day after Wednesday (normally Thursday)
+Hit definition: on target day RTH, intraday Low <= Magnet
+
+Setup C — Gap Fill
+	•	Trigger evaluated using today open vs prior close:
+Gap% = (Open(today) - Close(prevDay)) / Close(prevDay)
+If abs(Gap%) >= gap_threshold (default 0.30%):
+Magnet: Close(prevDay)
+Target day: same day
+Hit definition: during RTH, price touches magnet:
+- gap up: intraday Low <= magnet
+- gap down: intraday High >= magnet
+
+Setup D — Inside Day Expansion / Sweep Watch
+	•	Trigger evaluated after daily close:
+Condition: High(today) < High(yesterday) AND Low(today) > Low(yesterday)
+Magnets: Yesterday High and Yesterday Low
+Target day: next trading day
+Validation: During target day RTH, record:
+	•	touched_high (intraday High >= PDH)
+	•	touched_low (intraday Low <= PDL)
+	•	which_touched_first (timestamp ordering if both touched)
+
+Always-On Reference (toggleable):
+Module E — PDH/PDL Sweep Watch
+	•	Every day: PDH and PDL become magnets for next day.
+	•	Validation next day RTH as above.
+	•	Record first-touch ordering.
+
+Optional (toggleable):
+Module F — Weak Extreme Proxy (revisit within 1–3 days)
+	•	Trigger after daily close:
+If day’s Low is within 0.05% of a “mechanical level” (choose any of: PDL, round .00/.50, or user-defined level list)
+AND the day closes in the top 35% of its daily range,
+Then mark Low as a weak-extreme magnet for next 3 trading days.
+	•	Validation: within next 1–3 trading days RTH, intraday Low <= that Low.
+
+WHAT TO STORE PER SIGNAL:
+	•	ticker
+	•	setup_type (A/B/C/D/E/F)
+	•	asof_date (date detected)
+	•	target_date (or target_date_2/3 for multi-day window)
+	•	magnet_price (and optional magnet_price_2)
+	•	direction:
+	•	If last_close > magnet => “Down-to-magnet”
+	•	If last_close < magnet => “Up-to-magnet”
+	•	status: PENDING / HIT / MISS (and HIT_DAY_1/2/3 for multi-day)
+	•	hit_ts (first RTH timestamp where touched)
+	•	time_to_hit_min (minutes from RTH start to hit)
+	•	miss_reason (if any)
+	•	confidence_score (0.05–0.95) with breakdown
+	•	quality_score (0–100) with breakdown
+	•	alert_tier (APLUS/A/B/C)
+	•	universe_pass boolean (passes the chosen universe filter)
+	•	trade_plan_json (entry, stop, targets, rr)
+
+TIME-TO-HIT PROBABILITY ENGINE (NEW MUST-HAVE):
+For each ticker + setup_type (and also overall per setup_type fallback):
+	•	Build an empirical distribution from backtests using intraday timestamps:
+	•	Define t0 = 09:30 ET
+	•	time_to_hit_min = minutes from t0 to first touch within RTH
+	•	For misses, treat as censored at 390 minutes (still count in denominator for “hit-by-time” probabilities)
+Compute and store:
+	•	sample_size
+	•	p15, p30, p60, p120, p240, p390 where:
+p60 = P(hit by 60 min of RTH), etc.
+	•	median_time_to_hit among hits
+	•	updated_at
+Use these to compute a TimeScore and tiering.
+
+DATABASE (SQLite):
+Tables:
+	•	symbols(id, ticker UNIQUE, enabled, created_at)
+	•	daily_bars(id, ticker, date, open, high, low, close, volume, vwap, source, UNIQUE(ticker,date))
+	•	intraday_bars(id, ticker, ts, open, high, low, close, volume, timeframe, source, UNIQUE(ticker,ts,timeframe))
+	•	signals(
+id, ticker, setup_type, asof_date, target_date,
+target_date_2, target_date_3,
+magnet_price, magnet_price_2,
+direction,
+confidence, confidence_breakdown_json,
+quality_score, quality_breakdown_json,
+p_hit_60, p_hit_120, p_hit_390, time_score,
+status, hit_ts, time_to_hit_min, miss_reason,
+universe_pass, alert_tier,
+trade_plan_json,
+created_at
+)
+	•	backtests(
+id, ticker, setup_type, start_date, end_date,
+occurrences, hits, hit_rate,
+avg_time_to_hit_min, median_time_to_hit_min,
+avg_mae, avg_mfe,
+timeframe, notes, created_at
+)
+	•	time_to_hit_stats(
+id, ticker, setup_type, timeframe,
+sample_size,
+p15, p30, p60, p120, p240, p390,
+median_time_to_hit_min,
+updated_at,
+UNIQUE(ticker,setup_type,timeframe)
+)
+	•	app_settings(
+id,
+universe_mode,
+watchlist_json,
+liquidity_threshold_dollar_vol_20d,
+intraday_timeframe_default,
+gap_threshold,
+time_priority_mode,
+tier_thresholds_json,
+alert_channels_json,
+last_updated_at
+)
+
+UNIVERSE FILTER (NEW MUST-HAVE):
+Settings -> Alert Universe modes:
+	1.	WATCHLIST_ONLY: only tickers in watchlist_json
+	2.	LIQUIDITY_ONLY: only tickers with avg_dollar_vol_20d >= threshold
+	3.	HYBRID: (watchlist) OR (passes liquidity threshold)
+Compute avg_dollar_vol_20d from daily bars:
+avg(volume * close) over last 20 trading days.
+Store universe_pass on each signal at creation time and re-evaluate daily.
+
+QUALITY SCORING (0–100) + ALERT TIERING:
+Compute quality_score with a breakdown:
+A) EdgeStrength (0–35)
+	•	Setup base points:
+A/B: 25
+C (Gap): 18
+D (Inside): 15
+E (PDH/PDL): 10
+F (Weak extreme): 12
+	•	Add edge margin bonus 0–10 based on trigger cleanliness (e.g., (ThuHigh - FriHigh)/Close, etc.)
+Clamp EdgeStrength to 35.
+
+B) Distance vs ATR (0–25)
+	•	ATR(14) from daily bars.
+	•	distance = abs(last_close - magnet_price)
+	•	Score:
+distance <= 0.40ATR => 25
+0.40–0.80ATR => 18
+0.80–1.25*ATR => 10
+1.25*ATR => 0
+
+C) Liquidity (0–15)
+	•	avg_dollar_vol_20d tiers:
+=5B => 15
+1B–5B => 10
+250M–1B => 6
+<250M => 0
+
+D) Movement environment (0–15)
+	•	If today TrueRange > 20d avg TrueRange => +10
+	•	If today Volume > 20d avg Volume => +5
+
+E) Historical hit rate (0–10)
+Use backtest hit_rate for (ticker, setup_type) if sample_size >= 30, else use setup_type overall stats.
+	•	75% => 10
+	•	65–75% => 7
+	•	55–65% => 4
+	•	else => 0
+
+F) TimeScore (0–25) (NEW)
+time_priority_mode:
+	•	EARLY: TimeScore = 25 * p60
+	•	SAME_DAY: TimeScore = 25 * p390
+	•	BLEND (default): TimeScore = 15p60 + 10p390
+Use p values from time_to_hit_stats (ticker+setup) if sample_size>=30 else fallback to overall setup stats.
+
+Total quality_score = sum(A..F), clamp 0–100.
+
+Tiering rules (editable in Settings via tier_thresholds_json):
+Default:
+	•	APLUS: quality_score >= 90 AND p60 >= 0.55
+	•	A: quality_score >= 80 AND p120 >= 0.60
+	•	B: quality_score >= 70
+	•	C: else
+If universe_mode excludes ticker, do not send alerts (still store signals).
+
+TRADE PLAN OUTPUT (Buy/Sell bias):
+	•	Bias:
+if last_close > magnet => SELL
+if last_close < magnet => BUY
+	•	Entry trigger options (user-selectable, default Conservative):
+	1.	Conservative:
+Enter only after a 5-minute close breaks in the direction of the magnet and then retests without invalidating.
+	2.	Aggressive:
+Enter on the first 5-minute close in the direction of the magnet after 09:35 ET.
+	•	Stop (default ATR-based):
+stop_dist = max(0.25*ATR, 0.15%*price)
+	•	Targets:
+T1 = magnet
+T2 optional = magnet ± 0.15*ATR (directional)
+	•	Compute implied R:R and display.
+
+ALERTS (NEW MUST-HAVE):
+Support these channels (toggleable):
+	•	In-app notifications (always)
+	•	Discord webhook (primary)
+	•	Email (optional via provider)
+	•	SMS (optional via Twilio)
+Implement alerting as “state-change only”:
+	•	New signal created
+	•	Pending -> Hit
+	•	Pending -> Miss
+	•	Approaching magnet (optional) but must be rate-limited
+
+Approaching alert logic (probability-based):
+	•	Trigger only for APLUS or A tiers by default
+	•	Fire when distance_to_magnet <= approach_threshold_ATR (default 0.15*ATR)
+	•	AND the signal’s time probability suggests it’s still “in-window”:
+	•	If EARLY mode and current minute > 120 and p60 is high, suppress repeated pings
+Rate limiting:
+	•	One approaching alert per signal per day max.
+
+Create an internal alert runner endpoint:
+	•	/api/alerts/run
+It should:
+	•	Fetch current price (latest 1m/5m bar or snapshot)
+	•	Evaluate approaching/hit transitions
+	•	Send alerts to channels
+	•	Persist alert delivery state in signals (e.g., alert_state_json + last_alert_at)
+
+SCHEDULING:
+	•	Provide instructions in README to set a Replit Scheduled Task to call /api/alerts/run every 1–5 minutes during RTH.
+	•	Also allow manual “Run Alerts Now” button in the UI.
+
+PAGES / UI:
+	1.	Dashboard
+
+	•	Buttons: Refresh Data, Run Alerts Now, Settings
+	•	Filters: Tier (A+/A/B/C), Setup type, Status, Universe pass
+	•	“Top Signals Today” widget: only APLUS/A pending, sorted by quality_score then p60
+	•	Table: ticker, setup, tier, quality, p60, p390, magnet, target date, distance (ATR), status, last alert
+
+	2.	Symbol Detail (/symbol/[ticker])
+
+	•	Daily chart (6 months) with magnet lines
+	•	Recent signals list
+	•	Backtest tab:
+	•	run backtest for this ticker
+	•	show hit rate + time-to-hit distribution chart
+	•	Time-to-hit stats panel (p15..p390, median)
+
+	3.	Backtest (/backtest)
+
+	•	Choose ticker(s), setup(s), date range, timeframe (1m/5m)
+	•	Run backtest
+	•	Show table + charts:
+	•	hit rate by month
+	•	histogram of time-to-hit
+	•	export CSV
+
+	4.	Settings (/settings)
+
+	•	Universe mode selector + liquidity threshold
+	•	Manage watchlist tickers (include seed list editable)
+	•	Intraday timeframe default
+	•	Gap threshold
+	•	Time priority mode (EARLY/SAME_DAY/BLEND)
+	•	Tier thresholds (editable)
+	•	Alert channels: Discord webhook url, email settings, SMS settings (optional)
+
+DATA REFRESH:
+“Refresh Data” should:
+	•	Fetch last 260 trading days of daily bars for enabled tickers
+	•	Fetch intraday bars for:
+	•	last 20 trading days (for time-to-hit stats + backtests)
+	•	today (for live dashboard)
+	•	Then:
+	•	generate new signals for the latest day(s)
+	•	recompute backtest summaries and time_to_hit_stats incrementally
+
+MARKET CALENDAR:
+	•	Implement nextTradingDay(date) and addTradingDays(date, n).
+	•	Use an npm market calendar if available; otherwise hardcode NYSE holidays for current and next year and skip weekends.
+
+TESTS (minimum required):
+	•	Unit tests for each setup detector (at least 5 cases per setup including non-trigger cases).
+	•	Tests for RTH-only touch logic.
+	•	Tests for time-to-hit computation and p60/p390 calculation.
+
+ENGINEERING REQUIREMENTS:
+	•	Clean folder structure:
+/lib/polygon (client + caching)
+/lib/db (db init + queries)
+/lib/calendar (trading day helpers)
+/lib/rules (setup detectors)
+/lib/validate (intraday hit/miss + time-to-hit)
+/lib/backtest (runner + stats)
+/lib/scoring (confidence, quality, tier)
+/lib/alerts (routing + rate limiting)
+	•	Timezone handling must be correct for America/New_York.
+	•	Add a sticky disclaimer banner: “Education only. Not financial advice.”
+	•	No fake data. Surface errors cleanly.
+
+DELIVERABLE:
+Implement the full codebase with all necessary files so I can click Run in Replit and it works. Include a README covering:
+	•	setup env vars
+	•	how to run tests
+	•	how to schedule /api/alerts/run in Replit
+	•	what tiers mean and how p60/p390 work
+
+Now build the entire project end-to-end with complete code.

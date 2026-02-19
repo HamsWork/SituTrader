@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +16,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ArrowLeft,
   TrendingUp,
   TrendingDown,
@@ -21,10 +30,13 @@ import {
   Calendar,
   BarChart3,
   Database,
+  FlaskConical,
+  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
   ComposedChart,
+  BarChart,
   Bar,
   Line,
   XAxis,
@@ -32,9 +44,11 @@ import {
   CartesianGrid,
   Tooltip,
   ReferenceLine,
+  Cell,
 } from "recharts";
-import type { Signal, DailyBar } from "@shared/schema";
-import { SETUP_LABELS, TIER_LABELS, type SetupType, type TradePlan, type ConfidenceBreakdown, type QualityBreakdown } from "@shared/schema";
+import type { Signal, DailyBar, Backtest, TimeToHitStat, BacktestDetail } from "@shared/schema";
+import { SETUP_LABELS, TIER_LABELS, SETUP_TYPES, type SetupType, type TradePlan, type ConfidenceBreakdown, type QualityBreakdown } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -48,8 +62,10 @@ function getStatusBadge(status: string) {
 }
 
 export default function SymbolDetail() {
+  const { toast } = useToast();
   const [, params] = useRoute("/symbol/:ticker");
   const ticker = params?.ticker?.toUpperCase() ?? "";
+  const [btSetup, setBtSetup] = useState<string>("A");
 
   const { data: symbolData, isLoading } = useQuery<{
     ticker: string;
@@ -89,6 +105,36 @@ export default function SymbolDetail() {
       </div>
     );
   }
+
+  const { data: backtests } = useQuery<Backtest[]>({
+    queryKey: ["/api/backtests"],
+    enabled: !!ticker,
+  });
+
+  const tickerBacktests = (backtests ?? []).filter(bt => bt.ticker === ticker);
+
+  const { data: tthStats } = useQuery<TimeToHitStat | null>({
+    queryKey: ["/api/time-to-hit-stats", ticker, btSetup],
+    enabled: !!ticker && !!btSetup,
+  });
+
+  const backtestMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/backtest/run", {
+        tickers: [ticker],
+        setups: [btSetup],
+        startDate: null,
+        endDate: null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/time-to-hit-stats", ticker, btSetup] });
+      toast({ title: "Backtest complete", description: `${ticker} setup ${btSetup} backtest finished.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Backtest failed", description: error.message, variant: "destructive" });
+    },
+  });
 
   const chartData = symbolData.dailyBars.slice(-120).map((bar) => ({
     date: bar.date,
@@ -198,6 +244,10 @@ export default function SymbolDetail() {
           <TabsTrigger value="signals" data-testid="tab-signals">
             <Target className="w-3 h-3 mr-1" />
             Signals
+          </TabsTrigger>
+          <TabsTrigger value="backtest" data-testid="tab-backtest">
+            <FlaskConical className="w-3 h-3 mr-1" />
+            Backtest
           </TabsTrigger>
           <TabsTrigger value="data" data-testid="tab-data">
             <Database className="w-3 h-3 mr-1" />
@@ -311,6 +361,137 @@ export default function SymbolDetail() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="backtest" className="mt-4">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+                <CardTitle className="text-sm">Run Backtest for {ticker}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={btSetup} onValueChange={setBtSetup}>
+                    <SelectTrigger className="w-[160px]" data-testid="select-bt-setup">
+                      <SelectValue placeholder="Setup" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SETUP_TYPES.map(s => (
+                        <SelectItem key={s} value={s}>{s}: {SETUP_LABELS[s]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => backtestMutation.mutate()}
+                    disabled={backtestMutation.isPending}
+                    data-testid="button-run-backtest"
+                  >
+                    {backtestMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <FlaskConical className="w-4 h-4 mr-1" />
+                    )}
+                    {backtestMutation.isPending ? "Running..." : "Run Backtest"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {tthStats && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Time-to-Hit Probabilities ({ticker} / Setup {btSetup})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+                    {(["p15", "p30", "p60", "p120", "p240", "p390"] as const).map(key => (
+                      <div key={key} className="text-center p-2 bg-muted/30 rounded-md">
+                        <div className="text-xs text-muted-foreground mb-1">{key}</div>
+                        <div className="text-lg font-bold font-mono">
+                          {((tthStats[key] ?? 0) * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                    <span>Samples: <span className="font-medium text-foreground">{tthStats.sampleSize}</span></span>
+                    {tthStats.medianTimeToHitMin != null && (
+                      <span>Median: <span className="font-medium text-foreground">{tthStats.medianTimeToHitMin.toFixed(0)} min</span></span>
+                    )}
+                  </div>
+                  <div className="h-48 mt-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={[
+                        { label: "p15", value: (tthStats.p15 ?? 0) * 100 },
+                        { label: "p30", value: (tthStats.p30 ?? 0) * 100 },
+                        { label: "p60", value: (tthStats.p60 ?? 0) * 100 },
+                        { label: "p120", value: (tthStats.p120 ?? 0) * 100 },
+                        { label: "p240", value: (tthStats.p240 ?? 0) * 100 },
+                        { label: "p390", value: (tthStats.p390 ?? 0) * 100 },
+                      ]}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v: number) => `${v}%`} />
+                        <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, "Hit Rate"]}
+                          contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "12px" }} />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                          {[0, 1, 2, 3, 4, 5].map(i => (
+                            <Cell key={i} fill={`hsl(var(--chart-${(i % 5) + 1}))`} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {tickerBacktests.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Backtest Results for {ticker}</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Setup</TableHead>
+                          <TableHead className="text-right">Occurrences</TableHead>
+                          <TableHead className="text-right">Hits</TableHead>
+                          <TableHead className="text-right">Hit Rate</TableHead>
+                          <TableHead className="text-right">Avg TTH</TableHead>
+                          <TableHead className="text-right">Avg MAE</TableHead>
+                          <TableHead className="text-right">Avg MFE</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tickerBacktests.map(bt => (
+                          <TableRow key={bt.id} data-testid={`row-bt-${bt.id}`}>
+                            <TableCell>{bt.setupType}: {SETUP_LABELS[bt.setupType as SetupType] ?? bt.setupType}</TableCell>
+                            <TableCell className="text-right font-mono">{bt.occurrences}</TableCell>
+                            <TableCell className="text-right font-mono">{bt.hits}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              {bt.hitRate != null ? `${(bt.hitRate * 100).toFixed(0)}%` : "--"}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">
+                              {bt.avgTimeToHitMin != null ? `${bt.avgTimeToHitMin.toFixed(0)}m` : "--"}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">
+                              {bt.avgMae != null ? `${(bt.avgMae * 100).toFixed(2)}%` : "--"}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">
+                              {bt.avgMfe != null ? `${(bt.avgMfe * 100).toFixed(2)}%` : "--"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="data" className="mt-4">

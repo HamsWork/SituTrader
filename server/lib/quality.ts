@@ -12,6 +12,9 @@ export interface QualityInput {
   todayVolume: number;
   avgVolume20d: number;
   historicalHitRate: number | null;
+  p60?: number | null;
+  p390?: number | null;
+  timePriorityMode?: "EARLY" | "SAME_DAY" | "BLEND";
 }
 
 export function computeQualityScore(input: QualityInput): QualityBreakdown {
@@ -23,12 +26,13 @@ export function computeQualityScore(input: QualityInput): QualityBreakdown {
     input.todayVolume, input.avgVolume20d
   );
   const historicalHitRate = scoreHistoricalHitRate(input.historicalHitRate);
+  const timeScore = scoreTimeToHit(input.p60 ?? null, input.p390 ?? null, input.timePriorityMode ?? "BLEND");
 
   const total = Math.min(100, Math.max(0,
-    edgeStrength + magnetDistance + liquidity + movementEnv + historicalHitRate
+    edgeStrength + magnetDistance + liquidity + movementEnv + historicalHitRate + timeScore
   ));
 
-  return { edgeStrength, magnetDistance, liquidity, movementEnv, historicalHitRate, total };
+  return { edgeStrength, magnetDistance, liquidity, movementEnv, historicalHitRate, timeScore, total };
 }
 
 function scoreEdgeStrength(setupType: SetupType, triggerMargin: number, lastClose: number): number {
@@ -84,9 +88,31 @@ function scoreHistoricalHitRate(hitRate: number | null): number {
   return 0;
 }
 
-export function qualityScoreToTier(score: number): string {
-  if (score >= 90) return "APLUS";
-  if (score >= 80) return "A";
+function scoreTimeToHit(p60: number | null, p390: number | null, mode: "EARLY" | "SAME_DAY" | "BLEND"): number {
+  const p60v = p60 ?? 0;
+  const p390v = p390 ?? 0;
+
+  let raw: number;
+  if (mode === "EARLY") {
+    raw = 25 * p60v;
+  } else if (mode === "SAME_DAY") {
+    raw = 25 * p390v;
+  } else {
+    raw = 15 * p60v + 10 * p390v;
+  }
+
+  return Math.min(25, Math.max(0, Math.round(raw * 10) / 10));
+}
+
+export function qualityScoreToTier(
+  score: number,
+  p60?: number | null,
+  p120?: number | null,
+): string {
+  if (score >= 90 && (p60 ?? 0) >= 0.55) return "APLUS";
+  if (score >= 90) return "A";
+  if (score >= 80 && (p120 ?? 0) >= 0.60) return "A";
+  if (score >= 80) return "B";
   if (score >= 70) return "B";
   return "C";
 }
