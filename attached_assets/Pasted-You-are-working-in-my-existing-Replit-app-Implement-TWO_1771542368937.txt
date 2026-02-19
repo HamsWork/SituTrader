@@ -1,0 +1,91 @@
+You are working in my existing Replit app. Implement TWO changes together:
+
+CHANGE 1 — Simplify Auto Schedule to “Author Mode” (opinionated, no per-job toggles)
+The dashboard currently shows an “Auto Schedule” panel with multiple toggles (Auto Schedule ON/OFF plus separate toggles for After Close, Pre-Open, Live Monitor). Replace this entire system with a single “Author Mode” workflow that matches the recommended situational-analysis process based on completed daily bars + next-session execution.
+
+AUTHOR MODE WORKFLOW (fixed schedule when enabled, no per-job settings)
+When Author Mode is enabled, the system runs:
+	1.	AFTER CLOSE SCAN (primary): 3:10 PM CT weekdays
+	•	Finalize daily-bar inputs and generate next trading day signals.
+	2.	PRE-OPEN RESCORE (secondary): 8:20 AM CT weekdays
+	•	Re-rank / sanity-check only. Do NOT change the underlying daily-based signal conditions.
+	3.	RTH LIVE MONITOR (execution): every 60 seconds during RTH (8:30 AM–3:00 PM CT) weekdays
+	•	Monitor ACTIVE signals only and update live currentPrice/rNow/progress; trigger hit/approaching/invalidation alerts.
+
+UI requirements for Author Mode
+	•	Remove per-job toggles entirely:
+	•	After Close toggle (remove)
+	•	Pre-Open toggle (remove)
+	•	Live Monitor toggle (remove)
+	•	Replace with a compact Author Mode control containing:
+	•	One master switch: “Author Mode”
+	•	One button: “Run Now (Manual Override)”
+	•	One compact status line:
+	•	Next After Close time
+	•	Next Pre-Open time
+	•	Live status: “Running” during RTH, otherwise “Idle”
+	•	Last run times (After Close, Pre-Open, Live tick)
+	•	Keep the existing Refresh button, but rename it “Refresh (Manual)” and wire it to the same “Run Now (Manual Override)” action.
+
+Backend changes for Author Mode
+	•	Replace scheduler enable flags with a single boolean:
+	•	authorModeEnabled
+	•	Keep last-run timestamps and next-run timestamps.
+	•	If authorModeEnabled is false: no scheduled jobs run.
+	•	If authorModeEnabled is true: all three jobs run on the fixed schedule above.
+
+Endpoints
+	1.	GET /api/scheduler/state returns:
+	•	authorModeEnabled
+	•	lastAfterCloseRunTs, lastPreOpenRunTs, lastLiveMonitorRunTs
+	•	nextAfterCloseTs, nextPreOpenTs
+	•	liveStatus: “Running” if within RTH and monitor loop active, else “Idle”
+	2.	POST /api/scheduler/toggle accepts only:
+	•	{ authorModeEnabled: boolean }
+	3.	POST /api/scheduler/run accepts:
+	•	{ job: “autoNow” }
+autoNow behavior:
+
+	•	If within RTH: run one live monitor tick (ACTIVE only)
+	•	Else if morning pre-open window: run pre-open rescore
+	•	Else if after close window: run after close scan
+	•	Else: default to pre-open rescore
+Return which job was executed in the response.
+
+CHANGE 2 — Move Author Mode out of the top “prime” dashboard space (space-saving layout)
+Right now the Auto Schedule panel takes up valuable top-of-dashboard space. I want it to be accessible but not dominate the layout.
+
+Implement this UI change:
+	•	Remove the large “Auto Schedule” panel from the top section entirely.
+	•	Put Author Mode into a compact, non-intrusive location:
+Option A (preferred): A small “Author Mode” pill control in the top-right header area near the Profile dropdown and Refresh button:
+	•	A small toggle switch (or compact button toggle)
+	•	A small status dot: green when Running (during RTH), gray when Idle
+	•	A dropdown chevron or small “Details” link that opens a modal/sheet
+And when clicked, open a modal (or right-side sheet) that shows the full details:
+	•	Next After Close, Next Pre-Open
+	•	Last run times
+	•	Run Now button
+	•	Keep the header clean: the pill should be one line, no big cards.
+
+Modal / Sheet requirements
+	•	Title: “Author Mode”
+	•	Contains:
+	•	Master switch
+	•	Run Now button
+	•	Status rows (Next/Last/Live status)
+	•	Do not add extra toggles.
+
+Implementation guidance
+	•	Use existing UI primitives in the codebase (shadcn components like Dialog/Sheet if present). Match the existing dark theme styling.
+	•	Ensure it works on mobile (Sheet is preferable if you already use it; otherwise Dialog is fine).
+
+ACCEPTANCE CHECK
+	•	No multi-toggle scheduler panel remains.
+	•	Top of dashboard regains space for Trade Now / On Deck information.
+	•	Author Mode control is available in the header as a compact pill + status dot.
+	•	Clicking it opens a modal/sheet with details and the Run Now button.
+	•	Author Mode ON starts the full schedule; OFF stops everything.
+	•	Manual Refresh triggers the same autoNow behavior.
+
+Now implement both changes across the relevant client and server files, remove dead code for old toggles, keep styling consistent, and ensure the app compiles and runs.

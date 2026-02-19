@@ -182,6 +182,7 @@ export const signalProfiles = pgTable("signal_profiles", {
 
 export const schedulerState = pgTable("scheduler_state", {
   key: text("key").primaryKey(),
+  authorModeEnabled: boolean("author_mode_enabled").notNull().default(true),
   autoEnabled: boolean("auto_enabled").notNull().default(true),
   afterCloseEnabled: boolean("after_close_enabled").notNull().default(true),
   preOpenEnabled: boolean("pre_open_enabled").notNull().default(true),

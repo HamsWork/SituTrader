@@ -75,15 +75,15 @@ export async function initScheduler() {
   if (isInitialized) return;
   isInitialized = true;
 
-  log("Initializing auto scheduler...", "scheduler");
+  log("Initializing Author Mode scheduler...", "scheduler");
   const state = await storage.ensureSchedulerState();
   await persistNextTimes();
 
   afterCloseJob = cron.schedule("10 15 * * 1-5", async () => {
     try {
       const st = await storage.getSchedulerState();
-      if (!st.autoEnabled || !st.afterCloseEnabled) {
-        log("After Close job skipped (disabled)", "scheduler");
+      if (!st.authorModeEnabled) {
+        log("After Close job skipped (Author Mode disabled)", "scheduler");
         return;
       }
       if (!isTradingDayToday()) {
@@ -109,8 +109,8 @@ export async function initScheduler() {
   preOpenJob = cron.schedule("20 8 * * 1-5", async () => {
     try {
       const st = await storage.getSchedulerState();
-      if (!st.autoEnabled || !st.preOpenEnabled) {
-        log("Pre-Open job skipped (disabled)", "scheduler");
+      if (!st.authorModeEnabled) {
+        log("Pre-Open job skipped (Author Mode disabled)", "scheduler");
         return;
       }
       if (!isTradingDayToday()) {
@@ -136,7 +136,7 @@ export async function initScheduler() {
   liveMonitorJob = cron.schedule("* * * * *", async () => {
     try {
       const st = await storage.getSchedulerState();
-      if (!st.autoEnabled || !st.liveMonitorEnabled) return;
+      if (!st.authorModeEnabled) return;
       if (!isRTH()) return;
       log("Live monitor tick starting...", "scheduler");
       const summary = await runLiveMonitorTick();
@@ -153,25 +153,20 @@ export async function initScheduler() {
     }
   }, { timezone: CT });
 
-  if (!state.autoEnabled) {
+  if (!state.authorModeEnabled) {
     afterCloseJob.stop();
     preOpenJob.stop();
     liveMonitorJob.stop();
-    log("Scheduler initialized but auto is OFF", "scheduler");
+    log("Author Mode scheduler initialized but OFF", "scheduler");
   } else {
-    log("Scheduler initialized and running", "scheduler");
+    log("Author Mode scheduler initialized and running", "scheduler");
   }
 }
 
-export function reconfigureJobs(state: {
-  autoEnabled: boolean;
-  afterCloseEnabled: boolean;
-  preOpenEnabled: boolean;
-  liveMonitorEnabled: boolean;
-}) {
+export function reconfigureJobs(authorModeEnabled: boolean) {
   if (!afterCloseJob || !preOpenJob || !liveMonitorJob) return;
 
-  if (state.autoEnabled) {
+  if (authorModeEnabled) {
     afterCloseJob.start();
     preOpenJob.start();
     liveMonitorJob.start();
@@ -182,23 +177,30 @@ export function reconfigureJobs(state: {
   }
 }
 
-export async function runJobManually(job: "afterClose" | "preOpen" | "liveOnce"): Promise<any> {
-  if (job === "afterClose") {
-    log("After Close scan starting (manual)...", "scheduler");
-    const summary = await runAfterCloseScan();
+export async function runAutoNow(): Promise<{ job: string; summary: any }> {
+  const now = nowCT();
+  const h = now.hour();
+  const m = now.minute();
+  const totalMin = h * 60 + m;
+
+  let job: string;
+  let summary: any;
+
+  if (isRTH()) {
+    job = "liveOnce";
+    log("AutoNow: Running live monitor tick (within RTH)...", "scheduler");
+    summary = await runLiveMonitorTick();
     await storage.updateSchedulerState({
-      lastAfterCloseRunTs: new Date().toISOString(),
+      lastLiveMonitorRunTs: new Date().toISOString(),
       lastRunSummaryJson: {
         ...((await storage.getSchedulerState()).lastRunSummaryJson as any || {}),
-        afterClose: summary,
+        live: summary,
       },
     });
-    await persistNextTimes();
-    return summary;
-  }
-  if (job === "preOpen") {
-    log("Pre-Open scan starting (manual)...", "scheduler");
-    const summary = await runPreOpenScan();
+  } else if (totalMin >= 480 && totalMin < 510) {
+    job = "preOpen";
+    log("AutoNow: Running pre-open rescore (pre-open window)...", "scheduler");
+    summary = await runPreOpenScan();
     await storage.updateSchedulerState({
       lastPreOpenRunTs: new Date().toISOString(),
       lastRunSummaryJson: {
@@ -207,21 +209,33 @@ export async function runJobManually(job: "afterClose" | "preOpen" | "liveOnce")
       },
     });
     await persistNextTimes();
-    return summary;
-  }
-  if (job === "liveOnce") {
-    log("Live monitor tick starting (manual)...", "scheduler");
-    const summary = await runLiveMonitorTick();
+  } else if (totalMin >= 900) {
+    job = "afterClose";
+    log("AutoNow: Running after close scan (after close window)...", "scheduler");
+    summary = await runAfterCloseScan();
     await storage.updateSchedulerState({
-      lastLiveMonitorRunTs: new Date().toISOString(),
+      lastAfterCloseRunTs: new Date().toISOString(),
       lastRunSummaryJson: {
         ...((await storage.getSchedulerState()).lastRunSummaryJson as any || {}),
-        live: summary,
+        afterClose: summary,
       },
     });
-    return summary;
+    await persistNextTimes();
+  } else {
+    job = "afterClose";
+    log("AutoNow: Running after close scan (default)...", "scheduler");
+    summary = await runAfterCloseScan();
+    await storage.updateSchedulerState({
+      lastAfterCloseRunTs: new Date().toISOString(),
+      lastRunSummaryJson: {
+        ...((await storage.getSchedulerState()).lastRunSummaryJson as any || {}),
+        afterClose: summary,
+      },
+    });
+    await persistNextTimes();
   }
-  throw new Error(`Unknown job: ${job}`);
+
+  return { job, summary };
 }
 
 export { computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT };

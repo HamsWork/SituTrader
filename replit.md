@@ -24,7 +24,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
 - **Signal Profiles**: Saved filter profiles that control dashboard visibility + alert eligibility. Each profile defines: allowed setups, min tier, min quality score, min sample size, min hit rate, min expectancy, time priority mode. Dropdown + banner on dashboard. "Show All" toggle bypasses profile filter. 3 default profiles seeded: Win-Rate Focus (A/B), Balanced, Home Run. Never deletes signal data — profiles only change what you see.
 - **Focus Mode**: Expectancy-based setup prioritization with 3 modes (WIN_RATE, EXPECTANCY, BARBELL). Gates alerts by setup category (PRIMARY/SECONDARY/OFF). Includes MAE-based tradeability filtering (CLEAN/CAUTION/AVOID).
-- **Auto Scheduler**: Hougaard-style 3-window automation. After Close (3:10 PM CT): full scan generating tomorrow's signals. Pre-Open (8:20 AM CT): re-rank and activation check. Live Monitor (every 60s during RTH 8:30 AM-3:00 PM CT): activation + alerts for active signals. Uses node-cron + dayjs timezone. Holiday/weekend gating via NYSE calendar. Persistent scheduler_state with last run times and next scheduled runs.
+- **Author Mode**: Hougaard-style 3-window automation with single master toggle. After Close (3:10 PM CT): full scan generating tomorrow's signals. Pre-Open (8:20 AM CT): re-rank and activation check. Live Monitor (every 60s during RTH 8:30 AM-3:00 PM CT): activation + alerts for active signals. Uses node-cron + dayjs timezone. Holiday/weekend gating via NYSE calendar. Compact header pill with Sheet for details. "Run Now (Manual Override)" uses autoNow logic (context-aware job selection).
 - **Market Calendar**: NYSE holiday-aware date handling
 
 ## Project Structure
@@ -76,9 +76,9 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `PUT /api/profiles/:id` - Update profile
 - `DELETE /api/profiles/:id` - Delete profile
 - `POST /api/profiles/:id/activate` - Set profile as active (deactivates others)
-- `GET /api/scheduler/state` - Scheduler state (toggles, last/next run times, RTH status)
-- `POST /api/scheduler/toggle` - Toggle scheduler jobs (autoEnabled, afterCloseEnabled, preOpenEnabled, liveMonitorEnabled)
-- `POST /api/scheduler/run` - Manual job run (afterClose, preOpen, liveOnce)
+- `GET /api/scheduler/state` - Scheduler state (authorModeEnabled, last/next run times, liveStatus)
+- `POST /api/scheduler/toggle` - Toggle Author Mode ({ authorModeEnabled: boolean })
+- `POST /api/scheduler/run` - Manual run with autoNow context-aware job selection
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus

@@ -14,7 +14,7 @@ import { runActivationScan } from "./lib/activation";
 import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
 import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy";
 import { log } from "./index";
-import { initScheduler, reconfigureJobs, runJobManually, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
+import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
 import type { SetupType } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -814,12 +814,17 @@ export async function registerRoutes(
     try {
       const state = await storage.getSchedulerState();
       const now = nowCT();
+      const rth = isRTH();
       res.json({
-        ...state,
+        authorModeEnabled: state.authorModeEnabled,
+        lastAfterCloseRunTs: state.lastAfterCloseRunTs,
+        lastPreOpenRunTs: state.lastPreOpenRunTs,
+        lastLiveMonitorRunTs: state.lastLiveMonitorRunTs,
+        lastRunSummaryJson: state.lastRunSummaryJson,
+        nextAfterCloseTs: computeNextAfterCloseTs(),
+        nextPreOpenTs: computeNextPreOpenTs(),
         nowCT: now.format("YYYY-MM-DD HH:mm:ss"),
-        isRTH: isRTH(),
-        computedNextAfterClose: computeNextAfterCloseTs(),
-        computedNextPreOpen: computeNextPreOpenTs(),
+        liveStatus: rth && state.authorModeEnabled ? "Running" : "Idle",
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -828,21 +833,13 @@ export async function registerRoutes(
 
   app.post("/api/scheduler/toggle", async (req, res) => {
     try {
-      const { autoEnabled, afterCloseEnabled, preOpenEnabled, liveMonitorEnabled } = req.body;
-      const updates: any = {};
-      if (typeof autoEnabled === "boolean") updates.autoEnabled = autoEnabled;
-      if (typeof afterCloseEnabled === "boolean") updates.afterCloseEnabled = afterCloseEnabled;
-      if (typeof preOpenEnabled === "boolean") updates.preOpenEnabled = preOpenEnabled;
-      if (typeof liveMonitorEnabled === "boolean") updates.liveMonitorEnabled = liveMonitorEnabled;
-
-      const state = await storage.updateSchedulerState(updates);
-      reconfigureJobs({
-        autoEnabled: state.autoEnabled,
-        afterCloseEnabled: state.afterCloseEnabled,
-        preOpenEnabled: state.preOpenEnabled,
-        liveMonitorEnabled: state.liveMonitorEnabled,
-      });
-      res.json(state);
+      const { authorModeEnabled } = req.body;
+      if (typeof authorModeEnabled !== "boolean") {
+        return res.status(400).json({ message: "authorModeEnabled (boolean) is required" });
+      }
+      const state = await storage.updateSchedulerState({ authorModeEnabled });
+      reconfigureJobs(state.authorModeEnabled);
+      res.json({ authorModeEnabled: state.authorModeEnabled });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -851,11 +848,11 @@ export async function registerRoutes(
   app.post("/api/scheduler/run", async (req, res) => {
     try {
       const { job } = req.body;
-      if (!["afterClose", "preOpen", "liveOnce"].includes(job)) {
-        return res.status(400).json({ message: "Invalid job. Use afterClose, preOpen, or liveOnce" });
+      if (job && job !== "autoNow") {
+        return res.status(400).json({ message: "Use { job: 'autoNow' } or omit job field" });
       }
-      const summary = await runJobManually(job);
-      res.json({ ok: true, job, summary });
+      const result = await runAutoNow();
+      res.json({ ok: true, job: result.job, summary: result.summary });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

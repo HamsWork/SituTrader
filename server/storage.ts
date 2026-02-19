@@ -718,6 +718,7 @@ export class DatabaseStorage implements IStorage {
     if (rows.length > 0) return rows[0];
     const defaults: SchedulerState = {
       key: "default",
+      authorModeEnabled: true,
       autoEnabled: true,
       afterCloseEnabled: true,
       preOpenEnabled: true,
