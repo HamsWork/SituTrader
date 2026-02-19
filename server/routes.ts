@@ -90,6 +90,7 @@ export async function registerRoutes(
       const priceMap = new Map<string, number>();
       const atrMap = new Map<string, number>();
 
+      const today = new Date().toISOString().slice(0, 10);
       await Promise.all(activeTickers.map(async (ticker) => {
         try {
           const snap = await fetchSnapshot(ticker);
@@ -97,6 +98,17 @@ export async function registerRoutes(
             priceMap.set(ticker, snap.lastPrice);
           }
         } catch {}
+        if (!priceMap.has(ticker)) {
+          try {
+            const bars = await storage.getIntradayBars(ticker, today, "5");
+            if (bars.length > 0) {
+              const latest = bars[bars.length - 1];
+              if (latest.close > 0) {
+                priceMap.set(ticker, latest.close);
+              }
+            }
+          } catch {}
+        }
         try {
           const ts = await storage.getTickerStats(ticker);
           if (ts && ts.atr14 > 0) {
@@ -157,7 +169,7 @@ export async function registerRoutes(
             currentPrice,
             activeMinutes,
             progressToTarget: Math.round(progressToTarget * 1000) / 1000,
-            rNow: Math.round(rNow * 100) / 100,
+            rNow: rNow != null ? Math.round(rNow * 100) / 100 : null,
             distToTargetAtr: distToTargetAtr != null ? Math.round(distToTargetAtr * 100) / 100 : null,
             distToStopAtr: distToStopAtr != null ? Math.round(distToStopAtr * 100) / 100 : null,
             atr14: atr > 0 ? atr : null,

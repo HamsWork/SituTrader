@@ -1,0 +1,183 @@
+Awesome — your backend shape is already 90% of what we need. The only thing left is to make TS happy, make the UI use live everywhere it matters, and stop the plan/stop inconsistency.
+
+Here’s exactly what I’d change.
+
+⸻
+
+1) Fix the TypeScript typing cleanly (do NOT change DB types)
+
+Right now Signal = typeof signals.$inferSelect; can’t “see” the runtime live.
+
+Create an explicit API response type in shared/schema.ts (or a new shared/types.ts) and use it in the client.
+
+Add this (recommended)
+
+export type TradePlan = {
+  t1: number;
+  t2?: number | null;
+  bias?: "BUY" | "SELL";
+  stopDistance?: number | null;
+  entryTrigger?: string | null;
+  invalidation?: string | null;
+  riskReward?: number | null;
+  notes?: string | null;
+};
+
+export type SignalLive = {
+  currentPrice: number;
+  activeMinutes: number | null;
+  progressToTarget: number; // 0..1
+  rNow: number | null;
+  distToTargetAtr: number | null;
+  distToStopAtr: number | null;
+  atr14: number | null;
+};
+
+export type SignalApi = Signal & { live?: SignalLive };
+
+Then in the dashboard file:
+	•	change Signal imports/usages to SignalApi
+	•	change TradeNowCard({ signal }: { signal: Signal }) → SignalApi
+
+This avoids unions and keeps it simple.
+
+⸻
+
+2) Make the UI always show current price + time since activation (when available)
+
+In your TradeNowCard, inject the Row 1.5 block using signal.live.
+
+Drop-in: add right after Row 1
+
+{signal.live?.currentPrice != null && (
+  <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2">
+    <div className="flex items-center gap-3 flex-wrap text-sm">
+      <span className="font-semibold">
+        Current: ${signal.live.currentPrice.toFixed(2)}
+      </span>
+
+      {signal.live.activeMinutes != null && (
+        <span className="text-muted-foreground">
+          Active: <span className="font-semibold">{signal.live.activeMinutes}m</span>
+        </span>
+      )}
+
+      {signal.live.rNow != null && (
+        <span className="text-muted-foreground">
+          R Now:{" "}
+          <span className={`font-semibold ${signal.live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+            {signal.live.rNow.toFixed(2)}R
+          </span>
+        </span>
+      )}
+
+      <span className="text-muted-foreground">
+        Progress: <span className="font-semibold">{Math.round(signal.live.progressToTarget * 100)}%</span>
+      </span>
+    </div>
+
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {signal.live.distToTargetAtr != null && (
+        <span>
+          To T1: <span className="font-semibold">{signal.live.distToTargetAtr.toFixed(2)} ATR</span>
+        </span>
+      )}
+      {signal.live.distToStopAtr != null && (
+        <span>
+          To Stop: <span className="font-semibold">{signal.live.distToStopAtr.toFixed(2)} ATR</span>
+        </span>
+      )}
+    </div>
+  </div>
+)}
+
+This instantly answers:
+	•	where price is now
+	•	how long since the buy/sell fired
+	•	how far along you are
+	•	whether you’re up/down in R
+
+⸻
+
+3) Update ProgressBar to accept current price and show a “NOW” marker
+
+Change call:
+
+<ProgressBar signal={signal} currentPrice={signal.live?.currentPrice} />
+
+Then update ProgressBar signature:
+
+function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice?: number }) { ... }
+
+Inside: compute normalized “now” position exactly like you do for entry/stop/target. Render a dot + label:
+	•	Now 685.47
+
+Even if you keep it subtle, it’s critical.
+
+⸻
+
+4) Fix the trust-killer: inconsistent stop / entry text
+
+You flagged it yourself: one-line plan uses one stop, STOP box uses another.
+
+Make a single source of truth for displayed stop/entry/target:
+
+Rule
+	•	Entry shown: signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null
+	•	Stop shown: signal.stopPrice ?? null
+	•	T1 shown: tp?.t1 ?? signal.magnetPrice
+	•	If those are missing, fallback to string fields (tp.entryTrigger, tp.invalidation) but label it clearly as “rule text.”
+
+Quick patch
+
+Replace the one-line plan rendering with a “data-first” line when live/activated:
+
+const entryNum = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null;
+const stopNum = signal.stopPrice ?? null;
+const t1Num = tp?.t1 ?? signal.magnetPrice;
+
+const oneLine =
+  entryNum != null && stopNum != null
+    ? `${biasLabel} → entry ${entryNum.toFixed(2)} → stop ${stopNum.toFixed(2)} → T1 ${t1Num.toFixed(2)}`
+    : (oneLinePlan(signal) || `${biasLabel} → target $${signal.magnetPrice.toFixed(2)}`);
+
+This prevents the UI from contradicting itself.
+
+⸻
+
+5) Handle “no live object” gracefully (and stop hiding that fact)
+
+Right now, live only appears if Polygon snapshot was available. That means Trade Now cards can sometimes look “dead.”
+
+Two fixes:
+	1.	If snapshot fails, fallback to latest intraday bar close from DB (better anyway).
+	2.	If live truly unavailable, show a clear badge:
+
+	•	“Live price unavailable” (small, muted)
+
+Don’t silently omit.
+
+⸻
+
+6) Optional but smart: show “On pace / Late” using p60 + activeMinutes
+
+Add next to Early Hit:
+
+const paceTag =
+  signal.live?.activeMinutes != null && signal.pHit60 != null
+    ? (signal.live.activeMinutes <= 60 ? "On pace" :
+       signal.live.activeMinutes > 120 && signal.pHit60 >= 0.55 ? "Late" : null)
+    : null;
+
+Then render a small pill if present.
+
+⸻
+
+What I want your agent to do (copy/paste instructions)
+	1.	Add SignalApi, SignalLive, and TradePlan types to shared and use SignalApi in dashboard.
+	2.	Insert Row 1.5 in TradeNowCard using signal.live.
+	3.	Pass currentPrice into ProgressBar and draw a “NOW” marker.
+	4.	Fix one-line plan to use numeric entryPriceAtActivation/stopPrice/t1 first so stop/entry are consistent.
+	5.	Improve backend live hydration: prefer latest intraday close; snapshot as optional.
+
+If you want, paste the ProgressBar helper and I’ll tell you exactly how to compute the “NOW” marker position based on your existing scaling logic.

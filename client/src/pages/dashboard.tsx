@@ -42,21 +42,9 @@ import {
   Database,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { Signal, TradePlan } from "@shared/schema";
+import type { Signal, TradePlan, SignalApi } from "@shared/schema";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-
-interface LiveData {
-  currentPrice: number;
-  activeMinutes: number | null;
-  progressToTarget: number;
-  rNow: number | null;
-  distToTargetAtr: number | null;
-  distToStopAtr: number | null;
-  atr14: number | null;
-}
-
-type SignalWithLive = Signal & { live?: LiveData };
 
 function getTierBadge(tier: string) {
   const label = TIER_LABELS[tier] || tier;
@@ -103,15 +91,16 @@ const TIER_ORDER: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
 function oneLinePlan(signal: Signal): string {
   const tp = signal.tradePlanJson as TradePlan | null;
   if (!tp) return "";
-  const bias = tp.bias;
-  const target = `$${tp.t1.toFixed(2)}`;
-  const stop = signal.stopPrice != null
-    ? `$${signal.stopPrice.toFixed(2)}`
-    : tp.stopDistance
-    ? `$${(tp.bias === "SELL" ? (signal.entryPriceAtActivation ?? tp.t1) + tp.stopDistance : (signal.entryPriceAtActivation ?? tp.t1) - tp.stopDistance).toFixed(2)}`
-    : "N/A";
+  const biasLabel = tp.bias;
+  const entryNum = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null;
+  const stopNum = signal.stopPrice ?? null;
+  const t1Num = tp.t1 ?? signal.magnetPrice;
+
+  if (entryNum != null && stopNum != null) {
+    return `${biasLabel} → entry $${entryNum.toFixed(2)} → stop $${stopNum.toFixed(2)} → T1 $${t1Num.toFixed(2)}`;
+  }
   const earlyHit = signal.pHit60 != null ? `${(signal.pHit60 * 100).toFixed(0)}%` : "--";
-  return `${bias} → target ${target} → stop ${stop} → Early Hit ${earlyHit}`;
+  return `${biasLabel} → target $${t1Num.toFixed(2)} → Early Hit ${earlyHit}`;
 }
 
 function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: number }) {
@@ -193,7 +182,7 @@ function ProgressBar({ signal, currentPrice }: { signal: Signal; currentPrice?: 
   );
 }
 
-function getPaceLabel(signal: SignalWithLive): string | null {
+function getPaceLabel(signal: SignalApi): string | null {
   const live = signal.live;
   if (!live || live.activeMinutes == null || live.progressToTarget == null) return null;
   if (live.activeMinutes <= 60 && live.progressToTarget >= 0.25) return "On pace";
@@ -201,7 +190,7 @@ function getPaceLabel(signal: SignalWithLive): string | null {
   return null;
 }
 
-function TradeNowCard({ signal }: { signal: SignalWithLive }) {
+function TradeNowCard({ signal }: { signal: SignalApi }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   const isBuy = tp?.bias === "BUY" || (!tp && !signal.direction.toLowerCase().includes("down") && signal.direction !== "SELL");
   const biasLabel = isBuy ? "BUY" : "SELL";
@@ -238,7 +227,7 @@ function TradeNowCard({ signal }: { signal: SignalWithLive }) {
           </div>
         </div>
 
-        {live?.currentPrice != null && (
+        {live?.currentPrice != null ? (
           <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2" data-testid={`live-strip-${signal.id}`}>
             <div className="flex items-center gap-3 flex-wrap text-sm">
               <span className="font-semibold" data-testid={`text-current-price-${signal.id}`}>
@@ -271,6 +260,10 @@ function TradeNowCard({ signal }: { signal: SignalWithLive }) {
               )}
             </div>
           </div>
+        ) : signal.activationStatus === "ACTIVE" && (
+          <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-live-unavailable-${signal.id}`}>
+            Live price unavailable
+          </Badge>
         )}
 
         <div className="rounded-md bg-muted/50 p-2 font-mono text-xs" data-testid={`text-one-line-${signal.id}`}>
@@ -431,7 +424,7 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showHistory, setShowHistory] = useState(false);
 
-  const { data: signals, isLoading: signalsLoading } = useQuery<SignalWithLive[]>({
+  const { data: signals, isLoading: signalsLoading } = useQuery<SignalApi[]>({
     queryKey: ["/api/signals"],
     refetchInterval: 30000,
   });

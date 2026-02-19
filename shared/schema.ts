@@ -227,6 +227,18 @@ export interface TradePlan {
   notes?: string;
 }
 
+export type SignalLive = {
+  currentPrice: number;
+  activeMinutes: number | null;
+  progressToTarget: number;
+  rNow: number | null;
+  distToTargetAtr: number | null;
+  distToStopAtr: number | null;
+  atr14: number | null;
+};
+
+export type SignalApi = Signal & { live?: SignalLive };
+
 export interface ConfidenceBreakdown {
   base: number;
   cleanEdge?: number;
