@@ -81,17 +81,17 @@ export async function registerRoutes(
     try {
       const sigs = await storage.getSignals(undefined, 100);
 
-      const activeSignals = sigs.filter(s => s.activationStatus === "ACTIVE" && s.status === "pending");
-      if (activeSignals.length === 0) {
+      const pendingSignals = sigs.filter(s => s.status === "pending");
+      if (pendingSignals.length === 0) {
         return res.json(sigs);
       }
 
-      const activeTickers = Array.from(new Set(activeSignals.map(s => s.ticker)));
+      const allPendingTickers = Array.from(new Set(pendingSignals.map(s => s.ticker)));
       const priceMap = new Map<string, number>();
       const atrMap = new Map<string, number>();
 
       const today = new Date().toISOString().slice(0, 10);
-      await Promise.all(activeTickers.map(async (ticker) => {
+      await Promise.all(allPendingTickers.map(async (ticker) => {
         try {
           const snap = await fetchSnapshot(ticker);
           if (snap && snap.lastPrice > 0) {
@@ -120,9 +120,20 @@ export async function registerRoutes(
       const nowMs = Date.now();
 
       const hydrated = sigs.map(sig => {
-        if (sig.activationStatus !== "ACTIVE" || sig.status !== "pending") return sig;
+        if (sig.status !== "pending") return sig;
 
         const currentPrice = priceMap.get(sig.ticker);
+
+        if (sig.activationStatus !== "ACTIVE") {
+          if (currentPrice != null) {
+            return {
+              ...sig,
+              live: { currentPrice, activeMinutes: null, progressToTarget: 0, rNow: null, distToTargetAtr: null, distToStopAtr: null, atr14: atrMap.get(sig.ticker) ?? null },
+            };
+          }
+          return sig;
+        }
+
         if (currentPrice == null) return sig;
 
         const tp = sig.tradePlanJson as any;

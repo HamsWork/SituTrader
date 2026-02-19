@@ -1,0 +1,166 @@
+Great. OnDeck is the perfect place to add “how close am I to activation?” and “is the R worth it?” — without needing live price if you don’t have it.
+
+But the best UX is: OnDeck also shows current price (same as TradeNow) because otherwise “distance to trigger” is guesswork. So here are two versions:
+	•	Version A (recommended): add live.currentPrice for OnDeck too (even if not active).
+	•	Version B (fallback): if no current price, show “Trigger price only” and keep it informational.
+
+I’ll give you the exact drop-in changes.
+
+⸻
+
+1) Backend recommendation (quick win)
+
+Change your server so any signal on the dashboard can optionally include live.currentPrice if you have it (snapshot or latest intraday). Not just ACTIVE. Then the UI becomes consistent.
+
+Minimum for OnDeck:
+	•	live.currentPrice
+	•	(optional) live.distToTrigger and live.distToMagnet if you want server-side.
+
+If you don’t want backend changes yet, you can still compute everything client-side using live.currentPrice.
+
+⸻
+
+2) Add “Distance to Trigger” + “RR to T1” (the actionable core)
+
+You already have:
+	•	entryTriggerPrice
+	•	magnetPrice (or tp.t1)
+	•	stopPrice (may be null)
+	•	probabilities
+
+Derived metrics (OnDeck)
+
+Let:
+	•	P = signal.live?.currentPrice (recommended)
+	•	Trig = signal.entryTriggerPrice
+	•	T1 = tp?.t1 ?? signal.magnetPrice
+	•	Stop = signal.stopPrice (if present)
+
+Distance to trigger
+	•	If BUY: Trig - P (need price to go up to trigger)
+	•	If SELL: P - Trig (need price to go down to trigger)
+Clamp at 0 if already crossed (then it should’ve activated soon).
+
+Potential R to T1 (if Stop exists)
+	•	BUY: (T1 - Trig) / (Trig - Stop)
+	•	SELL: (Trig - T1) / (Stop - Trig)
+
+If you don’t have Stop, show “RR: —”.
+
+⸻
+
+3) Drop-in UI upgrade for OnDeckCard
+
+Change signature to accept SignalApi
+
+function OnDeckCard({ signal }: { signal: SignalApi }) {
+
+Add computed values near top
+
+Put this right after biasColor:
+
+const P = signal.live?.currentPrice ?? null;
+const trig = signal.entryTriggerPrice ?? null;
+const t1 = tp?.t1 ?? signal.magnetPrice;
+const stop = signal.stopPrice ?? null;
+
+const distToTrigger =
+  P != null && trig != null
+    ? (isBuy ? (trig - P) : (P - trig))
+    : null;
+
+const rrToT1 =
+  trig != null && stop != null
+    ? (isBuy ? ((t1 - trig) / (trig - stop)) : ((trig - t1) / (stop - trig)))
+    : null;
+
+const isNearTrigger = distToTrigger != null && distToTrigger <= 0.20; // tune this (or use ATR later)
+
+Inject a compact “On Deck Status Strip”
+
+Place this right below the one-line plan, before the Trigger/Invalidation text blocks:
+
+{/* On-deck status strip: current + distance to trigger + RR */}
+<div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2">
+  <div className="flex items-center gap-3 flex-wrap text-xs">
+    {P != null ? (
+      <span className="font-semibold" data-testid={`text-current-${signal.id}`}>
+        Current: {P.toFixed(2)}
+      </span>
+    ) : (
+      <span className="text-muted-foreground">Current: —</span>
+    )}
+
+    {trig != null ? (
+      <span className="text-muted-foreground" data-testid={`text-trig-${signal.id}`}>
+        Trigger: <span className="font-semibold">{trig.toFixed(2)}</span>
+      </span>
+    ) : (
+      <span className="text-muted-foreground">Trigger: —</span>
+    )}
+
+    {distToTrigger != null ? (
+      <span className="text-muted-foreground" data-testid={`text-dist-trigger-${signal.id}`}>
+        To Trigger:{" "}
+        <span className={`font-semibold ${isNearTrigger ? "text-amber-500" : ""}`}>
+          {distToTrigger >= 0 ? distToTrigger.toFixed(2) : "0.00"}
+        </span>
+      </span>
+    ) : (
+      <span className="text-muted-foreground">To Trigger: —</span>
+    )}
+
+    {rrToT1 != null && Number.isFinite(rrToT1) ? (
+      <span className="text-muted-foreground" data-testid={`text-rr-${signal.id}`}>
+        RR to T1: <span className="font-semibold">{rrToT1.toFixed(2)}R</span>
+      </span>
+    ) : (
+      <span className="text-muted-foreground">RR to T1: —</span>
+    )}
+  </div>
+
+  {/* Quick urgency tag */}
+  {isNearTrigger && (
+    <Badge className="text-[10px]" variant="secondary">
+      Near Trigger
+    </Badge>
+  )}
+</div>
+
+That makes OnDeck actionable: “how close, and is it worth it?”
+
+⸻
+
+4) Optional: mini ProgressBar for OnDeck (nice upgrade)
+
+If you want, reuse the same ProgressBar and pass currentPrice even for pending:
+
+<ProgressBar signal={signal} currentPrice={signal.live?.currentPrice} />
+
+But I’d keep OnDeck slimmer unless you’re okay with taller cards.
+
+⸻
+
+5) Fix the $ inconsistency here too
+
+Change:
+
+{oneLinePlan(signal) || `${biasLabel} bias → magnet $${signal.magnetPrice.toFixed(2)}`}
+
+to:
+
+{oneLinePlan(signal) || `${biasLabel} bias → magnet ${signal.magnetPrice.toFixed(2)}`}
+
+
+⸻
+
+6) Strong recommendation: include live.currentPrice for OnDeck signals server-side
+
+Otherwise “distance to trigger” is mostly useless. You don’t need full live stats for pending; just price.
+
+So tell your agent:
+	•	“Attach live.currentPrice for OnDeck signals too (snapshot or latest intraday close).”
+
+⸻
+
+If you paste the dashboard fetch code (where you call /api/signals and split into TradeNow vs OnDeck lists), I’ll tell you exactly how to type it as SignalApi[] and avoid TS complaints when live is missing.

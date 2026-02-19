@@ -415,11 +415,28 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
   );
 }
 
-function OnDeckCard({ signal }: { signal: Signal }) {
+function OnDeckCard({ signal }: { signal: SignalApi }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   const isBuy = tp?.bias === "BUY" || (!tp && !signal.direction.toLowerCase().includes("down") && signal.direction !== "SELL");
   const biasLabel = isBuy ? "BUY" : "SELL";
   const biasColor = isBuy ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+
+  const P = signal.live?.currentPrice ?? null;
+  const trig = signal.entryTriggerPrice ?? null;
+  const t1 = tp?.t1 ?? signal.magnetPrice;
+  const stop = signal.stopPrice ?? null;
+
+  const distToTrigger =
+    P != null && trig != null
+      ? (isBuy ? (trig - P) : (P - trig))
+      : null;
+
+  const rrToT1 =
+    trig != null && stop != null
+      ? (isBuy ? ((t1 - trig) / (trig - stop)) : ((trig - t1) / (stop - trig)))
+      : null;
+
+  const isNearTrigger = distToTrigger != null && distToTrigger <= 0.20;
 
   return (
     <Card data-testid={`card-on-deck-${signal.id}`}>
@@ -443,7 +460,52 @@ function OnDeckCard({ signal }: { signal: Signal }) {
         </div>
 
         <div className="rounded-md bg-muted/50 p-2 font-mono text-xs" data-testid={`text-one-line-${signal.id}`}>
-          {oneLinePlan(signal) || `${biasLabel} bias → magnet $${signal.magnetPrice.toFixed(2)}`}
+          {oneLinePlan(signal) || `${biasLabel} bias → magnet ${signal.magnetPrice.toFixed(2)}`}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2">
+          <div className="flex items-center gap-3 flex-wrap text-xs">
+            {P != null ? (
+              <span className="font-semibold" data-testid={`text-current-${signal.id}`}>
+                Current: {P.toFixed(2)}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Current: —</span>
+            )}
+
+            {trig != null ? (
+              <span className="text-muted-foreground" data-testid={`text-trig-${signal.id}`}>
+                Trigger: <span className="font-semibold">{trig.toFixed(2)}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Trigger: —</span>
+            )}
+
+            {distToTrigger != null ? (
+              <span className="text-muted-foreground" data-testid={`text-dist-trigger-${signal.id}`}>
+                To Trigger:{" "}
+                <span className={`font-semibold ${isNearTrigger ? "text-amber-500" : ""}`}>
+                  {distToTrigger >= 0 ? distToTrigger.toFixed(2) : "0.00"}
+                </span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">To Trigger: —</span>
+            )}
+
+            {rrToT1 != null && Number.isFinite(rrToT1) ? (
+              <span className="text-muted-foreground" data-testid={`text-rr-${signal.id}`}>
+                RR to T1: <span className="font-semibold">{rrToT1.toFixed(2)}R</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">RR to T1: —</span>
+            )}
+          </div>
+
+          {isNearTrigger && (
+            <Badge className="text-[10px]" variant="secondary" data-testid={`badge-near-trigger-${signal.id}`}>
+              Near Trigger
+            </Badge>
+          )}
         </div>
 
         {tp && (
