@@ -290,44 +290,54 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
         {live?.currentPrice != null ? (
           <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2" data-testid={`live-strip-${signal.id}`}>
             <div className="flex items-center gap-3 flex-wrap text-sm">
-              <span className="font-semibold" data-testid={`text-current-price-${signal.id}`}>
+              <span className="font-semibold" data-testid={`text-current-${signal.id}`}>
                 Current: ${live.currentPrice.toFixed(2)}
               </span>
               {live.activeMinutes != null && (
-                <span className="text-muted-foreground">
-                  Active: <span className="font-semibold" data-testid={`text-active-min-${signal.id}`}>{live.activeMinutes}m</span>
+                <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
+                  Active: <span className="font-semibold">{live.activeMinutes}m</span>
                 </span>
               )}
               {live.rNow != null && (
-                <span className="text-muted-foreground">
-                  R Now: <span className={`font-semibold ${live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid={`text-r-now-${signal.id}`}>
-                    {live.rNow >= 0 ? "+" : ""}{live.rNow.toFixed(2)}R
+                <span className="text-muted-foreground" data-testid={`text-rnow-${signal.id}`}>
+                  R Now:{" "}
+                  <span className={`font-semibold ${live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                    {live.rNow.toFixed(2)}R
                   </span>
                 </span>
               )}
-              {live.progressToTarget != null && (
-                <span className="text-muted-foreground">
-                  Progress: <span className="font-semibold" data-testid={`text-progress-${signal.id}`}>{Math.round(live.progressToTarget * 100)}%</span>
-                </span>
-              )}
+              <span className="text-muted-foreground" data-testid={`text-progress-${signal.id}`}>
+                Progress: <span className="font-semibold">{Math.round(live.progressToTarget * 100)}%</span>
+              </span>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               {live.distToTargetAtr != null && (
-                <span data-testid={`text-dist-target-${signal.id}`}>To T1: <span className="font-semibold">{live.distToTargetAtr.toFixed(2)} ATR</span></span>
+                <span data-testid={`text-to-t1-${signal.id}`}>
+                  To T1: <span className="font-semibold">{live.distToTargetAtr.toFixed(2)} ATR</span>
+                </span>
               )}
               {live.distToStopAtr != null && (
-                <span data-testid={`text-dist-stop-${signal.id}`}>To Stop: <span className="font-semibold">{live.distToStopAtr.toFixed(2)} ATR</span></span>
+                <span data-testid={`text-to-stop-${signal.id}`}>
+                  To Stop: <span className="font-semibold">{live.distToStopAtr.toFixed(2)} ATR</span>
+                </span>
               )}
             </div>
           </div>
-        ) : signal.activationStatus === "ACTIVE" && (
-          <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-live-unavailable-${signal.id}`}>
+        ) : (
+          <div className="text-xs text-muted-foreground" data-testid={`badge-live-unavailable-${signal.id}`}>
             Live price unavailable
-          </Badge>
+          </div>
         )}
 
         <div className="rounded-md bg-muted/50 p-2 font-mono text-xs" data-testid={`text-one-line-${signal.id}`}>
-          {oneLinePlan(signal) || `${biasLabel} → target $${signal.magnetPrice.toFixed(2)}`}
+          {(() => {
+            const entryNum = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null;
+            const stopNum = signal.stopPrice ?? null;
+            const t1Num = (tp?.t1 ?? signal.magnetPrice);
+            return entryNum != null && stopNum != null
+              ? `${biasLabel} → entry ${entryNum.toFixed(2)} → stop ${stopNum.toFixed(2)} → T1 ${t1Num.toFixed(2)}`
+              : (oneLinePlan(signal) || `${biasLabel} → target ${signal.magnetPrice.toFixed(2)}`);
+          })()}
         </div>
 
         <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
@@ -394,7 +404,10 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           {signal.activatedTs && (
             <div className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              <span>Activated: {new Date(signal.activatedTs).toLocaleTimeString()}</span>
+              <span>
+                Activated:{" "}
+                {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ET
+              </span>
             </div>
           )}
         </div>

@@ -1,0 +1,124 @@
+Cool. Here’s the exact, minimal set of edits to make TradeNowCard show Current price + Active minutes + R Now + Progress above the bar, using the live object your API already appends.
+
+1) Change the prop type + import
+
+In dashboard.tsx, switch Signal → your API type (whatever you named it). If you haven’t added it yet, do this quick local type at the top of the file:
+
+type SignalLive = {
+  currentPrice: number;
+  activeMinutes: number | null;
+  progressToTarget: number; // 0..1
+  rNow: number | null;
+  distToTargetAtr: number | null;
+  distToStopAtr: number | null;
+  atr14: number | null;
+};
+
+type SignalApi = Signal & { live?: SignalLive };
+
+Then update signatures:
+
+function TradeNowCard({ signal }: { signal: SignalApi }) { ... }
+function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice?: number }) { ... }
+
+2) Inject the “Live Status Strip” into TradeNowCard
+
+Paste this right after Row 1 (after the ticker/tier/Q score row, before the one-line plan):
+
+{/* Row 1.5: live status (current price + time since activation + R now + progress) */}
+{signal.live?.currentPrice != null ? (
+  <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2">
+    <div className="flex items-center gap-3 flex-wrap text-sm">
+      <span className="font-semibold" data-testid={`text-current-${signal.id}`}>
+        Current: ${signal.live.currentPrice.toFixed(2)}
+      </span>
+
+      {signal.live.activeMinutes != null && (
+        <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
+          Active: <span className="font-semibold">{signal.live.activeMinutes}m</span>
+        </span>
+      )}
+
+      {signal.live.rNow != null && (
+        <span className="text-muted-foreground" data-testid={`text-rnow-${signal.id}`}>
+          R Now:{" "}
+          <span className={`font-semibold ${signal.live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+            {signal.live.rNow.toFixed(2)}R
+          </span>
+        </span>
+      )}
+
+      <span className="text-muted-foreground" data-testid={`text-progress-${signal.id}`}>
+        Progress: <span className="font-semibold">{Math.round(signal.live.progressToTarget * 100)}%</span>
+      </span>
+    </div>
+
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {signal.live.distToTargetAtr != null && (
+        <span data-testid={`text-to-t1-${signal.id}`}>
+          To T1: <span className="font-semibold">{signal.live.distToTargetAtr.toFixed(2)} ATR</span>
+        </span>
+      )}
+      {signal.live.distToStopAtr != null && (
+        <span data-testid={`text-to-stop-${signal.id}`}>
+          To Stop: <span className="font-semibold">{signal.live.distToStopAtr.toFixed(2)} ATR</span>
+        </span>
+      )}
+    </div>
+  </div>
+) : (
+  <div className="text-xs text-muted-foreground">
+    Live price unavailable
+  </div>
+)}
+
+3) Pass current price into ProgressBar
+
+Replace:
+
+<ProgressBar signal={signal} />
+
+With:
+
+<ProgressBar signal={signal} currentPrice={signal.live?.currentPrice} />
+
+4) Clean up the “Activated time” formatting
+
+Your current:
+
+<span>Activated: {new Date(signal.activatedTs).toLocaleTimeString()}</span>
+
+Make it deterministic + ET:
+
+<span>
+  Activated:{" "}
+  {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ET
+</span>
+
+5) One trust fix (do this now)
+
+In the one-line plan summary, remove the $ if you want consistent no-$ formatting (you’ve had that preference elsewhere), and make it numeric-first:
+
+const entryNum = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null;
+const stopNum = signal.stopPrice ?? null;
+const t1Num = (tp?.t1 ?? signal.magnetPrice);
+
+const summary =
+  entryNum != null && stopNum != null
+    ? `${biasLabel} → entry ${entryNum.toFixed(2)} → stop ${stopNum.toFixed(2)} → T1 ${t1Num.toFixed(2)}`
+    : (oneLinePlan(signal) || `${biasLabel} → target ${signal.magnetPrice.toFixed(2)}`);
+
+Then render summary in Row 2.
+
+⸻
+
+Result
+
+Now every Trade Now card answers, instantly:
+	•	Where price is now
+	•	How long since the trigger
+	•	Am I winning/losing in R
+	•	How far to T1 / stop
+	•	And the bar visually matches the numbers
+
+If you paste the OnDeckCard too, I’ll mirror the same idea there (but replace “Active minutes” with “Distance to trigger + probability window”).
