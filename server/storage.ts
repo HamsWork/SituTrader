@@ -35,7 +35,7 @@ export interface IStorage {
   updateSignalAlert(id: number, alertState: string, nextEligibleAt: string | null): Promise<void>;
   updateSignalActivation(id: number, activationStatus: string, activatedTs?: string, entryPrice?: number, stopPrice?: number, entryTriggerPrice?: number): Promise<void>;
   updateSignalInvalidation(id: number, invalidationTs: string): Promise<void>;
-  getSignalStats(): Promise<{
+  getSignalStats(profileFilter?: { allowedSetups: string[] } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
     totalSignals: number;
@@ -284,7 +284,7 @@ export class DatabaseStorage implements IStorage {
     return hits / resolved.length;
   }
 
-  async getSignalStats(): Promise<{
+  async getSignalStats(profileFilter?: { allowedSetups: string[] } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
     totalSignals: number;
@@ -294,17 +294,19 @@ export class DatabaseStorage implements IStorage {
     const allSignals = await db.select().from(signals);
     const now = new Date();
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const today = now.toISOString().slice(0, 10);
 
     const activeCount = allSignals.filter((s) => s.status === "pending").length;
     const totalSignals = allSignals.length;
 
-    const recent = allSignals.filter((s) => s.asofDate >= sixtyDaysAgo && s.status !== "pending");
+    const allowedSetups = profileFilter?.allowedSetups;
+    const matchesProfile = (s: Signal) => !allowedSetups || allowedSetups.includes(s.setupType);
+
+    const recent = allSignals.filter((s) => s.asofDate >= sixtyDaysAgo && s.status !== "pending" && matchesProfile(s));
     const recentHits = recent.filter((s) => s.status === "hit").length;
     const hitRate60d = recent.length > 0 ? recentHits / recent.length : 0;
 
     const hitRateBySetup: Record<string, { hits: number; total: number; rate: number }> = {};
-    const resolved = allSignals.filter((s) => s.status !== "pending");
+    const resolved = allSignals.filter((s) => s.status !== "pending" && matchesProfile(s));
     for (const s of resolved) {
       if (!hitRateBySetup[s.setupType]) {
         hitRateBySetup[s.setupType] = { hits: 0, total: 0, rate: 0 };

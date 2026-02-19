@@ -272,9 +272,18 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats", async (_req, res) => {
+  app.get("/api/stats", async (req, res) => {
     try {
-      const stats = await storage.getSignalStats();
+      let profileFilter: { allowedSetups: string[] } | null = null;
+      const profileId = req.query.profileId;
+      if (profileId && profileId !== "all") {
+        const profiles = await storage.getProfiles();
+        const profile = profiles.find(p => p.id === Number(profileId));
+        if (profile) {
+          profileFilter = { allowedSetups: profile.allowedSetups };
+        }
+      }
+      const stats = await storage.getSignalStats(profileFilter);
       const lastRefresh = await storage.getSetting("lastRefresh");
       res.json({ ...stats, lastRefresh });
     } catch (err: any) {

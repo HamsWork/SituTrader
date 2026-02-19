@@ -648,6 +648,7 @@ export default function Dashboard() {
     refetchInterval: 30000,
   });
 
+  const statsProfileParam = showAll ? "all" : (activeProfile?.id ?? "all");
   const { data: stats, isLoading: statsLoading } = useQuery<{
     activeCount: number;
     hitRate60d: number;
@@ -656,7 +657,8 @@ export default function Dashboard() {
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
     topSignalsToday: Signal[];
   }>({
-    queryKey: ["/api/stats"],
+    queryKey: ["/api/stats", statsProfileParam],
+    queryFn: () => fetch(`/api/stats?profileId=${statsProfileParam}`).then(r => r.json()),
   });
 
   const { data: universeStatus } = useQuery<{
@@ -789,27 +791,12 @@ export default function Dashboard() {
     });
 
   const uniqueTickers = Array.from(new Set(allSignals.map(s => s.ticker))).sort();
-  const sixtyDaysAgo = new Date();
-  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-  const sixtyDaysAgoStr = sixtyDaysAgo.toISOString().split("T")[0];
-  const profileResolvedSignals = allSignals
-    .filter(s => (s.status === "hit" || s.status === "miss") && s.targetDate >= sixtyDaysAgoStr)
-    .filter(s => showAll || passesProfile(s, activeProfile));
-  const hitCount = profileResolvedSignals.filter(s => s.status === "hit").length;
-  const missCount = profileResolvedSignals.filter(s => s.status === "miss").length;
-  const profileHitRate = profileResolvedSignals.length > 0 ? hitCount / profileResolvedSignals.length : 0;
-  const profileHitRateBySetup: Record<string, { hits: number; total: number; rate: number }> = {};
-  for (const s of profileResolvedSignals) {
-    if (!profileHitRateBySetup[s.setupType]) {
-      profileHitRateBySetup[s.setupType] = { hits: 0, total: 0, rate: 0 };
-    }
-    profileHitRateBySetup[s.setupType].total++;
-    if (s.status === "hit") profileHitRateBySetup[s.setupType].hits++;
-  }
-  for (const key of Object.keys(profileHitRateBySetup)) {
-    const entry = profileHitRateBySetup[key];
-    entry.rate = entry.total > 0 ? entry.hits / entry.total : 0;
-  }
+  const hitCount = stats?.hitRateBySetup
+    ? Object.values(stats.hitRateBySetup).reduce((sum, d) => sum + d.hits, 0)
+    : allSignals.filter(s => s.status === "hit").length;
+  const missCount = stats?.hitRateBySetup
+    ? Object.values(stats.hitRateBySetup).reduce((sum, d) => sum + (d.total - d.hits), 0)
+    : allSignals.filter(s => s.status === "miss").length;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -959,10 +946,10 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-stat-hit-rate">
-                  {profileResolvedSignals.length > 0 ? `${(profileHitRate * 100).toFixed(1)}%` : "N/A"}
+                  {stats?.hitRate60d ? `${(stats.hitRate60d * 100).toFixed(1)}%` : "N/A"}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 flex-wrap">
-                  {profileHitRate > 0.5 && <TrendingUp className="w-3 h-3 text-emerald-500" />}
+                  {stats?.hitRate60d && stats.hitRate60d > 0.5 && <TrendingUp className="w-3 h-3 text-emerald-500" />}
                   {hitCount} hits / {missCount} misses
                 </p>
               </CardContent>
@@ -1055,11 +1042,11 @@ export default function Dashboard() {
         )}
       </div>
 
-      {Object.keys(profileHitRateBySetup).length > 0 && (
+      {stats?.hitRateBySetup && Object.keys(stats.hitRateBySetup).length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground mb-2">Setup Hit Rates</h2>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-            {Object.entries(profileHitRateBySetup).map(([setup, data]) => (
+            {Object.entries(stats.hitRateBySetup).map(([setup, data]) => (
               <Card key={setup}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between gap-1 mb-1">
