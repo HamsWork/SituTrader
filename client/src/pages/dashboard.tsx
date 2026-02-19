@@ -45,7 +45,7 @@ import {
   CircleDot,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { Signal, TradePlan, SignalApi } from "@shared/schema";
+import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy } from "@shared/schema";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -620,6 +620,28 @@ export default function Dashboard() {
   const [filterTicker, setFilterTicker] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showHistory, setShowHistory] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const { data: profiles } = useQuery<SignalProfile[]>({
+    queryKey: ["/api/profiles"],
+  });
+
+  const { data: activeProfile } = useQuery<SignalProfile | null>({
+    queryKey: ["/api/profiles/active"],
+  });
+
+  const { data: setupStats } = useQuery<SetupExpectancy[]>({
+    queryKey: ["/api/setup-stats"],
+  });
+
+  const activateProfile = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/profiles/${id}/activate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles/active"] });
+      toast({ title: "Profile activated" });
+    },
+  });
 
   const { data: signals, isLoading: signalsLoading } = useQuery<SignalApi[]>({
     queryKey: ["/api/signals"],
@@ -708,6 +730,27 @@ export default function Dashboard() {
     return isBuy ? (trig - P) : (P - trig);
   };
 
+  const overallStats = (setupStats ?? []).filter(s => s.ticker === null);
+  const statsMap = new Map(overallStats.map(s => [s.setupType, s]));
+
+  const passesProfile = (s: SignalApi, profile: SignalProfile | null | undefined): boolean => {
+    if (!profile) return true;
+    if (!profile.allowedSetups.includes(s.setupType)) return false;
+    const tierRank = TIER_ORDER[s.tier] ?? 3;
+    const minTierRank = TIER_ORDER[profile.minTier] ?? 3;
+    if (tierRank > minTierRank) return false;
+    if (s.qualityScore < profile.minQualityScore) return false;
+    const stat = statsMap.get(s.setupType);
+    if (stat) {
+      if (profile.minSampleSize > 0 && stat.sampleSize < profile.minSampleSize) return false;
+      if (profile.minHitRate > 0 && stat.winRate < profile.minHitRate) return false;
+      if (profile.minExpectancyR > 0 && stat.expectancyR < profile.minExpectancyR) return false;
+    } else if (profile.minSampleSize > 0 || profile.minHitRate > 0 || profile.minExpectancyR > 0) {
+      return false;
+    }
+    return true;
+  };
+
   const pendingSignals = allSignals
     .filter(s => s.status === "pending")
     .filter(s => matchesDate(s.targetDate))
@@ -719,8 +762,10 @@ export default function Dashboard() {
       return distToTrigger(a) - distToTrigger(b);
     });
 
-  const tradeNowSignals = pendingSignals.filter(s => s.activationStatus === "ACTIVE");
-  const onDeckSignals = pendingSignals.filter(s => s.activationStatus !== "ACTIVE");
+  const filteredPending = showAll ? pendingSignals : pendingSignals.filter(s => passesProfile(s, activeProfile));
+  const tradeNowSignals = filteredPending.filter(s => s.activationStatus === "ACTIVE");
+  const onDeckSignals = filteredPending.filter(s => s.activationStatus !== "ACTIVE");
+  const hiddenByProfile = pendingSignals.length - filteredPending.length;
 
   const getEffectiveStatus = (s: Signal) => {
     if (s.activationStatus === "INVALIDATED") return "invalidated";
@@ -750,16 +795,49 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold" data-testid="text-page-title">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            {tradeNowSignals.length > 0
-              ? `${tradeNowSignals.length} activated trade${tradeNowSignals.length === 1 ? "" : "s"} ready to act on`
-              : pendingSignals.length > 0
-              ? `${pendingSignals.length} signal${pendingSignals.length === 1 ? "" : "s"} on deck, awaiting entry triggers`
-              : "Refresh data to scan for new setups"
-            }
-          </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <h1 className="text-xl font-semibold" data-testid="text-page-title">Dashboard</h1>
+            <p className="text-sm text-muted-foreground">
+              {tradeNowSignals.length > 0
+                ? `${tradeNowSignals.length} activated trade${tradeNowSignals.length === 1 ? "" : "s"} ready to act on`
+                : filteredPending.length > 0
+                ? `${filteredPending.length} signal${filteredPending.length === 1 ? "" : "s"} on deck, awaiting entry triggers`
+                : "Refresh data to scan for new setups"
+              }
+            </p>
+          </div>
+          {profiles && profiles.length > 0 && (
+            <Select
+              value={activeProfile?.id?.toString() ?? ""}
+              onValueChange={(val) => activateProfile.mutate(parseInt(val, 10))}
+            >
+              <SelectTrigger className="w-[200px] h-8 text-xs" data-testid="select-profile">
+                <Filter className="w-3 h-3 mr-1" />
+                <SelectValue placeholder="Select profile" />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map(p => (
+                  <SelectItem key={p.id} value={p.id.toString()} data-testid={`option-profile-${p.id}`}>
+                    {p.name} {p.isPinned ? "📌" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button
+            variant={showAll ? "secondary" : "ghost"}
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => setShowAll(!showAll)}
+            data-testid="button-show-all"
+          >
+            <Eye className="w-3 h-3 mr-1" />
+            {showAll ? "Showing All" : "Profile Active"}
+            {!showAll && hiddenByProfile > 0 && (
+              <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">{hiddenByProfile} hidden</Badge>
+            )}
+          </Button>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center rounded-md border">
@@ -808,6 +886,22 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {activeProfile && !showAll && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border text-xs text-muted-foreground" data-testid="banner-profile">
+          <Shield className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+          <span className="font-medium text-foreground">{activeProfile.name}</span>
+          <span className="hidden sm:inline">—</span>
+          <span className="hidden sm:inline">
+            Setups {activeProfile.allowedSetups.join(",")}
+            {activeProfile.minTier !== "C" && ` · Tier ${TIER_LABELS[activeProfile.minTier] ?? activeProfile.minTier}+`}
+            {activeProfile.minQualityScore > 0 && ` · Q≥${activeProfile.minQualityScore}`}
+            {activeProfile.minHitRate > 0 && ` · WR≥${(activeProfile.minHitRate * 100).toFixed(0)}%`}
+            {activeProfile.minExpectancyR > 0 && ` · EV≥${activeProfile.minExpectancyR}R`}
+            {activeProfile.minSampleSize > 0 && ` · N≥${activeProfile.minSampleSize}`}
+          </span>
+        </div>
+      )}
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         {statsLoading ? (

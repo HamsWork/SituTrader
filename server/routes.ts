@@ -34,6 +34,84 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   await seedSymbols();
+  await storage.seedDefaultProfiles();
+
+  app.get("/api/profiles", async (_req, res) => {
+    try {
+      const profiles = await storage.getProfiles();
+      res.json(profiles);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/profiles/active", async (_req, res) => {
+    try {
+      const profile = await storage.getActiveProfile();
+      res.json(profile);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/profiles", async (req, res) => {
+    try {
+      const { name, allowedSetups, minTier, minQualityScore, minSampleSize, minHitRate, minExpectancyR, timePriorityMode, isPinned, isActive } = req.body;
+      if (!name || !allowedSetups || !Array.isArray(allowedSetups) || allowedSetups.length === 0) {
+        return res.status(400).json({ message: "Name and allowedSetups are required" });
+      }
+      const profile = await storage.createProfile({
+        name,
+        allowedSetups,
+        minTier: minTier ?? "C",
+        minQualityScore: minQualityScore ?? 0,
+        minSampleSize: minSampleSize ?? 30,
+        minHitRate: minHitRate ?? 0,
+        minExpectancyR: minExpectancyR ?? 0,
+        timePriorityMode: timePriorityMode ?? "BLEND",
+        isPinned: isPinned ?? false,
+        isActive: isActive ?? false,
+      });
+      res.json(profile);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/profiles/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid profile id" });
+      const updated = await storage.updateProfile(id, req.body);
+      if (!updated) return res.status(404).json({ message: "Profile not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/profiles/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid profile id" });
+      await storage.deleteProfile(id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/profiles/:id/activate", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid profile id" });
+      await storage.setActiveProfile(id);
+      const profile = await storage.getProfile(id);
+      res.json(profile);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   app.get("/api/symbols", async (_req, res) => {
     try {

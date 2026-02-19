@@ -22,6 +22,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Activation Engine**: Entry trigger scanning that checks intraday bars against trade plan conditions, tracks ACTIVE/NOT_ACTIVE/INVALIDATED states
 - **RTH Validation**: All hit/miss validation uses Regular Trading Hours only (09:30-16:00 ET)
 - **Backtesting Engine**: Historical validation with MAE/MFE analytics, time-to-hit histograms
+- **Signal Profiles**: Saved filter profiles that control dashboard visibility + alert eligibility. Each profile defines: allowed setups, min tier, min quality score, min sample size, min hit rate, min expectancy, time priority mode. Dropdown + banner on dashboard. "Show All" toggle bypasses profile filter. 3 default profiles seeded: Win-Rate Focus (A/B), Balanced, Home Run. Never deletes signal data — profiles only change what you see.
 - **Focus Mode**: Expectancy-based setup prioritization with 3 modes (WIN_RATE, EXPECTANCY, BARBELL). Gates alerts by setup category (PRIMARY/SECONDARY/OFF). Includes MAE-based tradeability filtering (CLEAN/CAUTION/AVOID).
 - **Market Calendar**: NYSE holiday-aware date handling
 
@@ -66,6 +67,12 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `GET /api/setup-stats` - Overall setup expectancy stats (R-multiples, profit factor, category)
 - `GET /api/setup-stats/:setupType` - Per-ticker breakdown for a setup type
 - `POST /api/setup-stats/recompute` - Force recompute all expectancy stats from backtest data
+- `GET /api/profiles` - List all signal profiles
+- `GET /api/profiles/active` - Get currently active profile
+- `POST /api/profiles` - Create new profile
+- `PUT /api/profiles/:id` - Update profile
+- `DELETE /api/profiles/:id` - Delete profile
+- `POST /api/profiles/:id/activate` - Set profile as active (deactivates others)
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus
@@ -85,6 +92,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `universe_members` - Universe membership per date (universeDate, ticker, avgDollarVol20d, rank, included)
 - `ticker_stats` - Latest ticker statistics (avgDollarVol20d, avgVol20d, atr14, lastPrice)
 - `setup_expectancy` - Setup-level expectancy stats (R-multiples, profit factor, tradeability, category per setup type/ticker)
+- `signal_profiles` - Saved filter profiles (name, allowedSetups[], minTier, minQualityScore, minSampleSize, minHitRate, minExpectancyR, timePriorityMode, isPinned, isActive)
 - `app_settings` - Key-value settings (includes focusMode, focusWinRateThreshold, focusExpectancyThreshold, focusMinSampleSize)
 
 ## Environment

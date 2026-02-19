@@ -1,0 +1,99 @@
+Build it as a Filter + Profile system. Don’t delete anything, don’t fork the app. You keep one unified signal engine, and you switch “what you see + what alerts” using saved profiles.
+
+What you’re trying to avoid
+	•	Losing data history when you change focus
+	•	Rebuilding logic every time you want a different “mode”
+	•	Mixing apples and oranges (high win-rate vs high expectancy)
+
+The system that solves it
+
+1) Profiles (saved “modes”)
+
+Create Signal Profiles that are just stored settings:
+
+Each profile controls:
+	•	Allowed setup types (A, B, C)
+	•	Minimum tier (A+, A, B, etc.)
+	•	Minimum quality score
+	•	Minimum sample size for that setup (so you don’t overfit)
+	•	Minimum hit-rate (win-rate mode)
+	•	Minimum expectancy (EV mode)
+	•	Liquidity universe (MAG7 + SPY/QQQ, or your custom list)
+	•	Time window preference (favor Early Hit probability, or full-day)
+
+Example profiles:
+	•	“Win-Rate Focus (A/B only)” → setups A,B; hit-rate ≥ 70%; sample ≥ 50; tier A–A+; early-hit ≥ 55%
+	•	“Balanced” → setups A,B,C; expectancy ≥ 0.15R; sample ≥ 30; tier B+ and up
+	•	“Home Run” → lower hit-rate allowed but expectancy ≥ 0.25R and RR-to-T1 ≥ 1.5R
+
+Switching profiles changes:
+	•	What shows in Trade Now / On Deck
+	•	What triggers alerts
+	•	What gets highlighted as “Tradeable”
+
+But the database keeps all signals and outcomes.
+
+⸻
+
+2) Two layers: “Track Everything” vs “Alert/Display”
+
+Never stop tracking. Only change:
+	•	Alert eligibility
+	•	Dashboard inclusion
+	•	Ranking / sorting
+
+So your engine still collects performance stats for C setups even if you’re not trading them today.
+
+⸻
+
+3) Performance table (the brain)
+
+Add an internal table that the app updates daily:
+
+setup_stats
+	•	setupType (A/B/C)
+	•	ticker (optional; can be aggregated too)
+	•	occurrences
+	•	hitRate
+	•	avgR
+	•	expectancyR
+	•	medianMAE
+	•	medianTimeToHit
+	•	earlyHitRate (hit within 60m)
+	•	profitFactor
+
+Then profiles can filter on real stats:
+	•	“Only show setups with expectancyR > 0.15 and occurrences >= 50”
+
+This prevents you from “switching ideas” based on vibes.
+
+⸻
+
+4) UI: one dropdown + one “pin”
+
+On the dashboard header:
+	•	Dropdown: Active Profile
+	•	Button: Pin profile (default on load)
+
+And show a tiny banner:
+	•	“Profile: Win-Rate Focus (A/B) — Tier A–B, HitRate ≥ 70%, EarlyHit ≥ 55%”
+
+So you always know what lens you’re viewing.
+
+⸻
+
+5) Keep data: nothing is lost
+
+Key rule:
+	•	Signals table remains complete
+	•	Profile only changes visibility/alerts
+	•	A “Show All (Archive)” toggle lets you view everything anytime
+
+⸻
+
+If you want, I’ll turn this into a single master Replit prompt that adds:
+	•	profiles table
+	•	profile CRUD endpoints
+	•	dashboard dropdown + profile banner
+	•	filtering logic applied to Trade Now / On Deck / alerts
+	•	setup performance stats table + nightly recompute job

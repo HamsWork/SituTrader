@@ -161,6 +161,23 @@ export const setupExpectancy = pgTable("setup_expectancy", {
   unique("se_setup_ticker").on(table.setupType, table.ticker),
 ]);
 
+export const signalProfiles = pgTable("signal_profiles", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  allowedSetups: text("allowed_setups").array().notNull(),
+  minTier: text("min_tier").notNull().default("C"),
+  minQualityScore: integer("min_quality_score").notNull().default(0),
+  minSampleSize: integer("min_sample_size").notNull().default(30),
+  minHitRate: real("min_hit_rate").notNull().default(0),
+  minExpectancyR: real("min_expectancy_r").notNull().default(0),
+  timePriorityMode: text("time_priority_mode").notNull().default("BLEND"),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSignalProfileSchema = createInsertSchema(signalProfiles).omit({ id: true, createdAt: true });
+
 export const insertSymbolSchema = createInsertSchema(symbols).omit({ id: true, createdAt: true });
 export const insertSignalSchema = createInsertSchema(signals).omit({ id: true, createdAt: true });
 export const insertBacktestSchema = createInsertSchema(backtests).omit({ id: true, createdAt: true });
@@ -182,6 +199,8 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type UniverseMember = typeof universeMembers.$inferSelect;
 export type TickerStat = typeof tickerStats.$inferSelect;
 export type SetupExpectancy = typeof setupExpectancy.$inferSelect;
+export type SignalProfile = typeof signalProfiles.$inferSelect;
+export type InsertSignalProfile = z.infer<typeof insertSignalProfileSchema>;
 
 export const FOCUS_MODES = ["WIN_RATE", "EXPECTANCY", "BARBELL"] as const;
 export type FocusMode = typeof FOCUS_MODES[number];

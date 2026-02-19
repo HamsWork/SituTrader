@@ -4,7 +4,7 @@ import { computeATR } from "./confidence";
 import { runActivationScan } from "./activation";
 import { getSetupAlertCategory, type ExpectancyStats } from "./expectancy";
 import { log } from "../index";
-import type { Signal } from "@shared/schema";
+import type { Signal, SignalProfile } from "@shared/schema";
 
 export interface AlertEvent {
   signalId: number;
@@ -89,6 +89,12 @@ export async function runAlerts(): Promise<AlertEvent[]> {
     }));
   } catch {}
 
+  const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
+  let activeProfile: SignalProfile | null = null;
+  try {
+    activeProfile = await storage.getActiveProfile();
+  } catch {}
+
   const eligibleSignals = await storage.getAlertEligibleSignals();
   if (eligibleSignals.length === 0) return events;
 
@@ -133,6 +139,47 @@ export async function runAlerts(): Promise<AlertEvent[]> {
           if (sig.alertState === "new") {
             await storage.updateSignalAlert(sig.id, "focus_filtered", null);
           }
+          continue;
+        }
+      }
+
+      if (activeProfile) {
+        if (!activeProfile.allowedSetups.includes(sig.setupType)) {
+          if (sig.alertState === "new") {
+            await storage.updateSignalAlert(sig.id, "profile_filtered", null);
+          }
+          continue;
+        }
+        const sigTierRank = TIER_RANK[sig.tier] ?? 3;
+        const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
+        if (sigTierRank > minTierRank) {
+          if (sig.alertState === "new") {
+            await storage.updateSignalAlert(sig.id, "profile_filtered", null);
+          }
+          continue;
+        }
+        if (sig.qualityScore < activeProfile.minQualityScore) {
+          if (sig.alertState === "new") {
+            await storage.updateSignalAlert(sig.id, "profile_filtered", null);
+          }
+          continue;
+        }
+        const overallStat = setupStatsData.find(s => s.setupType === sig.setupType && !s.ticker);
+        if (overallStat) {
+          if (activeProfile.minSampleSize > 0 && overallStat.sampleSize < activeProfile.minSampleSize) {
+            if (sig.alertState === "new") await storage.updateSignalAlert(sig.id, "profile_filtered", null);
+            continue;
+          }
+          if (activeProfile.minHitRate > 0 && overallStat.winRate < activeProfile.minHitRate) {
+            if (sig.alertState === "new") await storage.updateSignalAlert(sig.id, "profile_filtered", null);
+            continue;
+          }
+          if (activeProfile.minExpectancyR > 0 && overallStat.expectancyR < activeProfile.minExpectancyR) {
+            if (sig.alertState === "new") await storage.updateSignalAlert(sig.id, "profile_filtered", null);
+            continue;
+          }
+        } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
+          if (sig.alertState === "new") await storage.updateSignalAlert(sig.id, "profile_filtered", null);
           continue;
         }
       }

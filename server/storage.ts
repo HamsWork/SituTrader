@@ -3,10 +3,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
-  universeMembers, tickerStats, setupExpectancy,
+  universeMembers, tickerStats, setupExpectancy, signalProfiles,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
-  type UniverseMember, type TickerStat, type SetupExpectancy,
-  type InsertSymbol,
+  type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile,
+  type InsertSymbol, type InsertSignalProfile,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -72,6 +72,15 @@ export interface IStorage {
   getSetupExpectancy(setupType: string, ticker?: string | null): Promise<SetupExpectancy | null>;
   getAllSetupExpectancy(): Promise<SetupExpectancy[]>;
   getOverallSetupExpectancy(): Promise<SetupExpectancy[]>;
+
+  getProfiles(): Promise<SignalProfile[]>;
+  getActiveProfile(): Promise<SignalProfile | null>;
+  getProfile(id: number): Promise<SignalProfile | null>;
+  createProfile(profile: InsertSignalProfile): Promise<SignalProfile>;
+  updateProfile(id: number, profile: Partial<InsertSignalProfile>): Promise<SignalProfile | null>;
+  deleteProfile(id: number): Promise<void>;
+  setActiveProfile(id: number): Promise<void>;
+  seedDefaultProfiles(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -527,6 +536,87 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(setupExpectancy)
       .where(sql`${setupExpectancy.ticker} IS NULL`)
       .orderBy(desc(setupExpectancy.expectancyR));
+  }
+
+  async getProfiles(): Promise<SignalProfile[]> {
+    return db.select().from(signalProfiles).orderBy(asc(signalProfiles.name));
+  }
+
+  async getActiveProfile(): Promise<SignalProfile | null> {
+    const result = await db.select().from(signalProfiles).where(eq(signalProfiles.isActive, true));
+    return result[0] ?? null;
+  }
+
+  async getProfile(id: number): Promise<SignalProfile | null> {
+    const result = await db.select().from(signalProfiles).where(eq(signalProfiles.id, id));
+    return result[0] ?? null;
+  }
+
+  async createProfile(profile: InsertSignalProfile): Promise<SignalProfile> {
+    const result = await db.insert(signalProfiles).values(profile).returning();
+    return result[0];
+  }
+
+  async updateProfile(id: number, profile: Partial<InsertSignalProfile>): Promise<SignalProfile | null> {
+    const result = await db.update(signalProfiles).set(profile).where(eq(signalProfiles.id, id)).returning();
+    return result[0] ?? null;
+  }
+
+  async deleteProfile(id: number): Promise<void> {
+    await db.delete(signalProfiles).where(eq(signalProfiles.id, id));
+  }
+
+  async setActiveProfile(id: number): Promise<void> {
+    await db.update(signalProfiles).set({ isActive: false }).where(eq(signalProfiles.isActive, true));
+    await db.update(signalProfiles).set({ isActive: true }).where(eq(signalProfiles.id, id));
+  }
+
+  async seedDefaultProfiles(): Promise<void> {
+    const existing = await db.select().from(signalProfiles);
+    if (existing.length > 0) return;
+
+    const defaults: InsertSignalProfile[] = [
+      {
+        name: "Win-Rate Focus (A/B)",
+        allowedSetups: ["A", "B"],
+        minTier: "A",
+        minQualityScore: 70,
+        minSampleSize: 50,
+        minHitRate: 0.70,
+        minExpectancyR: 0,
+        timePriorityMode: "EARLY",
+        isPinned: true,
+        isActive: true,
+      },
+      {
+        name: "Balanced",
+        allowedSetups: ["A", "B", "C"],
+        minTier: "B",
+        minQualityScore: 60,
+        minSampleSize: 30,
+        minHitRate: 0,
+        minExpectancyR: 0.15,
+        timePriorityMode: "BLEND",
+        isPinned: false,
+        isActive: false,
+      },
+      {
+        name: "Home Run",
+        allowedSetups: ["A", "B", "C", "D", "E", "F"],
+        minTier: "B",
+        minQualityScore: 50,
+        minSampleSize: 20,
+        minHitRate: 0,
+        minExpectancyR: 0.25,
+        timePriorityMode: "SAME_DAY",
+        isPinned: false,
+        isActive: false,
+      },
+    ];
+
+    for (const p of defaults) {
+      await db.insert(signalProfiles).values(p);
+    }
   }
 }
 
