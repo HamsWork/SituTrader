@@ -40,6 +40,9 @@ import {
   Radio,
   Eye,
   Database,
+  ThumbsUp,
+  ThumbsDown,
+  Minus,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Signal, TradePlan, SignalApi } from "@shared/schema";
@@ -249,6 +252,27 @@ function getPaceLabel(signal: SignalApi): string | null {
   return null;
 }
 
+function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad"; title: string; Icon: typeof ThumbsUp; className: string } {
+  const tp = signal.tradePlanJson as TradePlan | null;
+  const isSell = tp?.bias === "SELL" || (!tp && (signal.direction.toLowerCase().includes("down") || signal.direction === "SELL"));
+  const rNow = signal.live?.rNow ?? null;
+  const progress = signal.live?.progressToTarget ?? null;
+  const currentPrice = signal.live?.currentPrice ?? null;
+  const stopPrice = signal.stopPrice ?? null;
+
+  const beyondStop = currentPrice != null && stopPrice != null && (
+    (isSell && currentPrice > stopPrice) || (!isSell && currentPrice < stopPrice)
+  );
+
+  if (beyondStop || (rNow != null && rNow <= -0.25)) {
+    return { state: "bad", title: "Trade Health: Bad", Icon: ThumbsDown, className: "bg-red-500/10 text-red-500" };
+  }
+  if (rNow != null && rNow >= 0.25 && progress != null && progress >= 0.25) {
+    return { state: "good", title: "Trade Health: Good", Icon: ThumbsUp, className: "bg-emerald-500/10 text-emerald-500" };
+  }
+  return { state: "neutral", title: "Trade Health: Neutral", Icon: Minus, className: "bg-muted/50 text-muted-foreground" };
+}
+
 function TradeNowCard({ signal }: { signal: SignalApi }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   const isBuy = tp?.bias === "BUY" || (!tp && !signal.direction.toLowerCase().includes("down") && signal.direction !== "SELL");
@@ -278,6 +302,18 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
             <span className={`text-sm font-bold ${getQualityColor(signal.qualityScore)}`} data-testid={`text-quality-${signal.id}`}>
               Q{signal.qualityScore}
             </span>
+            {(() => {
+              const health = getTradeHealth(signal);
+              return (
+                <span
+                  className={`inline-flex items-center justify-center rounded-full px-2 py-1 ${health.className}`}
+                  title={health.title}
+                  data-testid={`trade-health-${signal.id}`}
+                >
+                  <health.Icon className="w-5 h-5" />
+                </span>
+              );
+            })()}
             <Link href={`/symbol/${signal.ticker}`}>
               <Button variant="ghost" size="icon" data-testid={`button-view-signal-${signal.id}`}>
                 <ArrowUpRight className="w-4 h-4" />

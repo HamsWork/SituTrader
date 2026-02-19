@@ -1,0 +1,98 @@
+You are working in the existing Replit full-stack app we’ve been updating (client/src/pages/dashboard.tsx contains TradeNowCard + ProgressBar; signals come from /api/signals and ACTIVE signals include signal.live with rNow/progress/currentPrice). Implement a clear thumbs up/down visual in the TradeNowCard as an instant “trade health” indicator.
+
+GOAL
+Add a single “Trade Health” icon (thumb up / neutral / thumb down) in the TradeNowCard so a user can glance and know whether the ACTIVE trade is going well right now.
+
+PLACEMENT (IMPORTANT)
+Place the Trade Health icon in the TOP-RIGHT cluster of TradeNowCard Row 1, between the Q score and the external view button. Do NOT place it top-left because that area is already busy (bias icon + ticker + tier). Top-right is reserved for status indicators and keeps the hierarchy clean.
+
+VISUAL REQUIREMENTS
+	•	Use lucide-react icons:
+	•	ThumbsUp
+	•	ThumbsDown
+	•	Minus (or Meh icon if available; use Minus if not)
+	•	Icon size: 18px (w-4.5 h-4.5 or w-5 h-5)
+	•	Add a subtle rounded background pill behind the icon:
+	•	Positive: bg-emerald-500/10 + text-emerald-500
+	•	Neutral: bg-muted/50 + text-muted-foreground
+	•	Negative: bg-red-500/10 + text-red-500
+	•	Add tooltip title text:
+	•	“Trade Health: Good”
+	•	“Trade Health: Neutral”
+	•	“Trade Health: Bad”
+	•	Add data-testid: trade-health-${signal.id}
+
+LOGIC (MUST FOLLOW EXACTLY)
+Only show this icon for TradeNowCard (signals in the “Trade Now” column). Determine state using signal.live values if present. If signal.live is missing, treat as Neutral.
+
+Definitions:
+	•	rNow = signal.live?.rNow (number | null)
+	•	progress = signal.live?.progressToTarget (number 0..1 | undefined)
+	•	beyondStop can be approximated if data exists:
+	•	Use stopPrice + currentPrice + bias:
+	•	isSell = tp?.bias === “SELL” OR (signal.direction indicates sell/down)
+	•	beyondStop = currentPrice != null && stopPrice != null &&
+((isSell && currentPrice > stopPrice) || (!isSell && currentPrice < stopPrice))
+	•	If any are missing, beyondStop = false
+
+State rules:
+	1.	BAD (ThumbsDown) if beyondStop is true OR rNow != null AND rNow <= -0.25
+	2.	GOOD (ThumbsUp) if rNow != null AND rNow >= +0.25 AND progress != null AND progress >= 0.25
+	3.	NEUTRAL (Minus) otherwise (including rNow null)
+
+This prevents false “good” readings early and makes “bad” immediate when risk is violated.
+
+IMPLEMENTATION DETAILS
+A) Update imports at top of dashboard.tsx
+Add:
+import { ThumbsUp, ThumbsDown, Minus } from “lucide-react”;
+
+B) Implement a small helper inside dashboard.tsx (near other helpers) to compute health:
+function getTradeHealth(signal: SignalApi): { state: “good” | “neutral” | “bad”; title: string; Icon: any; className: string } { … }
+
+Inside helper:
+	•	Read tp = signal.tradePlanJson as TradePlan | null
+	•	Determine isSell using tp.bias if available, else use existing direction logic
+	•	Compute rNow/progress/currentPrice/stopPrice and beyondStop (as above)
+	•	Return:
+	•	good: title “Trade Health: Good”, Icon ThumbsUp, class “bg-emerald-500/10 text-emerald-500”
+	•	bad: title “Trade Health: Bad”, Icon ThumbsDown, class “bg-red-500/10 text-red-500”
+	•	neutral: title “Trade Health: Neutral”, Icon Minus, class “bg-muted/50 text-muted-foreground”
+
+C) Inject into TradeNowCard Row 1 top-right
+Current Row 1 right side has Q score and view button. Modify it to:
+	•	compute: const health = getTradeHealth(signal);
+	•	render the icon between Q and the view link button:
+
+<div className="flex items-center gap-2">
+  <span className={`text-sm font-bold ${getQualityColor(signal.qualityScore)}`} ...>Q{signal.qualityScore}</span>
+
+
+<span
+className={inline-flex items-center justify-center rounded-full px-2 py-1 ${health.className}}
+title={health.title}
+data-testid={trade-health-${signal.id}}
+
+
+
+<health.Icon className="w-4.5 h-4.5" />
+
+  </span>
+
+
+  <Link ...><Button ...><ArrowUpRight .../></Button></Link>
+</div>
+
+
+If w-4.5 is not available in your Tailwind config, use w-5 h-5.
+
+D) Ensure TradeNowCard still compiles with SignalApi types
+TradeNowCard already receives SignalApi. Use that type. Do not break other cards.
+
+E) QA
+	•	When rNow is strongly positive and progress >= 25%, shows green thumbs up.
+	•	When rNow is strongly negative OR price violates stop, shows red thumbs down.
+	•	Otherwise shows neutral icon.
+	•	Icon is visible and not cluttering the left side.
+
+Implement these changes now in client/src/pages/dashboard.tsx only (no server changes needed).
