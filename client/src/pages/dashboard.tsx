@@ -42,7 +42,7 @@ import {
   Database,
   ThumbsUp,
   ThumbsDown,
-  Minus,
+  CircleDot,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Signal, TradePlan, SignalApi } from "@shared/schema";
@@ -252,7 +252,7 @@ function getPaceLabel(signal: SignalApi): string | null {
   return null;
 }
 
-function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad"; title: string; Icon: typeof ThumbsUp; className: string } {
+function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad"; title: string; Icon: typeof ThumbsUp | typeof ThumbsDown | typeof CircleDot; className: string } {
   const tp = signal.tradePlanJson as TradePlan | null;
   const isSell = tp?.bias === "SELL" || (!tp && (signal.direction.toLowerCase().includes("down") || signal.direction === "SELL"));
   const rNow = signal.live?.rNow ?? null;
@@ -270,7 +270,7 @@ function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad";
   if (rNow != null && rNow >= 0.25 && progress != null && progress >= 0.25) {
     return { state: "good", title: "Trade Health: Good", Icon: ThumbsUp, className: "bg-emerald-500/10 text-emerald-500" };
   }
-  return { state: "neutral", title: "Trade Health: Neutral", Icon: Minus, className: "bg-yellow-500/10 text-yellow-500" };
+  return { state: "neutral", title: "Trade Health: Neutral", Icon: CircleDot, className: "bg-yellow-500/10 text-yellow-500" };
 }
 
 function TradeNowCard({ signal }: { signal: SignalApi }) {
