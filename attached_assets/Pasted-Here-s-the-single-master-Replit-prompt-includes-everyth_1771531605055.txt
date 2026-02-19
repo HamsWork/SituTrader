@@ -1,0 +1,218 @@
+Here’s the single master Replit prompt (includes everything we just decided: TradeNow live strip, OnDeck distance-to-trigger, ProgressBar stable scaling + NOW improvements, plus server change to attach live.currentPrice for all pending signals).
+
+⸻
+
+MASTER REPLIT PROMPT (COPY/PASTE THIS WHOLE THING)
+
+You are working in an existing Replit full-stack app with:
+	•	Client: React + TypeScript (dashboard.tsx contains TradeNowCard, ProgressBar, OnDeckCard)
+	•	Server: Node/TS with route GET /api/signals
+	•	Shared: shared/schema.ts exports Signal, SignalLive, SignalApi
+
+GOAL:
+Turn the dashboard into a true trading command center by:
+	1.	Always showing CURRENT PRICE reference on Trade Now and On Deck cards
+	2.	Showing time since activation on Trade Now cards
+	3.	Showing live Progress percent and live R multiple on Trade Now cards
+	4.	Showing distance to trigger and RR-to-T1 on On Deck cards
+	5.	Improving ProgressBar so it uses a stable scale and uses a single source of truth for T1 (tp.t1)
+	6.	Updating /api/signals so ALL pending signals on the dashboard have live.currentPrice (not only ACTIVE signals)
+
+IMPORTANT CONSTRAINTS:
+	•	Provide one consistent source of truth for Entry/Stop/T1 to avoid conflicting numbers.
+	•	For Trade Now cards (activationStatus === “ACTIVE”), do not show guessed entry/stop. Require real entryPriceAtActivation and stopPrice. If missing, show “Live trade data incomplete” badge and hide the bar.
+	•	Keep existing types and DB schema. Only extend API response at runtime with optional live object.
+
+PART A — SHARED TYPES (shared/schema.ts)
+Confirm these exist (or add them exactly). Ensure SignalApi uses optional live:
+
+export type SignalLive = {
+currentPrice: number;
+activeMinutes: number | null;
+progressToTarget: number; // 0..1 clamped
+rNow: number | null;
+distToTargetAtr: number | null;
+distToStopAtr: number | null;
+atr14: number | null;
+};
+
+export type SignalApi = Signal & { live?: SignalLive };
+
+PART B — SERVER: Attach current price for ALL pending signals (server/routes.ts)
+In GET /api/signals, you currently return Signal[] and append live ONLY for ACTIVE pending signals when a Polygon snapshot is available.
+
+Change it so:
+	1.	Build a priceMap for tickers using ONE request (bulk snapshot if you already have it) or your cached intraday latest close.
+	2.	For every signal where status === "pending" (and optionally only those that match the date filter the dashboard uses), if priceMap[ticker] exists, attach a minimal live object:
+live: { currentPrice, activeMinutes: null, progressToTarget: 0, rNow: null, distToTargetAtr: null, distToStopAtr: null, atr14: null }
+	3.	For ACTIVE pending signals, attach full live fields (current behavior) BUT prefer latest intraday close if available. Keep snapshot fallback.
+
+Compute for ACTIVE pending signals:
+	•	P = currentPrice
+	•	E = entryPriceAtActivation (must exist to compute live values)
+	•	S = stopPrice (must exist to compute rNow)
+	•	T = tp.t1 ?? magnetPrice
+	•	progressToTarget:
+BUY: (P - E) / (T - E)
+SELL: (E - P) / (E - T)
+clamp 0..1
+	•	rNow:
+BUY: (P - E) / (E - S)
+SELL: (E - P) / (S - E)
+if E or S missing -> null
+	•	activeMinutes = floor((nowET - activatedTs)/60000) if activatedTs exists else null
+	•	ATR distances are optional; if you already have atr14 per ticker, fill them, else leave null:
+distToTargetAtr = abs(T - P)/atr14
+distToStopAtr = abs(P - S)/atr14
+
+Return type remains SignalApi[] (Signal with optional live).
+
+PART C — CLIENT: Dashboard typing and split logic (client/src/pages/dashboard.tsx)
+The query already uses:
+useQuery<SignalApi[]>({ queryKey: [”/api/signals”], refetchInterval: 30000 })
+
+Keep it.
+
+Change split logic:
+	•	tradeNowSignals: pendingSignals.filter(s => s.activationStatus === “ACTIVE”)
+	•	onDeckSignals: pendingSignals.filter(s => s.activationStatus !== “ACTIVE”)  // so odd statuses don’t disappear
+
+Add smarter sorting:
+	•	Keep tier then quality
+	•	Add tie-break for on-deck urgency: sort by distance to trigger if live.currentPrice and entryTriggerPrice exist.
+
+Implement helper in dashboard.tsx:
+const distToTrigger = (s: SignalApi) => {
+const tp = s.tradePlanJson as any;
+const isBuy = tp?.bias === “BUY” || (!tp && !s.direction.toLowerCase().includes(“down”) && s.direction !== “SELL”);
+const P = s.live?.currentPrice;
+const trig = s.entryTriggerPrice;
+if (P == null || trig == null) return Number.POSITIVE_INFINITY;
+return isBuy ? (trig - P) : (P - trig);
+};
+
+Then in sort (after tier and quality tie-break):
+return distToTrigger(a) - distToTrigger(b);
+
+PART D — TradeNowCard UI (client/src/pages/dashboard.tsx)
+Add a “Live Status Strip” directly after Row 1 (ticker/tier/quality row), using signal.live.
+
+Insert this block after Row 1:
+
+{signal.live?.currentPrice != null ? (
+
+  <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2">
+    <div className="flex items-center gap-3 flex-wrap text-sm">
+      <span className="font-semibold" data-testid={`text-current-${signal.id}`}>
+        Current: {signal.live.currentPrice.toFixed(2)}
+      </span>
+
+
+  {signal.live.activeMinutes != null && (
+    <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
+      Active: <span className="font-semibold">{signal.live.activeMinutes}m</span>
+    </span>
+  )}
+
+  {signal.live.rNow != null && (
+    <span className="text-muted-foreground" data-testid={`text-rnow-${signal.id}`}>
+      R Now:{" "}
+      <span className={`font-semibold ${signal.live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+        {signal.live.rNow.toFixed(2)}R
+      </span>
+    </span>
+  )}
+
+  <span className="text-muted-foreground" data-testid={`text-progress-${signal.id}`}>
+    Progress: <span className="font-semibold">{Math.round(signal.live.progressToTarget * 100)}%</span>
+  </span>
+</div>
+
+<div className="flex items-center gap-2 text-xs text-muted-foreground">
+  {signal.live.distToTargetAtr != null && (
+    <span data-testid={`text-to-t1-${signal.id}`}>
+      To T1: <span className="font-semibold">{signal.live.distToTargetAtr.toFixed(2)} ATR</span>
+    </span>
+  )}
+  {signal.live.distToStopAtr != null && (
+    <span data-testid={`text-to-stop-${signal.id}`}>
+      To Stop: <span className="font-semibold">{signal.live.distToStopAtr.toFixed(2)} ATR</span>
+    </span>
+  )}
+</div>
+
+  </div>
+) : (
+  <div className="text-xs text-muted-foreground">Live price unavailable</div>
+)}
+
+
+Update ProgressBar call:
+
+
+Fix one-line plan so it doesn’t conflict:
+Use numeric entry/stop/t1 when possible:
+const entryNum = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null;
+const stopNum = signal.stopPrice ?? null;
+const t1Num = (tp?.t1 ?? signal.magnetPrice);
+const summary =
+entryNum != null && stopNum != null
+? ${biasLabel} → entry ${entryNum.toFixed(2)} → stop ${stopNum.toFixed(2)} → T1 ${t1Num.toFixed(2)}
+: (oneLinePlan(signal) || ${biasLabel} → target ${signal.magnetPrice.toFixed(2)});
+
+Render summary instead of the old string with $ signs.
+
+Activated time display:
+Activated: {new Date(signal.activatedTs).toLocaleTimeString([], { hour: “numeric”, minute: “2-digit” })} ET
+
+If signal.activationStatus === “ACTIVE” but entryPriceAtActivation or stopPrice is missing:
+	•	show Badge “Live trade data incomplete”
+	•	hide ProgressBar
+
+PART E — ProgressBar improvements (client/src/pages/dashboard.tsx)
+Modify ProgressBar as follows:
+	1.	Use tp.t1 as the target price when present:
+const targetPrice = tp.t1 ?? signal.magnetPrice
+	2.	Use stable scale: do NOT include currentPrice in priceMin/priceMax. Only use stop/entry/target.
+	3.	For ACTIVE signals, require real entryPriceAtActivation and stopPrice or return null.
+	4.	Keep NOW pill logic and progress fill, but also show delta from entry inside NOW pill:
+delta = isSell ? (entry - current) : (current - entry)
+Show: NOW 685.47 (+0.59)
+
+Keep existing marker rendering but ensure tooltips use targetPrice consistently.
+
+PART F — OnDeckCard improvements (client/src/pages/dashboard.tsx)
+Update OnDeckCard to show:
+	•	Current price (if live.currentPrice available)
+	•	Trigger price (entryTriggerPrice)
+	•	Distance to trigger
+	•	RR to T1 (if stopPrice exists)
+
+Compute:
+P = signal.live?.currentPrice ?? null
+trig = signal.entryTriggerPrice ?? null
+t1 = tp?.t1 ?? signal.magnetPrice
+stop = signal.stopPrice ?? null
+
+distToTrigger = if P and trig:
+BUY: trig - P
+SELL: P - trig
+
+rrToT1 = if trig and stop:
+BUY: (t1 - trig)/(trig - stop)
+SELL: (trig - t1)/(stop - trig)
+
+Insert a status strip below the one-line plan (similar to TradeNow but smaller), and remove $ signs from fallback strings.
+
+Also update OnDeckCard signature to SignalApi if not already.
+
+PART G — QA CHECKLIST
+After changes:
+	•	Trade Now cards always show current price when available.
+	•	Trade Now cards show Active minutes and live R now when stop/entry exists.
+	•	ProgressBar does not resize as price changes (stable scale).
+	•	On Deck cards show “To Trigger” when current price + trigger exist.
+	•	No conflicting stop/entry values between one-line plan, detail boxes, and progress bar.
+	•	If live price is missing, UI clearly indicates it and doesn’t silently omit key info.
+
+Implement all modifications now across server/routes.ts, shared/schema.ts if needed, and client/src/pages/dashboard.tsx.

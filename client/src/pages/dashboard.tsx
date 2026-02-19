@@ -339,7 +339,13 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           })()}
         </div>
 
-        <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
+        {signal.activationStatus === "ACTIVE" && (signal.entryPriceAtActivation == null || signal.stopPrice == null) ? (
+          <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-incomplete-${signal.id}`}>
+            Live trade data incomplete
+          </Badge>
+        ) : (
+          <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
+        )}
 
         {tp && (
           <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
@@ -636,17 +642,28 @@ export default function Dashboard() {
     return targetDate >= dateFilter.date;
   };
 
+  const distToTrigger = (s: SignalApi) => {
+    const stp = s.tradePlanJson as TradePlan | null;
+    const isBuy = stp?.bias === "BUY" || (!stp && !s.direction.toLowerCase().includes("down") && s.direction !== "SELL");
+    const P = s.live?.currentPrice;
+    const trig = s.entryTriggerPrice;
+    if (P == null || trig == null) return Number.POSITIVE_INFINITY;
+    return isBuy ? (trig - P) : (P - trig);
+  };
+
   const pendingSignals = allSignals
     .filter(s => s.status === "pending")
     .filter(s => matchesDate(s.targetDate))
     .sort((a, b) => {
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
-      return b.qualityScore - a.qualityScore;
+      const qualDiff = b.qualityScore - a.qualityScore;
+      if (qualDiff !== 0) return qualDiff;
+      return distToTrigger(a) - distToTrigger(b);
     });
 
   const tradeNowSignals = pendingSignals.filter(s => s.activationStatus === "ACTIVE");
-  const onDeckSignals = pendingSignals.filter(s => s.activationStatus === "NOT_ACTIVE");
+  const onDeckSignals = pendingSignals.filter(s => s.activationStatus !== "ACTIVE");
 
   const getEffectiveStatus = (s: Signal) => {
     if (s.activationStatus === "INVALIDATED") return "invalidated";
