@@ -39,6 +39,8 @@ export interface IStorage {
   getSignalStats(profileFilter?: { allowedSetups: string[]; minTier: string; minQualityScore: number } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
+    hits60d: number;
+    misses60d: number;
     totalSignals: number;
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
     topSignalsToday: Signal[];
@@ -312,6 +314,8 @@ export class DatabaseStorage implements IStorage {
   async getSignalStats(profileFilter?: { allowedSetups: string[]; minTier: string; minQualityScore: number } | null): Promise<{
     activeCount: number;
     hitRate60d: number;
+    hits60d: number;
+    misses60d: number;
     totalSignals: number;
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
     topSignalsToday: Signal[];
@@ -336,6 +340,7 @@ export class DatabaseStorage implements IStorage {
 
     const recent = allSignals.filter((s) => s.asofDate >= sixtyDaysAgo && s.status !== "pending" && matchesProfile(s));
     const recentHits = recent.filter((s) => s.status === "hit").length;
+    const recentMisses = recent.filter((s) => s.status === "miss").length;
     const hitRate60d = recent.length > 0 ? recentHits / recent.length : 0;
 
     const hitRateBySetup: Record<string, { hits: number; total: number; rate: number }> = {};
@@ -357,7 +362,7 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => b.qualityScore - a.qualityScore)
       .slice(0, 5);
 
-    return { activeCount, hitRate60d, totalSignals, hitRateBySetup, topSignalsToday };
+    return { activeCount, hitRate60d, hits60d: recentHits, misses60d: recentMisses, totalSignals, hitRateBySetup, topSignalsToday };
   }
 
   async upsertBacktest(bt: Omit<Backtest, "id" | "createdAt">): Promise<Backtest> {

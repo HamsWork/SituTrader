@@ -792,6 +792,8 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<{
     activeCount: number;
     hitRate60d: number;
+    hits60d: number;
+    misses60d: number;
     totalSignals: number;
     lastRefresh: string | null;
     hitRateBySetup: Record<string, { hits: number; total: number; rate: number }>;
@@ -977,10 +979,12 @@ export default function Dashboard() {
     });
 
   const uniqueTickers = Array.from(new Set(allSignals.map(s => s.ticker))).sort();
-  const hitCount = stats?.hitRateBySetup
+  const hitCount60d = stats?.hits60d ?? 0;
+  const missCount60d = stats?.misses60d ?? 0;
+  const hitCountAll = stats?.hitRateBySetup
     ? Object.values(stats.hitRateBySetup).reduce((sum, d) => sum + d.hits, 0)
     : allSignals.filter(s => s.status === "hit").length;
-  const missCount = stats?.hitRateBySetup
+  const missCountAll = stats?.hitRateBySetup
     ? Object.values(stats.hitRateBySetup).reduce((sum, d) => sum + (d.total - d.hits), 0)
     : allSignals.filter(s => s.status === "miss").length;
 
@@ -1241,7 +1245,9 @@ export default function Dashboard() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Hit Rate (60d)</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Profile Hit Rate
+                </CardTitle>
                 <Target className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -1250,7 +1256,10 @@ export default function Dashboard() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 flex-wrap">
                   {stats?.hitRate60d && stats.hitRate60d > 0.5 && <TrendingUp className="w-3 h-3 text-emerald-500" />}
-                  {hitCount} hits / {missCount} misses
+                  {hitCount60d} hits / {missCount60d} misses
+                </p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  Last 60 days · {showAll ? "all setups" : (activeProfile?.name ?? "all setups")}
                 </p>
               </CardContent>
             </Card>
@@ -1344,7 +1353,7 @@ export default function Dashboard() {
 
       {stats?.hitRateBySetup && Object.keys(stats.hitRateBySetup).length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-muted-foreground mb-2">Setup Hit Rates</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground mb-2">Setup Hit Rates <span className="font-normal text-muted-foreground/60">(all-time)</span></h2>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
             {Object.entries(stats.hitRateBySetup).map(([setup, data]) => (
               <Card key={setup}>
