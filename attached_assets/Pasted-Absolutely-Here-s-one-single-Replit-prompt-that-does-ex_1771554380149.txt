@@ -1,0 +1,143 @@
+Absolutely. Here’s one single Replit prompt that does exactly that: auto-selects the leveraged ETF with the highest leverage (prefer 3x over 2x) AND the best liquidity, and only falls back if it’s not tradable/liquid enough.
+
+⸻
+
+REPLIT MASTER PROMPT (single copy/paste block)
+
+Implement “Auto Leveraged ETF Mode” for ACTIVE signals in the Trade panel. The system must automatically select a leveraged ETF instrument (instead of option or shares) when a suitable leveraged ETF exists, choosing the ETF with (1) the highest leverage available (prefer 3x over 2x) and (2) the best liquidity. If no leveraged ETF passes liquidity checks, fallback to the current default behavior (OPTION if available else SHARES). This must be a single coherent implementation across backend + frontend with persistence.
+
+GOALS
+	•	Add instrument type: OPTION, SHARES, LEVERAGED_ETF
+	•	For LEVERAGED_ETF: auto-select the best leveraged ETF for the underlying + bias
+	•	“Best” means:
+	1.	Highest leverage available (3x preferred; if 3x not viable then 2x)
+	2.	Best liquidity score among candidates at that leverage tier
+	•	Track the leveraged ETF price change the same way shares tracking works (price-based tracking).
+	•	Persist instrument selection per signal so it survives refresh.
+
+DATA MODEL
+	1.	Create type:
+
+	•	TradeInstrumentType = "OPTION" | "SHARES" | "LEVERAGED_ETF"
+
+	2.	Extend the API signal payload (SignalApi) with:
+
+	•	suggestedLeveragedEtf?: { ticker: string; leverage: 2 | 3; direction: "BULL" | "BEAR"; liquidityScore: number; reason: string } | null
+	•	selectedInstrument?: { instrumentType: TradeInstrumentType; instrumentTicker: string | null } (persisted)
+	•	liveInstrument?: {
+	•	priceNow: number | null
+	•	entryPrice: number | null  // set once at activation per selection
+	•	changeAbs: number | null
+	•	changePct: number | null
+	•	bid: number | null
+	•	ask: number | null
+	•	spread: number | null
+	•	ts: number | null
+	•	stale: boolean
+	•	wideSpread: boolean
+}
+
+MAPPING TABLE (CANDIDATES)
+Create a mapping table that returns candidates in priority order by leverage tier, but final selection must be based on computed liquidity score:
+
+For SPY / SPX / ES:
+	•	3x bull: UPRO, SPXL
+	•	3x bear: SPXU, SPXS
+	•	2x bull: SSO
+	•	2x bear: SDS
+
+For QQQ / NQ:
+	•	3x bull: TQQQ
+	•	3x bear: SQQQ
+	•	2x bull: QLD
+	•	2x bear: QID
+
+For IWM / RTY:
+	•	3x bull: TNA
+	•	3x bear: TZA
+	•	2x bull: UWM
+	•	2x bear: TWM
+
+(Keep table extensible; add more later.)
+
+BIAS → DIRECTION RULE
+	•	If the signal bias is BUY, pick BULL leveraged ETFs.
+	•	If the signal bias is SELL, pick BEAR leveraged ETFs.
+	•	Note: trading action is still “BUY shares” of the leveraged ETF, because the ETF encodes direction.
+
+LIQUIDITY SCORING (AUTOMATIC SELECTION)
+Implement a function scoreLiquidity(ticker) using Polygon data. Use best available combination of:
+	•	Prefer NBBO spread percentage (tight spread is best)
+	•	Prefer high recent volume (today volume if available, else avg volume)
+	•	Prefer high dollar volume = volume * price
+
+Practical scoring:
+	•	Fetch NBBO bid/ask for the ETF ticker; compute:
+	•	mid = (bid+ask)/2 if both exist else use last trade; mark stale if missing either side.
+	•	spreadPct = (ask-bid)/mid when possible else set high penalty.
+	•	Fetch snapshot or previous-day agg to get volume + vwap if available.
+	•	Compute score (higher is better):
+	•	Start with 0
+	•	Add + clamp(log10(dollarVolume + 1), 0, 10)
+	•	Add + clamp( (0.003 - spreadPct) * 2000, -10, +10 ) so spreadPct below 0.30% gets rewarded
+	•	Penalize if stale quote: -2
+	•	Penalize if spreadPct > 0.0075 (0.75%): -10 (wide spread)
+	•	Liquidity pass/fail rules:
+	•	Hard reject if spreadPct is known and > 1.0% OR mid price is 0 OR cannot fetch any price.
+	•	Prefer spreadPct ≤ 0.35% for approval.
+	•	If multiple candidates pass, pick highest score.
+
+SELECTION ALGORITHM
+Implement:
+selectBestLeveragedEtf(underlyingTicker, bias) -> suggestedLeveragedEtf | null
+
+Steps:
+	1.	Build candidate list for that underlying and bias: include both 3x and 2x candidates with metadata (leverage, bull/bear).
+	2.	Evaluate leverage tier 3 first:
+	•	Score all 3x candidates; keep those that pass hard liquidity rules.
+	•	If any pass, choose the one with the highest liquidityScore.
+	3.	If no viable 3x, evaluate 2x similarly.
+	4.	Return best candidate or null.
+
+AUTO-SELECT BEHAVIOR
+	•	For ACTIVE signals ONLY:
+	•	If there is NO persisted selectedInstrument yet, auto-set it to LEVERAGED_ETF using selectBestLeveragedEtf.
+	•	If no viable leveraged ETF is found, fall back to OPTION if available else SHARES.
+	•	If user has already selected an instrument, do not override it automatically.
+	•	Persist selection via API.
+
+PERSISTENCE API
+Add:
+	•	POST /api/signals/:id/instrument
+Body: { instrumentType: "OPTION"|"SHARES"|"LEVERAGED_ETF", instrumentTicker: string|null }
+Persist in the same storage you use for signals (db or file). Return updated signal.
+
+LIVE TRACKING
+	•	Extend the live update logic so each ACTIVE signal includes liveInstrument for the selected instrument:
+	•	If selectedInstrument is LEVERAGED_ETF, fetch quote for the leveraged ETF ticker and compute change vs entryPrice.
+	•	entryPrice should be set once, the first time a valid price is returned after activation OR after the user changes instrument selection. Do not keep resetting it.
+	•	Use the same 30s refetch from the UI, but if you already have a “Live Monitor” loop, it can update more frequently; do not require extra toggles in the UI.
+
+UI CHANGES (TradeNowCard)
+	•	In the TradeNowCard header area (compact, inside the card, not top-of-page), show a small “Instrument” selector with 3 options:
+	•	Option (existing option contract, if available)
+	•	Shares (underlying stock)
+	•	Best LETF (auto) — show ticker and leverage like “TQQQ (3x)”
+	•	Default selection for ACTIVE signals should be the auto-selected LETF as described.
+	•	When LETF selected, display:
+	•	Ticker, priceNow, changeAbs, changePct
+	•	Bid/Ask and spreadPct if available
+	•	A small warning badge if wideSpread=true or stale=true
+	•	Keep the existing option contract display when OPTION is selected.
+	•	Keep existing shares display when SHARES is selected.
+
+CONSTRAINTS
+	•	No giant settings panel at the top of the page. All controls must live inside each TradeNowCard.
+	•	Do not break TypeScript types.
+	•	Must work even when live is missing for non-ACTIVE signals.
+
+DELIVERABLE
+	•	Implement mapping + liquidity scoring + auto selection + persistence + UI selector + live tracking for leveraged ETFs.
+	•	Commit all changes and ensure the app runs.
+
+BUILD IT NOW.

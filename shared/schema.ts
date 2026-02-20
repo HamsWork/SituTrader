@@ -81,6 +81,10 @@ export const signals = pgTable("signals", {
   optionsJson: jsonb("options_json"),
   optionContractTicker: text("option_contract_ticker"),
   optionEntryMark: real("option_entry_mark"),
+  instrumentType: text("instrument_type").notNull().default("OPTION"),
+  instrumentTicker: text("instrument_ticker"),
+  instrumentEntryPrice: real("instrument_entry_price"),
+  leveragedEtfJson: jsonb("leveraged_etf_json"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -309,7 +313,31 @@ export type SignalLive = {
   optionLive?: OptionLive;
 };
 
-export type SignalApi = Signal & { live?: SignalLive };
+export type TradeInstrumentType = "OPTION" | "SHARES" | "LEVERAGED_ETF";
+
+export interface LeveragedEtfSuggestion {
+  ticker: string;
+  leverage: 2 | 3;
+  direction: "BULL" | "BEAR";
+  liquidityScore: number;
+  reason: string;
+}
+
+export interface InstrumentLive {
+  priceNow: number | null;
+  entryPrice: number | null;
+  changeAbs: number | null;
+  changePct: number | null;
+  bid: number | null;
+  ask: number | null;
+  spread: number | null;
+  spreadPct: number | null;
+  ts: number | null;
+  stale: boolean;
+  wideSpread: boolean;
+}
+
+export type SignalApi = Signal & { live?: SignalLive; instrumentLive?: InstrumentLive };
 
 export interface ConfidenceBreakdown {
   base: number;
