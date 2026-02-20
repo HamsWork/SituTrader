@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { filterRTHBars, timestampToET } from "./validate";
-import { fetchSnapshot, fetchOptionMark, fetchOptionMarkAtTime } from "./polygon";
+import { fetchSnapshot, fetchOptionMark, fetchOptionMarkAtTime, fetchStockPriceAtTime } from "./polygon";
 import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./leveragedEtf";
 import { log } from "../index";
 import type { Signal, TradePlan, OptionsData } from "@shared/schema";
@@ -336,11 +336,15 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           try {
             const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
             if (suggestion) {
-              const letfQuote = await fetchStockNbbo(suggestion.ticker);
-              const letfEntry = letfQuote?.mid ?? null;
+              const triggerMs = result.triggerTs ? new Date(result.triggerTs).getTime() : Date.now();
+              let letfEntry = await fetchStockPriceAtTime(suggestion.ticker, triggerMs);
+              if (letfEntry == null) {
+                const letfQuote = await fetchStockNbbo(suggestion.ticker);
+                letfEntry = letfQuote?.mid ?? null;
+              }
               await storage.updateSignalLeveragedEtf(sig.id, suggestion);
               await storage.updateSignalInstrument(sig.id, "LEVERAGED_ETF", suggestion.ticker, letfEntry);
-              log(`Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"}`, "activation");
+              log(`Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`, "activation");
             }
           } catch (err: any) {
             log(`Failed to auto-select LETF for signal ${sig.id}: ${err.message}`, "activation");

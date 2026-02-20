@@ -341,6 +341,35 @@ export async function fetchOptionMarkAtTime(contractTicker: string, timestampMs:
   }
 }
 
+export async function fetchStockPriceAtTime(ticker: string, timestampMs: number): Promise<number | null> {
+  try {
+    const windowStart = timestampMs - 5 * 60 * 1000;
+    const windowEnd = timestampMs + 5 * 60 * 1000;
+    const data = await polygonGet(`/v2/aggs/ticker/${ticker}/range/1/minute/${windowStart}/${windowEnd}`, {
+      adjusted: "true",
+      sort: "asc",
+      limit: "20",
+    });
+    if (data?.results && data.results.length > 0) {
+      let closest = data.results[0];
+      let minDist = Math.abs(closest.t - timestampMs);
+      for (const bar of data.results) {
+        const dist = Math.abs(bar.t - timestampMs);
+        if (dist < minDist) {
+          closest = bar;
+          minDist = dist;
+        }
+      }
+      const vwap = closest.vw ?? ((closest.h + closest.l) / 2);
+      return Math.round(vwap * 100) / 100;
+    }
+    return null;
+  } catch (err: any) {
+    log(`fetchStockPriceAtTime error for ${ticker}: ${err.message}`, "polygon");
+    return null;
+  }
+}
+
 export async function fetchOptionMark(contractTicker: string, underlyingTicker?: string): Promise<OptionMarkResult | null> {
   let result = await fetchOptionNbbo(contractTicker);
   if (result && result.mark != null) {
