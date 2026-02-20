@@ -6,6 +6,7 @@ import { isRTH } from "../jobs/scheduler";
 import type { Signal, InstrumentLive, LeveragedEtfSuggestion } from "@shared/schema";
 
 const letfLiveCache = new Map<number, InstrumentLive>();
+const entryValidated = new Set<number>();
 
 let monitorInterval: ReturnType<typeof setInterval> | null = null;
 let lastTickMs = 0;
@@ -42,20 +43,22 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
 
         let entryPrice = sig.instrumentEntryPrice;
 
-        if (entryPrice == null) {
-          if (sig.activatedTs) {
-            const activationMs = new Date(sig.activatedTs).getTime();
-            const historicalPrice = await fetchStockPriceAtTime(instrTicker, activationMs);
-            if (historicalPrice != null) {
+        if (!entryValidated.has(sig.id) && sig.activatedTs) {
+          const activationMs = new Date(sig.activatedTs).getTime();
+          const historicalPrice = await fetchStockPriceAtTime(instrTicker, activationMs);
+          if (historicalPrice != null) {
+            if (entryPrice == null || Math.abs(entryPrice - historicalPrice) > 0.01) {
+              const oldEntry = entryPrice;
               entryPrice = historicalPrice;
-              log(`LETF entry price backfilled from historical data for signal ${sig.id} (${instrTicker}): $${entryPrice} @ ${sig.activatedTs}`, "letfMonitor");
+              await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
+              log(`LETF entry price corrected for signal ${sig.id} (${instrTicker}): $${oldEntry} → $${entryPrice} @ ${sig.activatedTs}`, "letfMonitor");
             }
-          }
-          if (entryPrice == null) {
+          } else if (entryPrice == null) {
             entryPrice = quote.mid;
+            await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
             log(`LETF entry price fallback to current for signal ${sig.id} (${instrTicker}): $${entryPrice}`, "letfMonitor");
           }
-          await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
+          entryValidated.add(sig.id);
         }
 
         const changeAbs = entryPrice != null && quote.mid != null
