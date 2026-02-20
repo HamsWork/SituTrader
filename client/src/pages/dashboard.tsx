@@ -124,6 +124,7 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
   const c = opts.candidate;
   const ch = opts.checks;
   const ol = signal.live?.optionLive;
+  const isActive = signal.activationStatus === "ACTIVE";
 
   if (!opts.tradable) {
     return (
@@ -143,38 +144,106 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
 
   if (!c) return null;
 
-  const liveBid = ol?.bid ?? ch?.bid ?? null;
-  const liveAsk = ol?.ask ?? ch?.ask ?? null;
-  const liveMid = ol?.mid ?? (liveBid != null && liveAsk != null ? Math.round((liveBid + liveAsk) / 2 * 100) / 100 : null);
+  const liveBid = ol?.optionBidNow ?? ol?.bid ?? ch?.bid ?? null;
+  const liveAsk = ol?.optionAskNow ?? ol?.ask ?? ch?.ask ?? null;
+  const liveMid = ol?.optionMarkNow ?? ol?.mid ?? (liveBid != null && liveAsk != null ? Math.round((liveBid + liveAsk) / 2 * 100) / 100 : null);
   const liveOI = ol?.openInterest ?? ch?.openInterest ?? null;
   const liveVol = ol?.volume ?? null;
   const iv = ol?.impliedVol ?? null;
   const delta = ol?.delta ?? null;
+  const entryMark = ol?.optionEntryMark ?? null;
+  const changeAbs = ol?.optionChangeAbs ?? null;
+  const changePct = ol?.optionChangePct ?? null;
+  const isStale = ol?.stale ?? false;
+  const spreadDollar = ol?.optionSpreadNow ?? (liveBid != null && liveAsk != null ? Math.round((liveAsk - liveBid) * 100) / 100 : null);
+
+  const hasLivePnl = isActive && entryMark != null && liveMid != null;
+  const isPositive = changeAbs != null && changeAbs >= 0;
+  const changeColor = isPositive ? "text-emerald-500" : "text-red-500";
 
   const formatExpiry = (exp: string) => {
     if (exp.length === 8) return `${exp.slice(4, 6)}/${exp.slice(6, 8)}`;
     return exp;
   };
 
+  const optBarRange = hasLivePnl ? (() => {
+    const lower = Math.min(entryMark * 0.6, liveMid);
+    const upper = Math.max(entryMark * 1.6, liveMid);
+    const range = upper - lower || 1;
+    const toP = (v: number) => Math.max(0, Math.min(100, ((v - lower) / range) * 100));
+    const entryPct = toP(entryMark);
+    const nowPct = toP(liveMid);
+    const fillL = Math.min(entryPct, nowPct);
+    const fillW = Math.abs(nowPct - entryPct);
+    return { entryPct, nowPct, fillL, fillW };
+  })() : null;
+
   return (
-    <div className="rounded-md bg-emerald-500/5 border border-emerald-500/15 p-2.5 space-y-1.5" data-testid={`panel-options-${signal.id}`}>
+    <div className={`rounded-md border p-2.5 space-y-2 ${hasLivePnl ? (isPositive ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20") : "bg-emerald-500/5 border-emerald-500/15"}`} data-testid={`panel-options-${signal.id}`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-xs">
           <span className="font-semibold text-emerald-600 dark:text-emerald-400">
             {c.right === "C" ? "CALL" : "PUT"} ${c.strike} · {formatExpiry(c.expiry)} · {c.dte}d
           </span>
-          <span className="text-[10px] text-muted-foreground font-mono">{c.contractSymbol}</span>
+          {isStale && isActive && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-500 font-medium" data-testid={`badge-option-stale-${signal.id}`}>
+              delayed
+            </span>
+          )}
         </div>
-        {liveMid != null && (
-          <span className="text-sm font-bold" data-testid={`text-option-mid-${signal.id}`}>
-            ${liveMid.toFixed(2)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {hasLivePnl && changeAbs != null && changePct != null && (
+            <span className={`text-xs font-bold ${changeColor}`} data-testid={`text-option-change-${signal.id}`}>
+              {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
+            </span>
+          )}
+          {liveMid != null && (
+            <span className="text-sm font-bold" data-testid={`text-option-mid-${signal.id}`}>
+              ${liveMid.toFixed(2)}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+
+      {hasLivePnl && optBarRange && (
+        <div data-testid={`bar-option-progress-${signal.id}`}>
+          <div className="relative h-2.5 rounded-full bg-muted">
+            {optBarRange.fillW > 0 && (
+              <div
+                className={`absolute h-full rounded-full transition-all duration-300 ${isPositive ? "bg-emerald-400/50 dark:bg-emerald-500/40" : "bg-red-400/50 dark:bg-red-500/40"}`}
+                style={{ left: `${optBarRange.fillL}%`, width: `${Math.min(optBarRange.fillW, 100 - optBarRange.fillL)}%` }}
+              />
+            )}
+            <div
+              className="absolute w-2 h-2 rounded-full bg-muted-foreground/80 border-2 border-background top-[1px] z-[2]"
+              style={{ left: `${optBarRange.entryPct}%`, transform: "translateX(-50%)" }}
+              title={`Entry: $${entryMark.toFixed(2)}`}
+            />
+            <div
+              className={`absolute w-0.5 h-full z-[3] ${isPositive ? "bg-emerald-500" : "bg-red-500"}`}
+              style={{ left: `${optBarRange.nowPct}%`, transform: "translateX(-50%)" }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+            <span data-testid={`text-option-entry-${signal.id}`}>
+              Entry <span className="font-semibold text-foreground">${entryMark.toFixed(2)}</span>
+            </span>
+            <span data-testid={`text-option-mark-${signal.id}`}>
+              Now <span className={`font-semibold ${changeColor}`}>${liveMid.toFixed(2)}</span>
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
         {liveBid != null && liveAsk != null && (
           <span data-testid={`text-option-ba-${signal.id}`}>
-            Bid/Ask: <span className="font-semibold">${liveBid.toFixed(2)} / ${liveAsk.toFixed(2)}</span>
+            <span className="font-semibold">${liveBid.toFixed(2)}</span>×<span className="font-semibold">${liveAsk.toFixed(2)}</span>
+            {spreadDollar != null && (
+              <span className={`ml-0.5 ${spreadDollar > 0.10 ? "text-amber-500" : ""}`}>
+                (${spreadDollar.toFixed(2)})
+              </span>
+            )}
           </span>
         )}
         {liveOI != null && (
@@ -187,24 +256,14 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
             Vol: <span className="font-semibold">{liveVol.toLocaleString()}</span>
           </span>
         )}
-        {(() => {
-          const spread = liveBid != null && liveAsk != null && liveBid > 0
-            ? (liveAsk - liveBid) / liveBid
-            : ch?.spread ?? null;
-          return spread != null ? (
-            <span data-testid={`text-option-spread-${signal.id}`}>
-              Spread: <span className={`font-semibold ${spread <= 0.05 ? "" : "text-amber-500"}`}>{(spread * 100).toFixed(1)}%</span>
-            </span>
-          ) : null;
-        })()}
         {delta != null && (
           <span data-testid={`text-option-delta-${signal.id}`}>
-            Delta: <span className="font-semibold">{delta.toFixed(2)}</span>
+            Δ <span className="font-semibold">{delta.toFixed(2)}</span>
           </span>
         )}
         {iv != null && (
           <span data-testid={`text-option-iv-${signal.id}`}>
-            IV: <span className="font-semibold">{(iv * 100).toFixed(1)}%</span>
+            IV <span className="font-semibold">{(iv * 100).toFixed(1)}%</span>
           </span>
         )}
       </div>
@@ -297,9 +356,9 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
       </div>
 
       {currentPct != null && currentPrice != null && (
-        <div className="relative h-5 mb-0.5">
+        <div className="relative h-4 mb-0.5">
           <div
-            className="absolute z-30 flex flex-col items-center"
+            className="absolute z-30"
             style={{
               left: `${currentPct}%`,
               transform:
@@ -309,20 +368,20 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
             data-testid={`marker-now-${signal.id}`}
           >
             <span
-              className={`text-[10px] font-bold px-2 py-[3px] whitespace-nowrap leading-tight inline-flex items-center gap-1 shadow-md ${
+              className={`text-[9px] font-bold px-1.5 py-[2px] whitespace-nowrap leading-tight inline-flex items-center gap-0.5 shadow-sm ${
                 beyondStop
-                  ? "bg-red-700 text-white rounded-full animate-pulse"
+                  ? "bg-red-700 text-white rounded animate-pulse"
                   : pastTarget
-                    ? "bg-emerald-700 text-white rounded-md ring-2 ring-emerald-400"
+                    ? "bg-emerald-700 text-white rounded ring-1 ring-emerald-400"
                     : isWinning
-                      ? "bg-emerald-700 text-white rounded-full"
-                      : "bg-red-600 text-white rounded-full"
+                      ? "bg-emerald-700 text-white rounded"
+                      : "bg-red-600 text-white rounded"
               }`}
               data-testid={`text-now-price-${signal.id}`}
             >
               {pastTarget && "✓ "}
-              NOW {currentPrice.toFixed(2)}
-              {delta != null && ` (${delta >= 0 ? "+" : ""}${delta.toFixed(2)})`}
+              {currentPrice.toFixed(2)}
+              {delta != null && <span className="opacity-80 ml-0.5">({delta >= 0 ? "+" : ""}{delta.toFixed(2)})</span>}
               {currentClamped && " ⚠"}
             </span>
           </div>
@@ -417,137 +476,6 @@ function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad";
   return { state: "neutral", title: "Trade Health: Neutral", Icon: CircleDot, className: "bg-yellow-500/10 text-yellow-500" };
 }
 
-function OptionTracker({ signal }: { signal: SignalApi }) {
-  const ol = signal.live?.optionLive;
-  if (!ol) return null;
-  if (signal.activationStatus !== "ACTIVE") return null;
-
-  const markNow = ol.optionMarkNow ?? ol.mid;
-  const entryMark = ol.optionEntryMark;
-  const changeAbs = ol.optionChangeAbs;
-  const changePct = ol.optionChangePct;
-  const isStale = ol.stale;
-  const bidNow = ol.optionBidNow;
-  const askNow = ol.optionAskNow;
-  const spreadNow = ol.optionSpreadNow;
-  const live = signal.live;
-
-  if (markNow == null) {
-    return (
-      <div className="text-[10px] text-muted-foreground italic" data-testid={`option-tracker-unavailable-${signal.id}`}>
-        Option quote unavailable
-      </div>
-    );
-  }
-
-  if (entryMark == null) {
-    return (
-      <div className="text-[10px] text-muted-foreground italic" data-testid={`option-tracker-waiting-${signal.id}`}>
-        Waiting for option baseline...
-      </div>
-    );
-  }
-
-  const isPositive = changeAbs != null && changeAbs >= 0;
-  const changeColor = isPositive ? "text-emerald-500" : "text-red-500";
-  const changeBg = isPositive ? "bg-emerald-500/10" : "bg-red-500/10";
-
-  const maxMove = entryMark * 2;
-  const fillTarget = markNow > 0 ? Math.min(Math.max(((markNow / maxMove) * 100), 2), 98) : 50;
-  const entryPosCalc = entryMark > 0 ? ((entryMark / maxMove) * 100) : 50;
-
-  const barFillColor = isPositive ? "bg-emerald-500" : "bg-red-500";
-  const barTrailColor = isPositive ? "bg-emerald-500/20" : "bg-red-500/20";
-
-  const fillLeft = Math.min(fillTarget, entryPosCalc);
-  const fillWidth = Math.abs(fillTarget - entryPosCalc);
-
-  const contractLabel = signal.optionContractTicker
-    ? signal.optionContractTicker.replace("O:", "").slice(-15)
-    : null;
-
-  const progressPct = live?.progressToTarget != null ? Math.round(live.progressToTarget * 100) : null;
-
-  return (
-    <div className={`rounded-lg border ${changeBg} p-2.5 space-y-2`} data-testid={`option-tracker-${signal.id}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground" data-testid={`label-option-tracker-${signal.id}`}>
-            Option P&L
-          </span>
-          {isStale && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-500 font-medium" title="Quote may be delayed" data-testid={`badge-option-stale-${signal.id}`}>
-              delayed
-            </span>
-          )}
-          {contractLabel && (
-            <span className="text-[9px] text-muted-foreground font-mono" data-testid={`text-contract-${signal.id}`}>
-              {contractLabel}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          {changeAbs != null && changePct != null && (
-            <span className={`text-sm font-bold ${changeColor}`} data-testid={`text-option-change-${signal.id}`}>
-              {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="relative" data-testid={`bar-option-progress-${signal.id}`}>
-        <div className="h-3 rounded-full bg-muted overflow-hidden relative">
-          <div
-            className={`absolute top-0 h-full rounded-full ${barTrailColor}`}
-            style={{ left: `${fillLeft}%`, width: `${fillWidth}%` }}
-          />
-          <div
-            className={`absolute top-0 h-full rounded-full transition-all duration-500 ${barFillColor}`}
-            style={{ left: `${fillLeft}%`, width: `${fillWidth}%`, opacity: 0.9 }}
-          />
-          <div
-            className="absolute top-0 w-0.5 h-full bg-foreground/40"
-            style={{ left: `${entryPosCalc}%` }}
-            title={`Entry: $${entryMark.toFixed(2)}`}
-          />
-          <div
-            className={`absolute top-0 w-2 h-full rounded-full border-2 ${isPositive ? "border-emerald-500 bg-emerald-400" : "border-red-500 bg-red-400"}`}
-            style={{ left: `${fillTarget - 1}%` }}
-            title={`Now: $${markNow.toFixed(2)}`}
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span data-testid={`text-option-entry-${signal.id}`}>
-            Entry <span className="font-semibold text-foreground">${entryMark.toFixed(2)}</span>
-          </span>
-          <span data-testid={`text-option-mark-${signal.id}`}>
-            Mark <span className={`font-semibold ${changeColor}`}>${markNow.toFixed(2)}</span>
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          {bidNow != null && askNow != null && (
-            <span data-testid={`text-option-spread-${signal.id}`}>
-              {bidNow.toFixed(2)}×{askNow.toFixed(2)}
-              {spreadNow != null && (
-                <span className={`ml-0.5 ${spreadNow > 0.10 ? "text-amber-500" : "text-muted-foreground"}`}>
-                  (${spreadNow.toFixed(2)})
-                </span>
-              )}
-            </span>
-          )}
-          {progressPct != null && (
-            <span data-testid={`text-option-stock-progress-${signal.id}`}>
-              Stock {progressPct}%
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function TradeNowCard({ signal }: { signal: SignalApi }) {
   const tp = signal.tradePlanJson as TradePlan | null;
@@ -560,22 +488,22 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
 
   return (
     <Card className={`border-2 ${biasBg}`} data-testid={`card-trade-now-${signal.id}`}>
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2 flex-wrap">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className={`flex items-center gap-1.5 text-xl font-bold ${biasColor}`}>
-              {isBuy ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
+            <div className={`flex items-center gap-1 text-lg font-bold ${biasColor}`}>
+              {isBuy ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
               <span data-testid={`text-bias-${signal.id}`}>{biasLabel}</span>
             </div>
             <Link href={`/symbol/${signal.ticker}`}>
-              <span className="text-lg font-bold cursor-pointer" data-testid={`text-ticker-${signal.id}`}>
+              <span className="text-base font-bold cursor-pointer" data-testid={`text-ticker-${signal.id}`}>
                 {signal.ticker}
               </span>
             </Link>
             {getTierBadge(signal.tier)}
             <OptionsBadge signal={signal} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <span className={`text-sm font-bold ${getQualityColor(signal.qualityScore)}`} data-testid={`text-quality-${signal.id}`}>
               Q{signal.qualityScore}
             </span>
@@ -583,54 +511,51 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
               const health = getTradeHealth(signal);
               return (
                 <span
-                  className={`inline-flex items-center justify-center rounded-full px-2 py-1 ${health.className}`}
+                  className={`inline-flex items-center justify-center rounded-full p-1 ${health.className}`}
                   title={health.title}
                   data-testid={`trade-health-${signal.id}`}
                 >
-                  <health.Icon className="w-5 h-5" />
+                  <health.Icon className="w-4 h-4" />
                 </span>
               );
             })()}
             <Link href={`/symbol/${signal.ticker}`}>
-              <Button variant="ghost" size="icon" data-testid={`button-view-signal-${signal.id}`}>
-                <ArrowUpRight className="w-4 h-4" />
+              <Button variant="ghost" size="icon" className="h-7 w-7" data-testid={`button-view-signal-${signal.id}`}>
+                <ArrowUpRight className="w-3.5 h-3.5" />
               </Button>
             </Link>
           </div>
         </div>
 
         {live?.currentPrice != null ? (
-          <div className="flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/40 p-2" data-testid={`live-strip-${signal.id}`}>
-            <div className="flex items-center gap-3 flex-wrap text-sm">
-              <span className="font-semibold" data-testid={`text-current-${signal.id}`}>
-                Current: ${live.currentPrice.toFixed(2)}
+          <div className="flex items-center justify-between gap-2 flex-wrap text-xs" data-testid={`live-strip-${signal.id}`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-sm" data-testid={`text-current-${signal.id}`}>
+                ${live.currentPrice.toFixed(2)}
               </span>
-              {live.activeMinutes != null && (
-                <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
-                  Active: <span className="font-semibold">{live.activeMinutes}m</span>
-                </span>
-              )}
               {live.rNow != null && (
-                <span className="text-muted-foreground" data-testid={`text-rnow-${signal.id}`}>
-                  R Now:{" "}
-                  <span className={`font-semibold ${live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                    {live.rNow.toFixed(2)}R
-                  </span>
+                <span className={`font-semibold ${live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid={`text-rnow-${signal.id}`}>
+                  {live.rNow.toFixed(2)}R
                 </span>
               )}
               <span className="text-muted-foreground" data-testid={`text-progress-${signal.id}`}>
-                Progress: <span className="font-semibold">{Math.round(live.progressToTarget * 100)}%</span>
+                {Math.round(live.progressToTarget * 100)}% to target
               </span>
+              {live.activeMinutes != null && (
+                <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
+                  {live.activeMinutes}m active
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
               {live.distToTargetAtr != null && (
                 <span data-testid={`text-to-t1-${signal.id}`}>
-                  To T1: <span className="font-semibold">{live.distToTargetAtr.toFixed(2)} ATR</span>
+                  T1: {live.distToTargetAtr.toFixed(1)} ATR
                 </span>
               )}
               {live.distToStopAtr != null && (
                 <span data-testid={`text-to-stop-${signal.id}`}>
-                  To Stop: <span className="font-semibold">{live.distToStopAtr.toFixed(2)} ATR</span>
+                  Stop: {live.distToStopAtr.toFixed(1)} ATR
                 </span>
               )}
             </div>
@@ -641,19 +566,6 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           </div>
         )}
 
-        <OptionTracker signal={signal} />
-
-        <div className="rounded-md bg-muted/50 p-2 font-mono text-xs" data-testid={`text-one-line-${signal.id}`}>
-          {(() => {
-            const entryNum = signal.entryPriceAtActivation ?? signal.entryTriggerPrice ?? null;
-            const stopNum = signal.stopPrice ?? null;
-            const t1Num = (tp?.t1 ?? signal.magnetPrice);
-            return entryNum != null && stopNum != null
-              ? `${biasLabel} → entry ${entryNum.toFixed(2)} → stop ${stopNum.toFixed(2)} → T1 ${t1Num.toFixed(2)}`
-              : (oneLinePlan(signal) || `${biasLabel} → target ${signal.magnetPrice.toFixed(2)}`);
-          })()}
-        </div>
-
         {signal.activationStatus === "ACTIVE" && (signal.entryPriceAtActivation == null || signal.stopPrice == null) ? (
           <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-incomplete-${signal.id}`}>
             Live trade data incomplete
@@ -663,47 +575,47 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
         )}
 
         {tp && (
-          <div className="grid gap-2 grid-cols-1 sm:grid-cols-3">
-            <div className="rounded-md bg-muted/50 p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5 flex items-center gap-1">
-                <Zap className="w-3 h-3" /> Entry
+          <div className="grid gap-1.5 grid-cols-3">
+            <div className="rounded bg-muted/50 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1">
+                <Zap className="w-2.5 h-2.5" /> Entry
               </div>
-              <p className="text-xs leading-relaxed" data-testid={`text-entry-${signal.id}`}>
+              <p className="text-xs font-semibold mt-0.5" data-testid={`text-entry-${signal.id}`}>
                 {signal.entryPriceAtActivation
-                  ? `Activated at $${signal.entryPriceAtActivation.toFixed(2)}`
+                  ? `$${signal.entryPriceAtActivation.toFixed(2)}`
                   : tp.entryTrigger}
               </p>
             </div>
-            <div className="rounded-md bg-muted/50 p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5 flex items-center gap-1">
-                <Shield className="w-3 h-3" /> Stop
+            <div className="rounded bg-muted/50 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1">
+                <Shield className="w-2.5 h-2.5" /> Stop
                 {live?.stopStage === "BE" && (
-                  <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 border-green-500 text-green-600 dark:text-green-400" data-testid={`badge-stop-be-${signal.id}`}>BE</Badge>
+                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-green-500 text-green-600 dark:text-green-400" data-testid={`badge-stop-be-${signal.id}`}>BE</Badge>
                 )}
                 {live?.stopStage === "TIME_TIGHTENED" && (
-                  <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 border-amber-500 text-amber-600 dark:text-amber-400" data-testid={`badge-stop-time-${signal.id}`}>TIME</Badge>
+                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-500 text-amber-600 dark:text-amber-400" data-testid={`badge-stop-time-${signal.id}`}>TIME</Badge>
                 )}
               </div>
-              <p className="text-xs leading-relaxed" data-testid={`text-stop-${signal.id}`}>
+              <p className="text-xs font-semibold mt-0.5" data-testid={`text-stop-${signal.id}`}>
                 {signal.stopPrice != null
                   ? `$${signal.stopPrice.toFixed(2)}`
                   : tp.invalidation}
               </p>
               {live?.timeStopMinutesLeft != null && live.timeStopMinutesLeft > 0 && live.stopStage === "INITIAL" && (
-                <p className="text-[10px] text-muted-foreground mt-0.5" data-testid={`text-time-stop-countdown-${signal.id}`}>
-                  Time stop in {live.timeStopMinutesLeft}min
+                <p className="text-[9px] text-amber-500 mt-0.5" data-testid={`text-time-stop-countdown-${signal.id}`}>
+                  Time stop {live.timeStopMinutesLeft}m
                 </p>
               )}
             </div>
-            <div className="rounded-md bg-muted/50 p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5 flex items-center gap-1">
-                <Target className="w-3 h-3" /> Targets
+            <div className="rounded bg-muted/50 px-2 py-1.5">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1">
+                <Target className="w-2.5 h-2.5" /> Targets
               </div>
-              <p className="text-xs font-mono leading-relaxed" data-testid={`text-targets-${signal.id}`}>
-                T1: ${tp.t1.toFixed(2)}
-                {tp.t2 != null && <> / T2: ${tp.t2.toFixed(2)}</>}
+              <p className="text-xs font-mono font-semibold mt-0.5" data-testid={`text-targets-${signal.id}`}>
+                ${tp.t1.toFixed(2)}
+                {tp.t2 != null && <> / ${tp.t2.toFixed(2)}</>}
                 {tp.riskReward != null && (
-                  <span className="text-muted-foreground"> ({tp.riskReward}R)</span>
+                  <span className="text-muted-foreground font-normal"> ({tp.riskReward}R)</span>
                 )}
               </p>
             </div>
@@ -712,36 +624,31 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
 
         <OptionsPanel signal={signal} />
 
-        <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
+          {signal.activatedTs && (
+            <span className="flex items-center gap-0.5">
+              <Clock className="w-2.5 h-2.5" />
+              {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ET
+            </span>
+          )}
           {signal.pHit60 != null && (
-            <div className="flex items-center gap-1" data-testid={`text-early-hit-${signal.id}`}>
-              <Timer className="w-3 h-3" />
-              <span>Early Hit: <span className={`font-semibold ${getProbColor(signal.pHit60)}`}>{(signal.pHit60 * 100).toFixed(0)}%</span></span>
-            </div>
+            <span data-testid={`text-early-hit-${signal.id}`}>
+              p60 <span className={`font-semibold ${getProbColor(signal.pHit60)}`}>{(signal.pHit60 * 100).toFixed(0)}%</span>
+            </span>
           )}
           {signal.pHit390 != null && (
-            <div className="flex items-center gap-1" data-testid={`text-same-day-${signal.id}`}>
-              <Timer className="w-3 h-3" />
-              <span>Same-day Hit: <span className={`font-semibold ${getProbColor(signal.pHit390)}`}>{(signal.pHit390 * 100).toFixed(0)}%</span></span>
-            </div>
+            <span data-testid={`text-same-day-${signal.id}`}>
+              p390 <span className={`font-semibold ${getProbColor(signal.pHit390)}`}>{(signal.pHit390 * 100).toFixed(0)}%</span>
+            </span>
           )}
           {paceLabel && (
             <Badge
               variant="outline"
-              className={`text-[10px] ${paceLabel === "On pace" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}`}
+              className={`text-[9px] py-0 ${paceLabel === "On pace" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}`}
               data-testid={`badge-pace-${signal.id}`}
             >
               {paceLabel}
             </Badge>
-          )}
-          {signal.activatedTs && (
-            <div className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              <span>
-                Activated:{" "}
-                {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ET
-              </span>
-            </div>
           )}
         </div>
       </CardContent>
