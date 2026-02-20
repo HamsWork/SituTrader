@@ -487,9 +487,13 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
       ? resolvedEntry + (tp.stopDistance ?? 0)
       : resolvedEntry - (tp.stopDistance ?? 0));
 
+  const originalStop = tp.stopDistance
+    ? (tp.bias === "SELL" ? resolvedEntry + tp.stopDistance : resolvedEntry - tp.stopDistance)
+    : resolvedStop;
+
   const isSell = tp.bias === "SELL";
 
-  const keyPrices = [targetPrice, resolvedEntry, resolvedStop];
+  const keyPrices = [targetPrice, resolvedEntry, originalStop];
   if (currentPrice != null) keyPrices.push(currentPrice);
   const rawMin = Math.min(...keyPrices);
   const rawMax = Math.max(...keyPrices);
@@ -501,7 +505,9 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
 
   const toPercent = (price: number) => Math.max(0, Math.min(100, ((price - priceMin) / range) * 100));
 
+  const originalStopPct = toPercent(originalStop);
   const stopPct = toPercent(resolvedStop);
+  const stopMoved = Math.abs(resolvedStop - originalStop) > 0.001;
   const entryPct = toPercent(resolvedEntry);
   const targetPct = toPercent(targetPrice);
 
@@ -583,10 +589,18 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
 
         <div
           className="absolute w-1.5 h-full rounded-sm bg-red-400/70 dark:bg-red-400/60 z-[1]"
-          style={{ left: `${stopPct}%`, transform: "translateX(-50%)" }}
-          title={`Stop: ${resolvedStop.toFixed(2)}`}
+          style={{ left: `${originalStopPct}%`, transform: "translateX(-50%)" }}
+          title={`Stop: ${originalStop.toFixed(2)}`}
           data-testid={`marker-stop-${signal.id}`}
         />
+        {stopMoved && (
+          <div
+            className="absolute w-1 h-full rounded-sm bg-amber-400/70 dark:bg-amber-400/60 z-[1]"
+            style={{ left: `${stopPct}%`, transform: "translateX(-50%)" }}
+            title={`Stop (BE): ${resolvedStop.toFixed(2)}`}
+            data-testid={`marker-stop-be-${signal.id}`}
+          />
+        )}
 
         <div
           className="absolute w-2.5 h-2.5 rounded-full bg-muted-foreground/80 border-2 border-background top-[1px] z-[2]"
@@ -615,11 +629,11 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
           <>
             <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></span>
             <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
-            <span title={`Stop: ${resolvedStop.toFixed(2)}`}>Stop {resolvedStop.toFixed(2)} <span className="text-red-400/70">(Risk)</span></span>
+            <span title={`Stop: ${originalStop.toFixed(2)}`}>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">(BE)</span>} <span className="text-red-400/70">(Risk)</span></span>
           </>
         ) : (
           <>
-            <span title={`Stop: ${resolvedStop.toFixed(2)}`}>Stop {resolvedStop.toFixed(2)} <span className="text-red-400/70">(Risk)</span></span>
+            <span title={`Stop: ${originalStop.toFixed(2)}`}>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">(BE)</span>} <span className="text-red-400/70">(Risk)</span></span>
             <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
             <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></span>
           </>
