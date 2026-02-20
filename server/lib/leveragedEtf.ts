@@ -98,6 +98,10 @@ export async function fetchStockNbbo(ticker: string): Promise<StockQuoteResult |
     } else if (bid != null && bid > 0) {
       mid = bid; stale = true;
     }
+    const quoteTs = q.sip_timestamp ? Math.floor(q.sip_timestamp / 1e6) : 0;
+    if (quoteTs > 0 && Date.now() - quoteTs > 30 * 60 * 1000) {
+      stale = true;
+    }
 
     const spread = (bid != null && ask != null && bid > 0) ? Math.round((ask - bid) * 100) / 100 : null;
     const spreadPct = (spread != null && mid != null && mid > 0) ? spread / mid : null;

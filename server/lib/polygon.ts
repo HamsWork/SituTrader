@@ -351,9 +351,11 @@ export async function fetchStockPriceAtTime(ticker: string, timestampMs: number)
       limit: "20",
     });
     if (data?.results && data.results.length > 0) {
-      let closest = data.results[0];
+      const inWindow = data.results.filter((b: any) => b.t >= windowStart && b.t <= windowEnd);
+      if (inWindow.length === 0) return null;
+      let closest = inWindow[0];
       let minDist = Math.abs(closest.t - timestampMs);
-      for (const bar of data.results) {
+      for (const bar of inWindow) {
         const dist = Math.abs(bar.t - timestampMs);
         if (dist < minDist) {
           closest = bar;
