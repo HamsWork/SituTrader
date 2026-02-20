@@ -277,9 +277,8 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
   const isWinning =
     currentPrice != null && ((!isSell && currentPrice > resolvedEntry) || (isSell && currentPrice < resolvedEntry));
 
-  const clampedPillPct = currentPct != null ? Math.max(8, Math.min(92, currentPct)) : null;
   const nowPillAnchor =
-    clampedPillPct != null ? (clampedPillPct > 80 ? "right" : clampedPillPct < 20 ? "left" : "center") : "center";
+    currentPct != null ? (currentPct > 85 ? "right" : currentPct < 15 ? "left" : "center") : "center";
 
   const delta =
     currentPrice != null ? (isSell ? (resolvedEntry - currentPrice) : (currentPrice - resolvedEntry)) : null;
@@ -297,34 +296,34 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
         <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">HIGH</span>
       </div>
 
-      {clampedPillPct != null && currentPrice != null && (
+      {currentPct != null && currentPrice != null && (
         <div className="relative h-5 mb-0.5">
           <div
             className="absolute z-30 flex flex-col items-center"
             style={{
-              left: `${clampedPillPct}%`,
+              left: `${currentPct}%`,
               transform:
-                nowPillAnchor === "center" ? "translateX(-50%)" : nowPillAnchor === "right" ? "translateX(-100%)" : "translateX(0%)",
+                nowPillAnchor === "center" ? "translateX(-50%)" : nowPillAnchor === "right" ? "translateX(-90%)" : "translateX(-10%)",
               bottom: 0,
             }}
             data-testid={`marker-now-${signal.id}`}
           >
             <span
-              className={`text-[10px] font-bold px-2 py-[3px] rounded-full whitespace-nowrap leading-tight inline-flex items-center shadow-md ${
+              className={`text-[10px] font-bold px-2 py-[3px] whitespace-nowrap leading-tight inline-flex items-center gap-1 shadow-md ${
                 beyondStop
-                  ? "bg-red-700 text-white animate-pulse"
+                  ? "bg-red-700 text-white rounded-full animate-pulse"
                   : pastTarget
-                    ? "bg-emerald-700 text-white"
+                    ? "bg-emerald-700 text-white rounded-md ring-2 ring-emerald-400"
                     : isWinning
-                      ? "bg-emerald-700 text-white"
-                      : "bg-red-600 text-white"
+                      ? "bg-emerald-700 text-white rounded-full"
+                      : "bg-red-600 text-white rounded-full"
               }`}
               data-testid={`text-now-price-${signal.id}`}
             >
+              {pastTarget && "✓ "}
               NOW {currentPrice.toFixed(2)}
               {delta != null && ` (${delta >= 0 ? "+" : ""}${delta.toFixed(2)})`}
               {currentClamped && " ⚠"}
-              {pastTarget && " ✓ Past T1"}
             </span>
           </div>
         </div>
