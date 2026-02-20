@@ -947,6 +947,7 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showHistory, setShowHistory] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [q80Only, setQ80Only] = useState(false);
 
   const { data: profiles } = useQuery<SignalProfile[]>({
     queryKey: ["/api/profiles"],
@@ -1130,8 +1131,11 @@ export default function Dashboard() {
       return distToTrigger(a) - distToTrigger(b);
     });
 
+  const qFilter = (s: SignalApi) => !q80Only || s.qualityScore >= 80;
+
   const allActiveSignals = allSignals.filter(s => s.status === "pending" && s.activationStatus === "ACTIVE");
   const tradeNowSignals = (showAll ? allActiveSignals : allActiveSignals.filter(s => passesProfile(s, activeProfile)))
+    .filter(qFilter)
     .sort((a, b) => {
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
@@ -1140,7 +1144,7 @@ export default function Dashboard() {
       return distToTrigger(a) - distToTrigger(b);
     });
   const hiddenActiveByProfile = allActiveSignals.length - tradeNowSignals.length;
-  const filteredPending = showAll ? pendingSignals : pendingSignals.filter(s => passesProfile(s, activeProfile));
+  const filteredPending = (showAll ? pendingSignals : pendingSignals.filter(s => passesProfile(s, activeProfile))).filter(qFilter);
   const onDeckSignals = filteredPending.filter(s => s.activationStatus !== "ACTIVE");
   const hiddenByProfile = pendingSignals.filter(s => s.activationStatus !== "ACTIVE").length - onDeckSignals.length;
 
@@ -1152,6 +1156,7 @@ export default function Dashboard() {
   const resolvedSignals = allSignals
     .filter(s => s.status !== "pending" || s.activationStatus === "INVALIDATED")
     .filter(s => !showAll ? passesProfile(s, activeProfile) : true)
+    .filter(qFilter)
     .filter(s => filterTier === "all" || s.tier === filterTier)
     .filter(s => filterSetup === "all" || s.setupType === filterSetup)
     .filter(s => filterTicker === "all" || s.ticker === filterTicker)
@@ -1230,6 +1235,15 @@ export default function Dashboard() {
             {!showAll && hiddenByProfile > 0 && (
               <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">{hiddenByProfile} hidden</Badge>
             )}
+          </Button>
+          <Button
+            variant={q80Only ? "secondary" : "ghost"}
+            size="sm"
+            className={`text-xs h-7 ${q80Only ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" : ""}`}
+            onClick={() => setQ80Only(!q80Only)}
+            data-testid="button-q80-toggle"
+          >
+            Q80+
           </Button>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
