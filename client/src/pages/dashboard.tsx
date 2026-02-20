@@ -613,7 +613,7 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
         />
 
         <div
-          className={`absolute w-2.5 h-2.5 rounded-full top-[1px] border-2 border-background z-[2] ${isSell ? "bg-red-500" : "bg-emerald-500"}`}
+          className="absolute w-2.5 h-2.5 rounded-full top-[1px] border-2 border-background z-[2] bg-emerald-500"
           style={{ left: `${targetPct}%`, transform: "translateX(-50%)" }}
           title={`T1: ${targetPrice.toFixed(2)}`}
           data-testid={`marker-target-${signal.id}`}
