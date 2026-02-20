@@ -935,7 +935,7 @@ export default function Dashboard() {
 
   const pendingSignals = allSignals
     .filter(s => s.status === "pending")
-    .filter(s => matchesDate(s.targetDate))
+    .filter(s => timeRange === "today" || matchesDate(s.targetDate))
     .sort((a, b) => {
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
@@ -1047,7 +1047,7 @@ export default function Dashboard() {
                 onClick={() => setTimeRange(range)}
                 data-testid={`button-range-${range}`}
               >
-                {range === "today" ? "Today" : range === "week" ? "Week" : "All"}
+                {range === "today" ? "Active" : range === "week" ? "Week" : "All"}
               </Button>
             ))}
           </div>
