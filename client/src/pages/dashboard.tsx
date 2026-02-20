@@ -831,7 +831,19 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
   const P = signal.live?.currentPrice ?? null;
   const trig = signal.entryTriggerPrice ?? null;
   const t1 = tp?.t1 ?? signal.magnetPrice;
-  const stop = signal.stopPrice ?? null;
+  const stopDist = tp?.stopDistance ?? null;
+
+  const stopFromPlan = signal.stopPrice ?? (
+    stopDist != null && P != null
+      ? (isBuy ? P - stopDist : P + stopDist)
+      : null
+  );
+
+  const stopLabel = signal.stopPrice?.toFixed(2) ?? (
+    tp?.invalidation?.match(/\$([0-9.]+)/)?.[1] ?? null
+  );
+
+  const rrDirect = tp?.riskReward ?? null;
 
   const distToTrigger =
     P != null && trig != null
@@ -839,9 +851,9 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
       : null;
 
   const rrToT1 =
-    trig != null && stop != null
-      ? (isBuy ? ((t1 - trig) / (trig - stop)) : ((trig - t1) / (stop - trig)))
-      : null;
+    trig != null && stopFromPlan != null
+      ? (isBuy ? ((t1 - trig) / Math.abs(trig - stopFromPlan)) : ((trig - t1) / Math.abs(stopFromPlan - trig)))
+      : rrDirect;
 
   const isNearTrigger = distToTrigger != null && distToTrigger <= 0.20;
 
@@ -881,31 +893,36 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
               <span className="text-muted-foreground">Current: —</span>
             )}
 
-            {trig != null ? (
+            {stopLabel != null ? (
+              <span className="text-red-400/80" data-testid={`text-stop-${signal.id}`}>
+                Stop: <span className="font-semibold">${stopLabel}</span>
+                {stopDist != null && <span className="text-muted-foreground ml-0.5">({stopDist.toFixed(2)} dist)</span>}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Stop: —</span>
+            )}
+
+            <span className="text-emerald-500/80" data-testid={`text-t1-${signal.id}`}>
+              T1: <span className="font-semibold">${t1.toFixed(2)}</span>
+            </span>
+
+            {rrToT1 != null && Number.isFinite(rrToT1) && rrToT1 > 0 ? (
+              <span className="text-muted-foreground" data-testid={`text-rr-${signal.id}`}>
+                R:R <span className="font-semibold">1:{rrToT1.toFixed(1)}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">R:R —</span>
+            )}
+
+            {trig != null && (
               <span className="text-muted-foreground" data-testid={`text-trig-${signal.id}`}>
                 Trigger: <span className="font-semibold">{trig.toFixed(2)}</span>
+                {distToTrigger != null && (
+                  <span className={`ml-0.5 ${isNearTrigger ? "text-amber-500 font-semibold" : ""}`}>
+                    ({distToTrigger >= 0 ? distToTrigger.toFixed(2) : "0.00"} away)
+                  </span>
+                )}
               </span>
-            ) : (
-              <span className="text-muted-foreground">Trigger: —</span>
-            )}
-
-            {distToTrigger != null ? (
-              <span className="text-muted-foreground" data-testid={`text-dist-trigger-${signal.id}`}>
-                To Trigger:{" "}
-                <span className={`font-semibold ${isNearTrigger ? "text-amber-500" : ""}`}>
-                  {distToTrigger >= 0 ? distToTrigger.toFixed(2) : "0.00"}
-                </span>
-              </span>
-            ) : (
-              <span className="text-muted-foreground">To Trigger: —</span>
-            )}
-
-            {rrToT1 != null && Number.isFinite(rrToT1) ? (
-              <span className="text-muted-foreground" data-testid={`text-rr-${signal.id}`}>
-                RR to T1: <span className="font-semibold">{rrToT1.toFixed(2)}R</span>
-              </span>
-            ) : (
-              <span className="text-muted-foreground">RR to T1: —</span>
             )}
           </div>
 
