@@ -34,12 +34,88 @@ const LEVERAGED_ETF_MAP: Record<string, EtfCandidate[]> = {
     { ticker: "UWM", leverage: 2, direction: "BULL" },
     { ticker: "TWM", leverage: 2, direction: "BEAR" },
   ],
+  AAPL: [
+    { ticker: "AAPB", leverage: 2, direction: "BULL" },
+    { ticker: "AAPD", leverage: 2, direction: "BEAR" },
+  ],
+  MSFT: [
+    { ticker: "MSFU", leverage: 2, direction: "BULL" },
+    { ticker: "MSFD", leverage: 2, direction: "BEAR" },
+  ],
+  AMZN: [
+    { ticker: "AMZU", leverage: 2, direction: "BULL" },
+    { ticker: "AMZD", leverage: 2, direction: "BEAR" },
+  ],
+  NVDA: [
+    { ticker: "NVDL", leverage: 2, direction: "BULL" },
+    { ticker: "NVD",  leverage: 2, direction: "BEAR" },
+  ],
+  TSLA: [
+    { ticker: "TSLL", leverage: 2, direction: "BULL" },
+    { ticker: "TSLS", leverage: 2, direction: "BEAR" },
+  ],
+  GOOGL: [
+    { ticker: "GGLL", leverage: 2, direction: "BULL" },
+    { ticker: "GOU",  leverage: 2, direction: "BULL" },
+  ],
+  META: [
+    { ticker: "METU", leverage: 2, direction: "BULL" },
+    { ticker: "METD", leverage: 2, direction: "BEAR" },
+    { ticker: "FBL",  leverage: 2, direction: "BULL" },
+  ],
+  AMD: [
+    { ticker: "AMDU", leverage: 2, direction: "BULL" },
+    { ticker: "AMDD", leverage: 2, direction: "BEAR" },
+  ],
+  NFLX: [
+    { ticker: "NFXL", leverage: 2, direction: "BULL" },
+  ],
+  PLTR: [
+    { ticker: "PLTU", leverage: 2, direction: "BULL" },
+    { ticker: "PTIR", leverage: 2, direction: "BULL" },
+  ],
+  COIN: [
+    { ticker: "CONL", leverage: 2, direction: "BULL" },
+  ],
+  BABA: [
+    { ticker: "BABU", leverage: 2, direction: "BULL" },
+    { ticker: "BABX", leverage: 2, direction: "BULL" },
+  ],
+  XLK: [
+    { ticker: "TECL", leverage: 3, direction: "BULL" },
+    { ticker: "TECS", leverage: 3, direction: "BEAR" },
+  ],
+  XLE: [
+    { ticker: "ERX",  leverage: 2, direction: "BULL" },
+    { ticker: "ERY",  leverage: 2, direction: "BEAR" },
+  ],
+  XLF: [
+    { ticker: "FAS",  leverage: 3, direction: "BULL" },
+    { ticker: "FAZ",  leverage: 3, direction: "BEAR" },
+  ],
+  XLV: [
+    { ticker: "LABU", leverage: 3, direction: "BULL" },
+    { ticker: "LABD", leverage: 3, direction: "BEAR" },
+  ],
+  GLD: [
+    { ticker: "NUGT", leverage: 2, direction: "BULL" },
+    { ticker: "DUST", leverage: 2, direction: "BEAR" },
+  ],
+  DIA: [
+    { ticker: "UDOW", leverage: 3, direction: "BULL" },
+    { ticker: "SDOW", leverage: 3, direction: "BEAR" },
+  ],
+  SMH: [
+    { ticker: "SOXL", leverage: 3, direction: "BULL" },
+    { ticker: "SOXS", leverage: 3, direction: "BEAR" },
+  ],
 };
 
 const UNDERLYING_ALIASES: Record<string, string> = {
   SPX: "SPY", ES: "SPY",
   NQ: "QQQ", NDX: "QQQ",
   RTY: "IWM",
+  GOOG: "GOOGL",
 };
 
 function resolveUnderlying(ticker: string): string {
