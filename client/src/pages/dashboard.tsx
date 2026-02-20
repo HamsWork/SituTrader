@@ -769,54 +769,6 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
 
         <InstrumentPanel signal={signal} />
 
-        {tp && (
-          <div className="grid gap-1.5 grid-cols-3">
-            <div className="rounded bg-muted/50 px-2 py-1.5">
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1">
-                <Zap className="w-2.5 h-2.5" /> Entry
-              </div>
-              <p className="text-xs font-semibold mt-0.5" data-testid={`text-entry-${signal.id}`}>
-                {signal.entryPriceAtActivation
-                  ? `$${signal.entryPriceAtActivation.toFixed(2)}`
-                  : tp.entryTrigger}
-              </p>
-            </div>
-            <div className="rounded bg-muted/50 px-2 py-1.5">
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1">
-                <Shield className="w-2.5 h-2.5" /> Stop
-                {live?.stopStage === "BE" && (
-                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-green-500 text-green-600 dark:text-green-400" data-testid={`badge-stop-be-${signal.id}`}>BE</Badge>
-                )}
-                {live?.stopStage === "TIME_TIGHTENED" && (
-                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-500 text-amber-600 dark:text-amber-400" data-testid={`badge-stop-time-${signal.id}`}>TIME</Badge>
-                )}
-              </div>
-              <p className="text-xs font-semibold mt-0.5" data-testid={`text-stop-${signal.id}`}>
-                {signal.stopPrice != null
-                  ? `$${signal.stopPrice.toFixed(2)}`
-                  : tp.invalidation}
-              </p>
-              {live?.timeStopMinutesLeft != null && live.timeStopMinutesLeft > 0 && live.stopStage === "INITIAL" && (
-                <p className="text-[9px] text-amber-500 mt-0.5" data-testid={`text-time-stop-countdown-${signal.id}`}>
-                  Time stop {live.timeStopMinutesLeft}m
-                </p>
-              )}
-            </div>
-            <div className="rounded bg-muted/50 px-2 py-1.5">
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1">
-                <Target className="w-2.5 h-2.5" /> Targets
-              </div>
-              <p className="text-xs font-mono font-semibold mt-0.5" data-testid={`text-targets-${signal.id}`}>
-                ${tp.t1.toFixed(2)}
-                {tp.t2 != null && <> / ${tp.t2.toFixed(2)}</>}
-                {tp.riskReward != null && (
-                  <span className="text-muted-foreground font-normal"> ({tp.riskReward}R)</span>
-                )}
-              </p>
-            </div>
-          </div>
-        )}
-
         <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
           {signal.activatedTs && (
             <span className="flex items-center gap-0.5">
