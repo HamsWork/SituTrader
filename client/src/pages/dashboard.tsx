@@ -627,22 +627,12 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
         )}
       </div>
 
-      <div className="flex justify-between text-[10px] text-muted-foreground px-0.5 mt-1">
-        <span title={isSell ? `T1: ${targetPrice.toFixed(2)}` : `Stop: ${originalStop.toFixed(2)}`}>
-          {isSell ? (
-            <>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></>
-          ) : (
-            <>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">→BE</span>} <span className="text-red-400/70">(Risk)</span></>
-          )}
-        </span>
-        <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
-        <span title={isSell ? `Stop: ${originalStop.toFixed(2)}` : `T1: ${targetPrice.toFixed(2)}`}>
-          {isSell ? (
-            <>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">→BE</span>} <span className="text-red-400/70">(Risk)</span></>
-          ) : (
-            <>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></>
-          )}
-        </span>
+      <div className="flex items-center justify-center gap-3 text-[10px] text-muted-foreground mt-1">
+        <span className="text-red-400/80">Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">→BE</span>}</span>
+        <span className="text-muted-foreground/40">•</span>
+        <span>Entry {resolvedEntry.toFixed(2)}</span>
+        <span className="text-muted-foreground/40">•</span>
+        <span className="text-emerald-500/80">T1 {targetPrice.toFixed(2)}</span>
       </div>
     </div>
   );
