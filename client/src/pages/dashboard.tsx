@@ -427,6 +427,10 @@ function OptionTracker({ signal }: { signal: SignalApi }) {
   const changeAbs = ol.optionChangeAbs;
   const changePct = ol.optionChangePct;
   const isStale = ol.stale;
+  const bidNow = ol.optionBidNow;
+  const askNow = ol.optionAskNow;
+  const spreadNow = ol.optionSpreadNow;
+  const live = signal.live;
 
   if (markNow == null) {
     return (
@@ -446,33 +450,101 @@ function OptionTracker({ signal }: { signal: SignalApi }) {
 
   const isPositive = changeAbs != null && changeAbs >= 0;
   const changeColor = isPositive ? "text-emerald-500" : "text-red-500";
-  const barColor = isPositive ? "bg-emerald-500" : "bg-red-500";
-  const changePctAbs = changePct != null ? Math.abs(changePct) : 0;
-  const barWidth = Math.min(changePctAbs, 100);
+  const changeBg = isPositive ? "bg-emerald-500/10" : "bg-red-500/10";
+
+  const maxMove = entryMark * 2;
+  const fillTarget = markNow > 0 ? Math.min(Math.max(((markNow / maxMove) * 100), 2), 98) : 50;
+  const entryPosCalc = entryMark > 0 ? ((entryMark / maxMove) * 100) : 50;
+
+  const barFillColor = isPositive ? "bg-emerald-500" : "bg-red-500";
+  const barTrailColor = isPositive ? "bg-emerald-500/20" : "bg-red-500/20";
+
+  const fillLeft = Math.min(fillTarget, entryPosCalc);
+  const fillWidth = Math.abs(fillTarget - entryPosCalc);
+
+  const contractLabel = signal.optionContractTicker
+    ? signal.optionContractTicker.replace("O:", "").slice(-15)
+    : null;
+
+  const progressPct = live?.progressToTarget != null ? Math.round(live.progressToTarget * 100) : null;
 
   return (
-    <div className="flex items-center gap-2 rounded-md bg-muted/30 px-2 py-1.5" data-testid={`option-tracker-${signal.id}`}>
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold shrink-0">Opt</span>
-      <span className="text-xs font-bold" data-testid={`text-option-mark-${signal.id}`}>${markNow.toFixed(2)}</span>
-      {changeAbs != null && changePct != null && (
-        <span className={`text-xs font-semibold ${changeColor}`} data-testid={`text-option-change-${signal.id}`}>
-          {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
-        </span>
-      )}
-      {isStale && (
-        <span className="text-[9px] text-amber-500 font-medium" title="Quote is stale (fallback or single-sided)" data-testid={`badge-option-stale-${signal.id}`}>
-          stale
-        </span>
-      )}
-      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[40px]" data-testid={`bar-option-progress-${signal.id}`}>
-        <div
-          className={`h-full rounded-full transition-all ${barColor}`}
-          style={{ width: `${barWidth}%` }}
-        />
+    <div className={`rounded-lg border ${changeBg} p-2.5 space-y-2`} data-testid={`option-tracker-${signal.id}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground" data-testid={`label-option-tracker-${signal.id}`}>
+            Option P&L
+          </span>
+          {isStale && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-500 font-medium" title="Quote may be delayed" data-testid={`badge-option-stale-${signal.id}`}>
+              delayed
+            </span>
+          )}
+          {contractLabel && (
+            <span className="text-[9px] text-muted-foreground font-mono" data-testid={`text-contract-${signal.id}`}>
+              {contractLabel}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {changeAbs != null && changePct != null && (
+            <span className={`text-sm font-bold ${changeColor}`} data-testid={`text-option-change-${signal.id}`}>
+              {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
+            </span>
+          )}
+        </div>
       </div>
-      <span className="text-[10px] text-muted-foreground shrink-0">
-        from ${entryMark.toFixed(2)}
-      </span>
+
+      <div className="relative" data-testid={`bar-option-progress-${signal.id}`}>
+        <div className="h-3 rounded-full bg-muted overflow-hidden relative">
+          <div
+            className={`absolute top-0 h-full rounded-full ${barTrailColor}`}
+            style={{ left: `${fillLeft}%`, width: `${fillWidth}%` }}
+          />
+          <div
+            className={`absolute top-0 h-full rounded-full transition-all duration-500 ${barFillColor}`}
+            style={{ left: `${fillLeft}%`, width: `${fillWidth}%`, opacity: 0.9 }}
+          />
+          <div
+            className="absolute top-0 w-0.5 h-full bg-foreground/40"
+            style={{ left: `${entryPosCalc}%` }}
+            title={`Entry: $${entryMark.toFixed(2)}`}
+          />
+          <div
+            className={`absolute top-0 w-2 h-full rounded-full border-2 ${isPositive ? "border-emerald-500 bg-emerald-400" : "border-red-500 bg-red-400"}`}
+            style={{ left: `${fillTarget - 1}%` }}
+            title={`Now: $${markNow.toFixed(2)}`}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <span data-testid={`text-option-entry-${signal.id}`}>
+            Entry <span className="font-semibold text-foreground">${entryMark.toFixed(2)}</span>
+          </span>
+          <span data-testid={`text-option-mark-${signal.id}`}>
+            Mark <span className={`font-semibold ${changeColor}`}>${markNow.toFixed(2)}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {bidNow != null && askNow != null && (
+            <span data-testid={`text-option-spread-${signal.id}`}>
+              {bidNow.toFixed(2)}×{askNow.toFixed(2)}
+              {spreadNow != null && (
+                <span className={`ml-0.5 ${spreadNow > 0.10 ? "text-amber-500" : "text-muted-foreground"}`}>
+                  (${spreadNow.toFixed(2)})
+                </span>
+              )}
+            </span>
+          )}
+          {progressPct != null && (
+            <span data-testid={`text-option-stock-progress-${signal.id}`}>
+              Stock {progressPct}%
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
