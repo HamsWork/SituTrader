@@ -13,6 +13,7 @@ import SymbolDetail from "@/pages/symbol-detail";
 import BacktestPage from "@/pages/backtest";
 import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
+import IbkrDashboard from "@/pages/ibkr-dashboard";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/guide" component={GuidePage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/ibkr" component={IbkrDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

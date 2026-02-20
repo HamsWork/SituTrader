@@ -20,6 +20,9 @@ import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSign
 import { fetchOptionMark } from "./lib/polygon";
 import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./lib/leveragedEtf";
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
+import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
+import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
+import { postOptionsAlert, postLetfAlert } from "./lib/discord";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -1048,6 +1051,124 @@ export async function registerRoutes(
         await storage.updateSignalLeveragedEtf(id, suggestion);
       }
       res.json({ suggestion });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── IBKR Routes ──
+
+  app.post("/api/ibkr/connect", async (_req, res) => {
+    try {
+      const ok = await connectIBKR();
+      await storage.updateIbkrState({
+        connected: ok,
+        lastConnectedAt: ok ? new Date().toISOString() : undefined,
+      });
+      res.json({ connected: ok });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ibkr/disconnect", async (_req, res) => {
+    try {
+      disconnectIBKR();
+      await storage.updateIbkrState({
+        connected: false,
+        lastDisconnectedAt: new Date().toISOString(),
+      });
+      res.json({ connected: false });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ibkr/status", async (_req, res) => {
+    try {
+      const connected = isConnected();
+      const positions = getPositions();
+      const account = getAccountSummary();
+      res.json({ connected, positions, account });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ibkr/dashboard", async (_req, res) => {
+    try {
+      const data = await getIbkrDashboardData();
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ibkr/execute", async (req, res) => {
+    try {
+      const { signalId, quantity } = req.body;
+      if (!signalId) return res.status(400).json({ message: "signalId is required" });
+      const trade = await executeTradeForSignal(signalId, quantity ?? 1);
+      res.json({ ok: true, trade });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ibkr/close/:tradeId", async (req, res) => {
+    try {
+      const tradeId = parseInt(req.params.tradeId);
+      if (isNaN(tradeId)) return res.status(400).json({ message: "Invalid trade id" });
+      const trade = await closeTradeManually(tradeId);
+      res.json({ ok: true, trade });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ibkr/trades", async (_req, res) => {
+    try {
+      const trades = await storage.getAllIbkrTrades();
+      res.json(trades);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ibkr/monitor", async (_req, res) => {
+    try {
+      await monitorActiveTrades();
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Discord Routes ──
+
+  app.post("/api/discord/test-options", async (req, res) => {
+    try {
+      const { signalId } = req.body;
+      if (!signalId) return res.status(400).json({ message: "signalId required" });
+      const sigs = await storage.getSignals(undefined, 500);
+      const sig = sigs.find(s => s.id === signalId);
+      if (!sig) return res.status(404).json({ message: "Signal not found" });
+      const ok = await postOptionsAlert(sig);
+      res.json({ ok });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/discord/test-letf", async (req, res) => {
+    try {
+      const { signalId } = req.body;
+      if (!signalId) return res.status(400).json({ message: "signalId required" });
+      const sigs = await storage.getSignals(undefined, 500);
+      const sig = sigs.find(s => s.id === signalId);
+      if (!sig) return res.status(404).json({ message: "Signal not found" });
+      const ok = await postLetfAlert(sig);
+      res.json({ ok });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

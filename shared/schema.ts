@@ -204,6 +204,61 @@ export const schedulerState = pgTable("scheduler_state", {
 
 export type SchedulerState = typeof schedulerState.$inferSelect;
 
+export const ibkrTrades = pgTable("ibkr_trades", {
+  id: serial("id").primaryKey(),
+  signalId: integer("signal_id"),
+  ticker: text("ticker").notNull(),
+  instrumentType: text("instrument_type").notNull().default("OPTION"),
+  instrumentTicker: text("instrument_ticker"),
+  side: text("side").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  entryPrice: real("entry_price"),
+  exitPrice: real("exit_price"),
+  stopPrice: real("stop_price"),
+  target1Price: real("target1_price"),
+  target2Price: real("target2_price"),
+  ibkrOrderId: integer("ibkr_order_id"),
+  ibkrStopOrderId: integer("ibkr_stop_order_id"),
+  ibkrTp1OrderId: integer("ibkr_tp1_order_id"),
+  ibkrTp2OrderId: integer("ibkr_tp2_order_id"),
+  status: text("status").notNull().default("PENDING"),
+  pnl: real("pnl"),
+  pnlPct: real("pnl_pct"),
+  rMultiple: real("r_multiple"),
+  filledAt: text("filled_at"),
+  closedAt: text("closed_at"),
+  discordAlertSent: boolean("discord_alert_sent").notNull().default(false),
+  discordUpdateSent: boolean("discord_update_sent").notNull().default(false),
+  notes: text("notes"),
+  detailsJson: jsonb("details_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ibkrState = pgTable("ibkr_state", {
+  key: text("key").primaryKey(),
+  connected: boolean("connected").notNull().default(false),
+  lastConnectedAt: text("last_connected_at"),
+  lastDisconnectedAt: text("last_disconnected_at"),
+  accountId: text("account_id"),
+  netLiquidation: real("net_liquidation"),
+  buyingPower: real("buying_power"),
+  totalCashValue: real("total_cash_value"),
+  unrealizedPnl: real("unrealized_pnl"),
+  realizedPnl: real("realized_pnl"),
+  lastAccountUpdateAt: text("last_account_update_at"),
+  positionsJson: jsonb("positions_json"),
+  ordersJson: jsonb("orders_json"),
+});
+
+export type IbkrTrade = typeof ibkrTrades.$inferSelect;
+export type IbkrState = typeof ibkrState.$inferSelect;
+
+export const insertIbkrTradeSchema = createInsertSchema(ibkrTrades).omit({ id: true, createdAt: true });
+export type InsertIbkrTrade = z.infer<typeof insertIbkrTradeSchema>;
+
+export const IBKR_TRADE_STATUSES = ["PENDING", "SUBMITTED", "FILLED", "PARTIAL", "CANCELLED", "CLOSED", "ERROR"] as const;
+export type IbkrTradeStatus = typeof IBKR_TRADE_STATUSES[number];
+
 export const insertSignalProfileSchema = createInsertSchema(signalProfiles).omit({ id: true, createdAt: true });
 
 export const insertSymbolSchema = createInsertSchema(symbols).omit({ id: true, createdAt: true });

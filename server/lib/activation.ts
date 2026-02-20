@@ -361,6 +361,18 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           message: `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`,
           timestamp: nowIso,
         });
+
+        try {
+          const autoExec = await storage.getSetting("ibkrAutoExecute");
+          if (autoExec === "enabled") {
+            const { executeTradeForSignal } = await import("./ibkrOrders");
+            const qty = parseInt(await storage.getSetting("ibkrDefaultQuantity") || "1") || 1;
+            await executeTradeForSignal(sig.id, qty);
+            log(`Auto-executed IBKR trade for signal ${sig.id} (qty: ${qty})`, "activation");
+          }
+        } catch (autoErr: any) {
+          log(`Auto-execute IBKR failed for signal ${sig.id}: ${autoErr.message}`, "activation");
+        }
       }
     }
   }

@@ -748,6 +748,82 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Discord & IBKR Settings */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="w-4 h-4" /> Discord & IBKR Integration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label className="text-xs">GOAT Alerts Webhook (Options)</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="https://discord.com/api/webhooks/..."
+                defaultValue={currentSettings.discordGoatAlertsWebhook ?? ""}
+                onBlur={(e) => {
+                  if (e.target.value !== (currentSettings.discordGoatAlertsWebhook ?? "")) {
+                    saveSetting.mutate({ key: "discordGoatAlertsWebhook", value: e.target.value });
+                  }
+                }}
+                className="text-xs"
+                data-testid="input-discord-alerts-webhook"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Options trade alerts channel</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">GOAT Swings Webhook (LETF)</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="https://discord.com/api/webhooks/..."
+                defaultValue={currentSettings.discordGoatSwingsWebhook ?? ""}
+                onBlur={(e) => {
+                  if (e.target.value !== (currentSettings.discordGoatSwingsWebhook ?? "")) {
+                    saveSetting.mutate({ key: "discordGoatSwingsWebhook", value: e.target.value });
+                  }
+                }}
+                className="text-xs"
+                data-testid="input-discord-swings-webhook"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">LETF swing trade alerts channel</p>
+          </div>
+          <Separator />
+          <div className="space-y-2">
+            <Label className="text-xs">IBKR Auto-Execute on Activation</Label>
+            <Select
+              value={currentSettings.ibkrAutoExecute ?? "disabled"}
+              onValueChange={(value) => saveSetting.mutate({ key: "ibkrAutoExecute", value })}
+            >
+              <SelectTrigger data-testid="select-ibkr-auto-execute">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="enabled">Enabled</SelectItem>
+                <SelectItem value="disabled">Disabled</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Auto-place IBKR orders when signals activate</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Default Position Size (contracts/shares)</Label>
+            <Input
+              type="number"
+              defaultValue={currentSettings.ibkrDefaultQuantity ?? "1"}
+              onBlur={(e) => {
+                if (e.target.value !== (currentSettings.ibkrDefaultQuantity ?? "1")) {
+                  saveSetting.mutate({ key: "ibkrDefaultQuantity", value: e.target.value });
+                }
+              }}
+              className="text-xs w-24"
+              data-testid="input-ibkr-quantity"
+            />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

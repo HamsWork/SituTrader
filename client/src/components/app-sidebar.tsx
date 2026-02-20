@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp } from "lucide-react";
+import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, Wallet } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -17,6 +17,7 @@ const navItems = [
   { title: "Dashboard", url: "/", icon: Home },
   { title: "Guide", url: "/guide", icon: BookOpen },
   { title: "Backtest", url: "/backtest", icon: BarChart3 },
+  { title: "IBKR", url: "/ibkr", icon: Wallet },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

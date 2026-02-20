@@ -4,9 +4,11 @@ import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
+  ibkrTrades, ibkrState,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
+  type IbkrTrade, type IbkrState,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -95,6 +97,14 @@ export interface IStorage {
   getSchedulerState(): Promise<SchedulerState>;
   updateSchedulerState(updates: Partial<Omit<SchedulerState, "key">>): Promise<SchedulerState>;
   ensureSchedulerState(): Promise<SchedulerState>;
+
+  createIbkrTrade(data: Partial<IbkrTrade>): Promise<IbkrTrade>;
+  getIbkrTrade(id: number): Promise<IbkrTrade | null>;
+  updateIbkrTrade(id: number, updates: Partial<IbkrTrade>): Promise<IbkrTrade | null>;
+  getActiveIbkrTrades(): Promise<IbkrTrade[]>;
+  getAllIbkrTrades(): Promise<IbkrTrade[]>;
+  getIbkrState(): Promise<IbkrState | null>;
+  updateIbkrState(updates: Partial<IbkrState>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -779,6 +789,71 @@ export class DatabaseStorage implements IStorage {
     };
     await db.insert(schedulerState).values(defaults);
     return defaults;
+  }
+
+  async createIbkrTrade(data: Partial<IbkrTrade>): Promise<IbkrTrade> {
+    const rows = await db.insert(ibkrTrades).values({
+      signalId: data.signalId ?? null,
+      ticker: data.ticker ?? "",
+      instrumentType: data.instrumentType ?? "OPTION",
+      instrumentTicker: data.instrumentTicker ?? null,
+      side: data.side ?? "BUY",
+      quantity: data.quantity ?? 1,
+      entryPrice: data.entryPrice ?? null,
+      exitPrice: data.exitPrice ?? null,
+      stopPrice: data.stopPrice ?? null,
+      target1Price: data.target1Price ?? null,
+      target2Price: data.target2Price ?? null,
+      ibkrOrderId: data.ibkrOrderId ?? null,
+      ibkrStopOrderId: data.ibkrStopOrderId ?? null,
+      ibkrTp1OrderId: data.ibkrTp1OrderId ?? null,
+      ibkrTp2OrderId: data.ibkrTp2OrderId ?? null,
+      status: data.status ?? "PENDING",
+      pnl: data.pnl ?? null,
+      pnlPct: data.pnlPct ?? null,
+      rMultiple: data.rMultiple ?? null,
+      filledAt: data.filledAt ?? null,
+      closedAt: data.closedAt ?? null,
+      discordAlertSent: data.discordAlertSent ?? false,
+      discordUpdateSent: data.discordUpdateSent ?? false,
+      notes: data.notes ?? null,
+      detailsJson: data.detailsJson ?? null,
+    }).returning();
+    return rows[0];
+  }
+
+  async getIbkrTrade(id: number): Promise<IbkrTrade | null> {
+    const rows = await db.select().from(ibkrTrades).where(eq(ibkrTrades.id, id));
+    return rows[0] ?? null;
+  }
+
+  async updateIbkrTrade(id: number, updates: Partial<IbkrTrade>): Promise<IbkrTrade | null> {
+    const { id: _id, createdAt: _ca, ...rest } = updates as any;
+    const rows = await db.update(ibkrTrades).set(rest).where(eq(ibkrTrades.id, id)).returning();
+    return rows[0] ?? null;
+  }
+
+  async getActiveIbkrTrades(): Promise<IbkrTrade[]> {
+    return db.select().from(ibkrTrades).where(eq(ibkrTrades.status, "FILLED")).orderBy(desc(ibkrTrades.id));
+  }
+
+  async getAllIbkrTrades(): Promise<IbkrTrade[]> {
+    return db.select().from(ibkrTrades).orderBy(desc(ibkrTrades.id));
+  }
+
+  async getIbkrState(): Promise<IbkrState | null> {
+    const rows = await db.select().from(ibkrState).where(eq(ibkrState.key, "default"));
+    return rows[0] ?? null;
+  }
+
+  async updateIbkrState(updates: Partial<IbkrState>): Promise<void> {
+    const existing = await this.getIbkrState();
+    if (existing) {
+      const { key: _k, ...rest } = updates as any;
+      await db.update(ibkrState).set(rest).where(eq(ibkrState.key, "default"));
+    } else {
+      await db.insert(ibkrState).values({ key: "default", ...updates } as any);
+    }
   }
 }
 
