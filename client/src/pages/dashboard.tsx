@@ -1556,13 +1556,50 @@ export default function Dashboard() {
               </p>
             </CardContent>
           </Card>
-        ) : (
-          <div className="grid gap-2 grid-cols-1 lg:grid-cols-2">
-            {onDeckSignals.map(signal => (
-              <OnDeckCard key={signal.id} signal={signal} />
-            ))}
-          </div>
-        )}
+        ) : (() => {
+          const isBuySignal = (s: SignalApi) => {
+            const tp = s.tradePlanJson as TradePlan | null;
+            return tp?.bias === "BUY" || (!tp && !s.direction.toLowerCase().includes("down") && s.direction !== "SELL");
+          };
+          const bullish = onDeckSignals
+            .filter(s => isBuySignal(s))
+            .sort((a, b) => b.qualityScore - a.qualityScore);
+          const bearish = onDeckSignals
+            .filter(s => !isBuySignal(s))
+            .sort((a, b) => b.qualityScore - a.qualityScore);
+          return (
+            <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide" data-testid="text-bullish-header">Bullish</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{bullish.length}</Badge>
+                </div>
+                {bullish.length === 0 ? (
+                  <p className="text-xs text-muted-foreground pl-5">No bullish signals</p>
+                ) : (
+                  bullish.map(signal => (
+                    <OnDeckCard key={signal.id} signal={signal} />
+                  ))
+                )}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                  <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide" data-testid="text-bearish-header">Bearish</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{bearish.length}</Badge>
+                </div>
+                {bearish.length === 0 ? (
+                  <p className="text-xs text-muted-foreground pl-5">No bearish signals</p>
+                ) : (
+                  bearish.map(signal => (
+                    <OnDeckCard key={signal.id} signal={signal} />
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {stats?.hitRateBySetup && Object.keys(stats.hitRateBySetup).length > 0 && (
