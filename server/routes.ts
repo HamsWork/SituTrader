@@ -306,9 +306,7 @@ export async function registerRoutes(
         const timeStopMinutes = parseInt(appSettings.timeStopMinutes || "120");
         const timeStopMinutesLeft = timeStopEnabled && activeMinutes != null ? Math.max(0, timeStopMinutes - activeMinutes) : null;
 
-        const instrumentLive = (sig.instrumentType === "LEVERAGED_ETF" && sig.instrumentTicker)
-          ? getLetfLiveData(sig.id) ?? undefined
-          : undefined;
+        const instrumentLive = getLetfLiveData(sig.id) ?? undefined;
 
         return {
           ...sig,

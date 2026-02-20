@@ -19,13 +19,21 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
     const activeSignals = await storage.getActivatedSignals();
     if (activeSignals.length === 0) return 0;
 
-    const letfSignals = activeSignals.filter(s =>
-      s.instrumentType === "LEVERAGED_ETF" && s.instrumentTicker
-    );
+    const letfSignals = activeSignals.filter(s => {
+      if (s.instrumentType === "LEVERAGED_ETF" && s.instrumentTicker) return true;
+      const letfJson = s.leveragedEtfJson as LeveragedEtfSuggestion | null;
+      return letfJson && letfJson.ticker;
+    });
 
     if (letfSignals.length === 0) return 0;
 
-    const uniqueTickers = Array.from(new Set(letfSignals.map(s => s.instrumentTicker!)));
+    const getLetfTicker = (s: Signal): string => {
+      if (s.instrumentType === "LEVERAGED_ETF" && s.instrumentTicker) return s.instrumentTicker;
+      const letfJson = s.leveragedEtfJson as LeveragedEtfSuggestion | null;
+      return letfJson!.ticker;
+    };
+
+    const uniqueTickers = Array.from(new Set(letfSignals.map(s => getLetfTicker(s))));
     const snapshotMap = new Map<string, { lastPrice: number }>();
     const quoteMap = new Map<string, any>();
 
@@ -42,15 +50,15 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
 
     for (const sig of letfSignals) {
       try {
-        const instrTicker = sig.instrumentTicker!;
+        const instrTicker = getLetfTicker(sig);
         const snap = snapshotMap.get(instrTicker);
         const quote = quoteMap.get(instrTicker);
         const livePrice = snap?.lastPrice ?? quote?.mid ?? null;
         if (livePrice == null || livePrice <= 0) continue;
 
-        let entryPrice = sig.instrumentEntryPrice;
+        let entryPrice = sig.instrumentType === "LEVERAGED_ETF" ? sig.instrumentEntryPrice : null;
 
-        if (!entryValidated.has(sig.id) && sig.activatedTs) {
+        if (sig.instrumentType === "LEVERAGED_ETF" && !entryValidated.has(sig.id) && sig.activatedTs) {
           const activationMs = new Date(sig.activatedTs).getTime();
           const historicalPrice = await fetchStockPriceAtTime(instrTicker, activationMs);
           if (historicalPrice != null) {

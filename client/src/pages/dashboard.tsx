@@ -349,7 +349,7 @@ function LetfLivePanel({ signal }: { signal: SignalApi }) {
   const instrLive = signal.instrumentLive;
   const letfSuggestion = signal.leveragedEtfJson as LeveragedEtfSuggestion | null;
   const isActive = signal.activationStatus === "ACTIVE";
-  if (!isActive || signal.instrumentType !== "LEVERAGED_ETF" || !letfSuggestion) return null;
+  if (!isActive || !letfSuggestion) return null;
 
   const hasLivePnl = instrLive && instrLive.entryPrice != null && instrLive.priceNow != null;
   const isPositive = (instrLive?.changeAbs ?? 0) >= 0;
