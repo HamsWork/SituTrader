@@ -83,6 +83,9 @@ export interface IStorage {
   setActiveProfile(id: number): Promise<void>;
   seedDefaultProfiles(): Promise<void>;
 
+  updateSignalOptions(id: number, optionsJson: any): Promise<void>;
+  getPendingSignalsForEnrichment(): Promise<Signal[]>;
+
   getSchedulerState(): Promise<SchedulerState>;
   updateSchedulerState(updates: Partial<Omit<SchedulerState, "key">>): Promise<SchedulerState>;
   ensureSchedulerState(): Promise<SchedulerState>;
@@ -281,6 +284,16 @@ export class DatabaseStorage implements IStorage {
     if (stopMovedToBeTs) update.stopMovedToBeTs = stopMovedToBeTs;
     if (timeStopTriggeredTs) update.timeStopTriggeredTs = timeStopTriggeredTs;
     await db.update(signals).set(update).where(eq(signals.id, id));
+  }
+
+  async updateSignalOptions(id: number, optionsJson: any): Promise<void> {
+    await db.update(signals).set({ optionsJson }).where(eq(signals.id, id));
+  }
+
+  async getPendingSignalsForEnrichment(): Promise<Signal[]> {
+    return db.select().from(signals)
+      .where(eq(signals.status, "pending"))
+      .orderBy(desc(signals.qualityScore));
   }
 
   async getHitRateForTickerSetup(ticker: string, setupType: string): Promise<number | null> {

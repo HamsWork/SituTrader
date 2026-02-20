@@ -9,6 +9,7 @@ import { generateTradePlan } from "../lib/tradeplan";
 import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
+import { enrichPendingSignalsWithOptions } from "../lib/options";
 import { log } from "../index";
 import type { SetupType } from "@shared/schema";
 
@@ -178,6 +179,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
               : null,
             entryTriggerPrice: null, invalidationTs: null,
             stopStage: "INITIAL", stopMovedToBeTs: null, timeStopTriggeredTs: null,
+            optionsJson: null,
           });
 
           summary.signalsGenerated++;
@@ -276,6 +278,12 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
       summary.alertEvents = alertEvents.length;
     } catch (err: any) {
       log(`Live monitor: Alert error: ${err.message}`, "scheduler");
+    }
+
+    try {
+      await enrichPendingSignalsWithOptions();
+    } catch (err: any) {
+      log(`Live monitor: Options enrichment error: ${err.message}`, "scheduler");
     }
   } catch (err: any) {
     log(`Live monitor: Fatal error: ${err.message}`, "scheduler");

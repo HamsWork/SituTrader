@@ -56,7 +56,7 @@ import {
   Pen,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy } from "@shared/schema";
+import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy, OptionsData } from "@shared/schema";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -98,6 +98,41 @@ function getProbColor(p: number): string {
   if (p >= 0.7) return "text-emerald-500";
   if (p >= 0.5) return "text-chart-4";
   return "text-red-500 dark:text-red-400";
+}
+
+function OptionsBadge({ signal }: { signal: SignalApi }) {
+  const opts = signal.optionsJson as OptionsData | null | undefined;
+  if (!opts || opts.mode !== "AUTO") return null;
+
+  const tooltipLines: string[] = [];
+  if (opts.candidate) {
+    const c = opts.candidate;
+    tooltipLines.push(`${c.right === "C" ? "Call" : "Put"} ${c.strike} exp ${c.expiry} (${c.dte}d)`);
+    tooltipLines.push(`Contract: ${c.contractSymbol}`);
+  }
+  if (opts.checks) {
+    const ch = opts.checks;
+    tooltipLines.push(`OI: ${ch.openInterest ?? "—"} (${ch.oiOk ? "OK" : "FAIL"})`);
+    if (ch.bid != null && ch.ask != null) {
+      tooltipLines.push(`Bid/Ask: ${ch.bid.toFixed(2)}/${ch.ask.toFixed(2)}`);
+    }
+    tooltipLines.push(`Spread: ${ch.spread != null ? (ch.spread * 100).toFixed(1) + "%" : "—"} (${ch.spreadOk ? "OK" : "FAIL"})`);
+    if (ch.reasonIfFail) tooltipLines.push(`Reason: ${ch.reasonIfFail}`);
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help ${
+        opts.tradable
+          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+          : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+      }`}
+      title={tooltipLines.join("\n")}
+      data-testid={`badge-options-${signal.id}`}
+    >
+      {opts.tradable ? "Options OK" : "Options Fail"}
+    </span>
+  );
 }
 
 const TIER_ORDER: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
@@ -329,6 +364,7 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
               </span>
             </Link>
             {getTierBadge(signal.tier)}
+            <OptionsBadge signal={signal} />
           </div>
           <div className="flex items-center gap-2">
             <span className={`text-sm font-bold ${getQualityColor(signal.qualityScore)}`} data-testid={`text-quality-${signal.id}`}>
@@ -538,6 +574,7 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
             <Badge variant="outline" className="text-[10px]">
               {signal.setupType}: {SETUP_LABELS[signal.setupType as SetupType] ?? signal.setupType}
             </Badge>
+            <OptionsBadge signal={signal} />
           </div>
           <span className={`text-xs font-bold ${getQualityColor(signal.qualityScore)}`} data-testid={`text-quality-${signal.id}`}>
             Q{signal.qualityScore}

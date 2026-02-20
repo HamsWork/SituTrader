@@ -1,0 +1,133 @@
+You are working in my Replit full-stack app (Next.js/React + API routes + DB). Implement “Option 1” exactly: add an Options Wrapper + enrichment job for pending signals, plus minimal UI filters (A-only vs All) WITHOUT taking up top-of-page space.
+
+GOALS
+1) Attach options-tradability metadata onto each pending signal (do not change existing signal generation logic).
+2) Add a server-side enrichment job that runs on an interval and can be manually triggered.
+3) Add a compact UI filter control that lets me switch between “A only” and “All (A/B/C)” without cluttering the header/top area.
+4) Keep everything typesafe with the existing SignalApi / SignalLive structure.
+5) Do NOT remove existing toggles blindly; instead, hide the noisy settings behind a small “Filters” button (popover/sheet) and keep the page clean.
+
+SCOPE (what to build)
+A) DATA MODEL (DB + types)
+- Extend the SignalApi (and underlying persisted Signal record) with a new optional field:
+  options?: {
+    mode: "NONE" | "AUTO";              // default "NONE"
+    candidate?: {
+      contractSymbol: string;           // Polygon option contract ticker format (e.g., "O:NVDA260320C00500000")
+      expiry: string;                   // YYYYMMDD
+      strike: number;
+      right: "C" | "P";
+      dte: number;
+    };
+    checks?: {
+      oiOk: boolean;
+      spreadOk: boolean;
+      openInterest: number | null;
+      spread: number | null;
+      bid: number | null;
+      ask: number | null;
+      checkedAt: string;                // ISO string
+      reasonIfFail?: string;            // e.g. "OI_TOO_LOW", "SPREAD_TOO_WIDE", "NO_QUOTE", etc.
+    };
+    tradable: boolean;                  // computed boolean: candidate exists AND checks pass
+  }
+
+- If you use Prisma or another ORM, create a migration to add a JSON column (or separate columns) on the signals table:
+  - signals.options_json (JSON / TEXT) OR appropriate structured fields.
+- Update shared/schema.ts so SignalApi includes this optional options field.
+
+B) SERVER-SIDE ENRICHMENT JOB
+Create a new server utility module: /server/options_enricher.ts (or similar)
+- Expose:
+  async function enrichPendingSignalsWithOptions(params?: {
+    dateFilter?: string;       // targetDate or “today”
+    tiers?: string[];          // optional
+    setupTypes?: string[];     // optional A/B/C
+    minOI?: number;            // default 500
+    maxSpread?: number;        // default 0.05
+  }): Promise<{ processed: number; updated: number; errors: number; }>
+
+Behavior per signal (ONLY pending signals; do not touch resolved):
+1) Determine bias:
+   - Prefer signal.tradePlanJson.bias if present
+   - else infer from signal.direction (BUY vs SELL)
+2) Get current price:
+   - Use Polygon NBBO mid via existing PolygonClient.get_latest_quote(ticker)
+   - If unavailable, fallback to previous close (already supported)
+3) Pick DTE window (simple, deterministic):
+   - Use a single default window for now: 6–25 DTE (weekly reality)
+   - (Do NOT implement multiple profiles yet; keep it stable.)
+4) Fetch options chain candidates:
+   - Use PolygonClient.get_options_chain(ticker, min_dte=6, max_dte=25)
+5) Select contract candidate:
+   - Right = "C" for BUY bias, "P" for SELL bias.
+   - Choose nearest strike to current price (ATM) as baseline.
+   - If multiple expirations, prefer the soonest expiration within DTE window that still has contracts.
+   - If ATM unavailable, pick closest strike (min abs(strike - currentPrice)).
+   - Build contractSymbol in Polygon format: O:{TICKER}{YYMMDD}{C/P}{strike*1000 padded to 8 digits}
+     Example: strike 145.0 => 145000 => "00145000" (but must be 8 digits; verify correctness with existing formatter logic).
+6) Validate liquidity for THIS EXACT contract:
+   - Open interest: call PolygonClient.get_option_contract_details(contractSymbol) and read open_interest
+     - Pass if open_interest >= minOI (default 500)
+   - Spread: call PolygonClient.get_option_quote(contractSymbol) and compute spread
+     - Pass if bid and ask exist and (ask - bid) <= maxSpread (default 0.05)
+   - If quote missing or bid/ask missing, mark spreadOk=false with reason "NO_QUOTE"
+7) Save results onto the signal record:
+   - signal.options.mode = "AUTO"
+   - signal.options.candidate = {contractSymbol, expiry, strike, right, dte}
+   - signal.options.checks = {oiOk, spreadOk, openInterest, spread, bid, ask, checkedAt, reasonIfFail}
+   - signal.options.tradable = Boolean(candidate && oiOk && spreadOk)
+8) Do NOT fail the whole job on one ticker; capture errors per ticker and continue.
+
+Add API endpoints:
+- POST /api/signals/enrich-options
+  - triggers enrichPendingSignalsWithOptions and returns stats
+- (Optional) GET /api/signals/enrich-options/status
+  - returns last run timestamp and last stats (store in memory or a small DB table)
+
+Add scheduling:
+- In the server runtime (where you already have refetchInterval client-side), add a backend interval runner:
+  - Every 5 minutes during US market hours (9:30–11:00 ET) and every 15 minutes outside that window.
+  - If that is too complex, start with every 10 minutes always, and leave TODOs.
+- IMPORTANT: This must not require the page to be open. It should run server-side.
+
+C) UI CHANGES (Clean + Minimal Space)
+1) Add a compact filter control:
+   - “A only” vs “All (A/B/C)” as a segmented control or two-option toggle.
+   - Default = “All”.
+   - This filter should control onDeckSignals and tradeNowSignals rendering (setupType).
+2) Move existing toggles/settings OUT of the top header area:
+   - Replace the current bulky top settings block with a single “Filters” button (top-right is fine).
+   - Clicking opens a Popover/Sheet/Drawer containing the less-used toggles.
+   - Keep the page header clean; no large panels at the top.
+
+D) CARD VISUAL INDICATOR (Options tradable)
+On TradeNowCard and OnDeckCard:
+- If signal.options?.mode === "AUTO":
+  - Show a small badge/icon:
+    - If signal.options.tradable === true: “Options OK” (green)
+    - Else: “Options Fail” (amber/red)
+  - Hover tooltip shows:
+    - contractSymbol (or formatted: exp + strike + C/P)
+    - OI value
+    - Spread value
+    - reasonIfFail if present
+- Do NOT block the card display. It’s informational initially.
+
+E) QUALITY AND SAFETY NOTES
+- Keep Polygon calls efficient. Avoid calling options chain for tickers repeatedly inside one run if you can cache per ticker in-memory during that run.
+- Respect existing types and fields; do not break SignalApi serialization.
+- Add basic logging for job stats and per-ticker failures.
+
+DELIVERABLES
+1) Code changes committed across:
+   - shared/schema.ts (types)
+   - DB migration (Prisma or your DB layer)
+   - server/options_enricher.ts (job)
+   - /api/signals/enrich-options route
+   - UI: add A-only vs All filter + move settings into “Filters” popover/sheet
+   - Card badges for options tradable
+2) Ensure the app builds with no TypeScript errors.
+3) Include brief inline comments where logic is non-obvious.
+
+Start implementing now. If you discover my project uses a different DB layer than Prisma, adapt accordingly but keep the same data shape and endpoints.

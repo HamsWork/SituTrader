@@ -15,6 +15,7 @@ import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
 import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy";
 import { log } from "./index";
 import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
+import { enrichPendingSignalsWithOptions } from "./lib/options";
 import type { SetupType } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -562,6 +563,7 @@ export async function registerRoutes(
               stopStage: "INITIAL",
               stopMovedToBeTs: null,
               timeStopTriggeredTs: null,
+              optionsJson: null,
             });
           }
 
@@ -806,6 +808,21 @@ export async function registerRoutes(
         });
       res.json(events);
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/signals/enrich-options", async (req, res) => {
+    try {
+      const { force, minOI, maxSpread } = req.body ?? {};
+      const result = await enrichPendingSignalsWithOptions({
+        force: force === true,
+        minOI: typeof minOI === "number" ? minOI : undefined,
+        maxSpread: typeof maxSpread === "number" ? maxSpread : undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      log(`Options enrichment error: ${err.message}`, "options");
       res.status(500).json({ message: err.message });
     }
   });

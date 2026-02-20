@@ -78,6 +78,7 @@ export const signals = pgTable("signals", {
   stopStage: text("stop_stage").notNull().default("INITIAL"),
   stopMovedToBeTs: text("stop_moved_to_be_ts"),
   timeStopTriggeredTs: text("time_stop_triggered_ts"),
+  optionsJson: jsonb("options_json"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -315,4 +316,30 @@ export interface BacktestDetail {
   mfe?: number;
   magnetPrice: number;
   entryPrice?: number;
+}
+
+export interface OptionsCandidate {
+  contractSymbol: string;
+  expiry: string;
+  strike: number;
+  right: "C" | "P";
+  dte: number;
+}
+
+export interface OptionsChecks {
+  oiOk: boolean;
+  spreadOk: boolean;
+  openInterest: number | null;
+  spread: number | null;
+  bid: number | null;
+  ask: number | null;
+  checkedAt: string;
+  reasonIfFail?: string;
+}
+
+export interface OptionsData {
+  mode: "NONE" | "AUTO";
+  candidate?: OptionsCandidate;
+  checks?: OptionsChecks;
+  tradable: boolean;
 }
