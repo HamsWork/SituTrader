@@ -574,6 +574,8 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
         )}
 
+        <OptionsPanel signal={signal} />
+
         {tp && (
           <div className="grid gap-1.5 grid-cols-3">
             <div className="rounded bg-muted/50 px-2 py-1.5">
@@ -621,8 +623,6 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
             </div>
           </div>
         )}
-
-        <OptionsPanel signal={signal} />
 
         <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
           {signal.activatedTs && (
