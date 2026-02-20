@@ -309,7 +309,7 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
             data-testid={`marker-now-${signal.id}`}
           >
             <span
-              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap leading-none ${
+              className={`text-[10px] font-bold px-1.5 py-[3px] rounded-full whitespace-nowrap leading-tight inline-flex items-center ${
                 beyondStop
                   ? "bg-red-500 text-white animate-pulse"
                   : pastTarget
