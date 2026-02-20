@@ -833,15 +833,12 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
   const t1 = tp?.t1 ?? signal.magnetPrice;
   const stopDist = tp?.stopDistance ?? null;
 
-  const stopFromPlan = signal.stopPrice ?? (
-    stopDist != null && P != null
-      ? (isBuy ? P - stopDist : P + stopDist)
-      : null
-  );
+  const stopFromInvalidation = tp?.invalidation?.match(/\$([0-9.]+)/)?.[1];
+  const stopNum = signal.stopPrice ?? (stopFromInvalidation ? parseFloat(stopFromInvalidation) : null);
 
-  const stopLabel = signal.stopPrice?.toFixed(2) ?? (
-    tp?.invalidation?.match(/\$([0-9.]+)/)?.[1] ?? null
-  );
+  const estEntry = stopNum != null && stopDist != null
+    ? (isBuy ? stopNum + stopDist : stopNum - stopDist)
+    : null;
 
   const rrDirect = tp?.riskReward ?? null;
 
@@ -850,10 +847,7 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
       ? (isBuy ? (trig - P) : (P - trig))
       : null;
 
-  const rrToT1 =
-    trig != null && stopFromPlan != null
-      ? (isBuy ? ((t1 - trig) / Math.abs(trig - stopFromPlan)) : ((trig - t1) / Math.abs(stopFromPlan - trig)))
-      : rrDirect;
+  const rrToT1 = rrDirect;
 
   const isNearTrigger = distToTrigger != null && distToTrigger <= 0.20;
 
@@ -893,10 +887,16 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
               <span className="text-muted-foreground">Current: —</span>
             )}
 
-            {stopLabel != null ? (
+            {estEntry != null && (
+              <span className="text-muted-foreground" data-testid={`text-est-entry-${signal.id}`}>
+                Est. Entry: <span className="font-semibold">${estEntry.toFixed(2)}</span>
+              </span>
+            )}
+
+            {stopNum != null ? (
               <span className="text-red-400/80" data-testid={`text-stop-${signal.id}`}>
-                Stop: <span className="font-semibold">${stopLabel}</span>
-                {stopDist != null && <span className="text-muted-foreground ml-0.5">({stopDist.toFixed(2)} dist)</span>}
+                Stop: <span className="font-semibold">${stopNum.toFixed(2)}</span>
+                {stopDist != null && <span className="text-muted-foreground ml-0.5">({stopDist.toFixed(2)})</span>}
               </span>
             ) : (
               <span className="text-muted-foreground">Stop: —</span>
