@@ -163,7 +163,7 @@ export async function registerRoutes(
 
   app.get("/api/signals", async (_req, res) => {
     try {
-      const sigs = await storage.getSignals(undefined, 100);
+      const sigs = await storage.getSignals(undefined, 500);
       const appSettings = await storage.getAllSettings();
 
       const pendingSignals = sigs.filter(s => s.status === "pending");

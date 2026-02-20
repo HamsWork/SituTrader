@@ -1006,7 +1006,7 @@ export default function Dashboard() {
 
   const resolvedSignals = allSignals
     .filter(s => s.status !== "pending" || s.activationStatus === "INVALIDATED")
-    .filter(s => matchesDate(s.targetDate))
+    .filter(s => !showAll ? passesProfile(s, activeProfile) : true)
     .filter(s => filterTier === "all" || s.tier === filterTier)
     .filter(s => filterSetup === "all" || s.setupType === filterSetup)
     .filter(s => filterTicker === "all" || s.ticker === filterTicker)
@@ -1015,6 +1015,9 @@ export default function Dashboard() {
       return getEffectiveStatus(s) === filterStatus;
     })
     .sort((a, b) => {
+      const dateA = a.asofDate ?? a.targetDate;
+      const dateB = b.asofDate ?? b.targetDate;
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
       return b.qualityScore - a.qualityScore;
