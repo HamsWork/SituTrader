@@ -181,7 +181,7 @@ export async function enrichPendingSignalsWithOptions(params: EnrichParams = {})
       let bid: number | null = null;
       let ask: number | null = null;
 
-      const snapshot = await fetchOptionSnapshot(contractSymbol);
+      const snapshot = await fetchOptionSnapshot(signal.ticker, contractSymbol);
       if (snapshot) {
         if (openInterest == null) openInterest = snapshot.openInterest;
         bid = snapshot.bid;

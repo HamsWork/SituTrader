@@ -178,14 +178,14 @@ export async function fetchOptionQuote(contractSymbol: string): Promise<OptionsQ
   }
 }
 
-export async function fetchOptionSnapshot(contractSymbol: string): Promise<{
+export async function fetchOptionSnapshot(underlyingTicker: string, contractSymbol: string): Promise<{
   openInterest: number | null;
   bid: number | null;
   ask: number | null;
 } | null> {
   try {
     const encoded = encodeURIComponent(contractSymbol);
-    const data = await polygonGet(`/v3/snapshot/options/${encoded}`);
+    const data = await polygonGet(`/v3/snapshot/options/${underlyingTicker}/${encoded}`);
     const r = data.results;
     if (!r) return null;
     return {
