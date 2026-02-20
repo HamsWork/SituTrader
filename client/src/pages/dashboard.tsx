@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -974,6 +974,20 @@ export default function Dashboard() {
     queryKey: ["/api/signals"],
     refetchInterval: 30000,
   });
+
+  const letfPopulatedRef = useRef(false);
+  useEffect(() => {
+    if (!signals || letfPopulatedRef.current) return;
+    const needLetf = signals.filter(s =>
+      (s.status === "pending" || s.status === "active") && !s.leveragedEtfJson
+    );
+    if (needLetf.length > 0) {
+      letfPopulatedRef.current = true;
+      apiRequest("POST", "/api/signals/batch-letf")
+        .then(() => queryClient.invalidateQueries({ queryKey: ["/api/signals"] }))
+        .catch(() => {});
+    }
+  }, [signals]);
 
   const statsProfileParam = showAll ? "all" : (activeProfile?.id ?? "all");
   const { data: stats, isLoading: statsLoading } = useQuery<{

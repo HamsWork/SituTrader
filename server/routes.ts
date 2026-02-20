@@ -622,6 +622,21 @@ export async function registerRoutes(
               instrumentEntryPrice: null,
               leveragedEtfJson: null,
             });
+
+            if (hasLeveragedEtfMapping(ticker)) {
+              try {
+                const suggestion = await selectBestLeveragedEtf(ticker, tradePlan.bias as "BUY" | "SELL");
+                if (suggestion) {
+                  const newSigs = await storage.getSignals(undefined, 1);
+                  const newest = newSigs.find(s => s.ticker === ticker && s.setupType === setup.setupType);
+                  if (newest) {
+                    await storage.updateSignalLeveragedEtf(newest.id, suggestion);
+                  }
+                }
+              } catch (e: any) {
+                log(`LETF auto-suggest failed for ${ticker}: ${e.message}`, "refresh");
+              }
+            }
           }
 
           log(`Generated ${setups.length} setups for ${ticker}`, "refresh");
@@ -983,6 +998,36 @@ export async function registerRoutes(
 
       const updated = await storage.updateSignalInstrument(id, instrumentType, instrumentTicker ?? null, entryPrice);
       res.json({ ok: true, signal: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/signals/batch-letf", async (_req, res) => {
+    try {
+      const allSigs = await storage.getSignals(undefined, 500);
+      const needLetf = allSigs.filter(s =>
+        (s.status === "pending" || s.status === "active") &&
+        !s.leveragedEtfJson &&
+        hasLeveragedEtfMapping(s.ticker)
+      );
+
+      let updated = 0;
+      for (const sig of needLetf) {
+        try {
+          const tp = sig.tradePlanJson as any;
+          const bias: "BUY" | "SELL" = tp?.bias === "SELL" ? "SELL" : "BUY";
+          const suggestion = await selectBestLeveragedEtf(sig.ticker, bias);
+          if (suggestion) {
+            await storage.updateSignalLeveragedEtf(sig.id, suggestion);
+            updated++;
+          }
+        } catch (e: any) {
+          log(`Batch LETF error for signal ${sig.id}: ${e.message}`, "letf");
+        }
+      }
+
+      res.json({ ok: true, processed: needLetf.length, updated });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
