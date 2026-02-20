@@ -37,3 +37,10 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[userenv]
+
+[userenv.shared]
+IBKR_HOST = "162.218.114.93"
+IBKR_PORT = "4003"
+IBKR_CLIENT_ID = "1"
