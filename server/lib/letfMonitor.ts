@@ -11,7 +11,7 @@ const letfEntryPriceCache = new Map<number, number>();
 
 let monitorInterval: ReturnType<typeof setInterval> | null = null;
 let lastTickMs = 0;
-const RTH_INTERVAL = 30_000;
+const RTH_INTERVAL = 10_000;
 const OFF_HOURS_INTERVAL = 5 * 60_000;
 
 export async function refreshLetfQuotesForActiveSignals(): Promise<number> {

@@ -1010,7 +1010,7 @@ export default function Dashboard() {
 
   const { data: signals, isLoading: signalsLoading } = useQuery<SignalApi[]>({
     queryKey: ["/api/signals"],
-    refetchInterval: 30000,
+    refetchInterval: 5000,
   });
 
   const letfPopulatedRef = useRef(false);
