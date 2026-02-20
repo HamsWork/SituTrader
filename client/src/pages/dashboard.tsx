@@ -944,8 +944,8 @@ export default function Dashboard() {
       return distToTrigger(a) - distToTrigger(b);
     });
 
-  const allPendingUnfiltered = allSignals.filter(s => s.status === "pending");
-  const tradeNowSignals = allPendingUnfiltered.filter(s => s.activationStatus === "ACTIVE")
+  const allActiveSignals = allSignals.filter(s => s.status === "pending" && s.activationStatus === "ACTIVE");
+  const tradeNowSignals = (showAll ? allActiveSignals : allActiveSignals.filter(s => passesProfile(s, activeProfile)))
     .sort((a, b) => {
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
@@ -953,6 +953,7 @@ export default function Dashboard() {
       if (qualDiff !== 0) return qualDiff;
       return distToTrigger(a) - distToTrigger(b);
     });
+  const hiddenActiveByProfile = allActiveSignals.length - tradeNowSignals.length;
   const filteredPending = showAll ? pendingSignals : pendingSignals.filter(s => passesProfile(s, activeProfile));
   const onDeckSignals = filteredPending.filter(s => s.activationStatus !== "ACTIVE");
   const hiddenByProfile = pendingSignals.filter(s => s.activationStatus !== "ACTIVE").length - onDeckSignals.length;
@@ -1298,6 +1299,9 @@ export default function Dashboard() {
           <Radio className="w-4 h-4 text-amber-500" />
           <h2 className="text-base font-semibold" data-testid="text-trade-now-title">Trade Now</h2>
           <Badge variant="outline">{tradeNowSignals.length}</Badge>
+          {hiddenActiveByProfile > 0 && !showAll && (
+            <span className="text-xs text-muted-foreground">({hiddenActiveByProfile} hidden by profile)</span>
+          )}
         </div>
         {signalsLoading ? (
           <div className="space-y-3">
