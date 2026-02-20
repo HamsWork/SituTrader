@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { fetchStockPriceAtTime } from "./polygon";
+import { fetchStockPriceAtTime, fetchSnapshot } from "./polygon";
 import { fetchStockNbbo } from "./leveragedEtf";
 import { log } from "../index";
 import { isRTH } from "../jobs/scheduler";
@@ -26,20 +26,27 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
     if (letfSignals.length === 0) return 0;
 
     const uniqueTickers = Array.from(new Set(letfSignals.map(s => s.instrumentTicker!)));
+    const snapshotMap = new Map<string, { lastPrice: number }>();
     const quoteMap = new Map<string, any>();
 
     await Promise.all(uniqueTickers.map(async (ticker) => {
       try {
-        const q = await fetchStockNbbo(ticker);
-        if (q) quoteMap.set(ticker, q);
+        const [snap, nbbo] = await Promise.all([
+          fetchSnapshot(ticker),
+          fetchStockNbbo(ticker),
+        ]);
+        if (snap && snap.lastPrice > 0) snapshotMap.set(ticker, snap);
+        if (nbbo) quoteMap.set(ticker, nbbo);
       } catch {}
     }));
 
     for (const sig of letfSignals) {
       try {
         const instrTicker = sig.instrumentTicker!;
+        const snap = snapshotMap.get(instrTicker);
         const quote = quoteMap.get(instrTicker);
-        if (!quote || quote.mid == null) continue;
+        const livePrice = snap?.lastPrice ?? quote?.mid ?? null;
+        if (livePrice == null || livePrice <= 0) continue;
 
         let entryPrice = sig.instrumentEntryPrice;
 
@@ -54,32 +61,35 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
               log(`LETF entry price corrected for signal ${sig.id} (${instrTicker}): $${oldEntry} → $${entryPrice} @ ${sig.activatedTs}`, "letfMonitor");
             }
           } else if (entryPrice == null) {
-            entryPrice = quote.mid;
+            entryPrice = livePrice;
             await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
             log(`LETF entry price fallback to current for signal ${sig.id} (${instrTicker}): $${entryPrice}`, "letfMonitor");
           }
           entryValidated.add(sig.id);
         }
 
-        const changeAbs = entryPrice != null && quote.mid != null
-          ? Math.round((quote.mid - entryPrice) * 100) / 100
+        const changeAbs = entryPrice != null
+          ? Math.round((livePrice - entryPrice) * 100) / 100
           : null;
-        const changePct = entryPrice != null && entryPrice > 0 && quote.mid != null
-          ? Math.round(((quote.mid - entryPrice) / entryPrice) * 10000) / 100
+        const changePct = entryPrice != null && entryPrice > 0
+          ? Math.round(((livePrice - entryPrice) / entryPrice) * 10000) / 100
           : null;
 
+        const staleQuote = quote?.stale ?? true;
+        const quoteTs = quote?.ts ?? Date.now();
+
         const instrLive: InstrumentLive = {
-          priceNow: quote.mid,
+          priceNow: livePrice,
           entryPrice,
           changeAbs,
           changePct,
-          bid: quote.bid,
-          ask: quote.ask,
-          spread: quote.spread,
-          spreadPct: quote.spreadPct != null ? Math.round(quote.spreadPct * 10000) / 10000 : null,
-          ts: quote.ts,
-          stale: quote.stale,
-          wideSpread: quote.wideSpread,
+          bid: quote?.bid ?? null,
+          ask: quote?.ask ?? null,
+          spread: quote?.spread ?? null,
+          spreadPct: quote?.spreadPct != null ? Math.round(quote.spreadPct * 10000) / 10000 : null,
+          ts: quoteTs,
+          stale: staleQuote,
+          wideSpread: quote?.wideSpread ?? false,
         };
 
         letfLiveCache.set(sig.id, instrLive);
