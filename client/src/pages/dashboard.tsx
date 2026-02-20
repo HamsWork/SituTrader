@@ -542,7 +542,6 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
         <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">
           {isSell ? "PROFIT" : "RISK"}
         </span>
-        <span className="text-[9px] text-muted-foreground/50">Entry</span>
         <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">
           {isSell ? "RISK" : "PROFIT"}
         </span>
