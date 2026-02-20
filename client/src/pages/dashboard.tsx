@@ -489,9 +489,15 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
 
   const isSell = tp.bias === "SELL";
 
-  const priceMin = Math.min(targetPrice, resolvedEntry, resolvedStop);
-  const priceMax = Math.max(targetPrice, resolvedEntry, resolvedStop);
-  const range = priceMax - priceMin || 1;
+  const keyPrices = [targetPrice, resolvedEntry, resolvedStop];
+  if (currentPrice != null) keyPrices.push(currentPrice);
+  const rawMin = Math.min(...keyPrices);
+  const rawMax = Math.max(...keyPrices);
+  const rawRange = rawMax - rawMin || 1;
+  const pad = rawRange * 0.12;
+  const priceMin = rawMin - pad;
+  const priceMax = rawMax + pad;
+  const range = priceMax - priceMin;
 
   const toPercent = (price: number) => Math.max(0, Math.min(100, ((price - priceMin) / range) * 100));
 
