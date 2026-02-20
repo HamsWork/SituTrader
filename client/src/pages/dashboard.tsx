@@ -1014,7 +1014,14 @@ export default function Dashboard() {
                 <SelectValue placeholder="Select profile" />
               </SelectTrigger>
               <SelectContent>
-                {[...profiles].sort((a, b) => (b.minQualityScore ?? 0) - (a.minQualityScore ?? 0) || (b.minHitRate ?? 0) - (a.minHitRate ?? 0)).map(p => (
+                {[...profiles].sort((a, b) => {
+                  const tierRank: Record<string, number> = { "A+": 5, "A": 4, "B": 3, "C": 2 };
+                  const aTier = tierRank[a.minTier] ?? 1;
+                  const bTier = tierRank[b.minTier] ?? 1;
+                  if (bTier !== aTier) return bTier - aTier;
+                  if ((b.minQualityScore ?? 0) !== (a.minQualityScore ?? 0)) return (b.minQualityScore ?? 0) - (a.minQualityScore ?? 0);
+                  return (b.minHitRate ?? 0) - (a.minHitRate ?? 0);
+                }).map(p => (
                   <SelectItem key={p.id} value={p.id.toString()} data-testid={`option-profile-${p.id}`}>
                     {p.name} {p.isPinned ? "📌" : ""}
                   </SelectItem>
