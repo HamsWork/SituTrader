@@ -1603,7 +1603,7 @@ export default function Dashboard() {
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground mb-2">Setup Hit Rates <span className="font-normal text-muted-foreground/60">(all-time)</span></h2>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-            {Object.entries(stats.hitRateBySetup).map(([setup, data]) => (
+            {Object.entries(stats.hitRateBySetup).sort(([a], [b]) => a.localeCompare(b)).map(([setup, data]) => (
               <Card key={setup}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between gap-1 mb-1">

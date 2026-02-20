@@ -368,7 +368,11 @@ export class DatabaseStorage implements IStorage {
     const recentMisses = recent.filter((s) => s.status === "miss").length;
     const hitRate60d = recent.length > 0 ? recentHits / recent.length : 0;
 
+    const ALL_SETUP_TYPES = ["A", "B", "C", "D", "E", "F"];
     const hitRateBySetup: Record<string, { hits: number; total: number; rate: number }> = {};
+    for (const st of ALL_SETUP_TYPES) {
+      hitRateBySetup[st] = { hits: 0, total: 0, rate: 0 };
+    }
     const resolved = allSignals.filter((s) => s.status !== "pending" && matchesProfile(s));
     for (const s of resolved) {
       if (!hitRateBySetup[s.setupType]) {
