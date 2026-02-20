@@ -861,7 +861,15 @@ export default function Dashboard() {
       return distToTrigger(a) - distToTrigger(b);
     });
 
-  const tradeNowSignals = pendingSignals.filter(s => s.activationStatus === "ACTIVE");
+  const allPendingUnfiltered = allSignals.filter(s => s.status === "pending");
+  const tradeNowSignals = allPendingUnfiltered.filter(s => s.activationStatus === "ACTIVE")
+    .sort((a, b) => {
+      const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
+      if (tierDiff !== 0) return tierDiff;
+      const qualDiff = b.qualityScore - a.qualityScore;
+      if (qualDiff !== 0) return qualDiff;
+      return distToTrigger(a) - distToTrigger(b);
+    });
   const filteredPending = showAll ? pendingSignals : pendingSignals.filter(s => passesProfile(s, activeProfile));
   const onDeckSignals = filteredPending.filter(s => s.activationStatus !== "ACTIVE");
   const hiddenByProfile = pendingSignals.filter(s => s.activationStatus !== "ACTIVE").length - onDeckSignals.length;
