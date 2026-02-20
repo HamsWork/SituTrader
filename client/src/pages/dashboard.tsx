@@ -527,52 +527,61 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           </div>
         </div>
 
-        {live?.currentPrice != null ? (
-          <div className="flex items-center justify-between gap-2 flex-wrap text-xs" data-testid={`live-strip-${signal.id}`}>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-sm" data-testid={`text-current-${signal.id}`}>
-                ${live.currentPrice.toFixed(2)}
-              </span>
-              {live.rNow != null && (
-                <span className={`font-semibold ${live.rNow >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid={`text-rnow-${signal.id}`}>
-                  {live.rNow.toFixed(2)}R
-                </span>
+        {(() => {
+          const rNow = live?.rNow;
+          const stockPositive = rNow != null ? rNow >= 0 : true;
+          const stockBg = stockPositive ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20";
+          return (
+            <div className={`rounded-md border p-2.5 space-y-2 ${stockBg}`} data-testid={`panel-stock-${signal.id}`}>
+              {live?.currentPrice != null ? (
+                <div className="flex items-center justify-between gap-2 flex-wrap text-xs" data-testid={`live-strip-${signal.id}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm" data-testid={`text-current-${signal.id}`}>
+                      ${live.currentPrice.toFixed(2)}
+                    </span>
+                    {rNow != null && (
+                      <span className={`font-semibold ${rNow >= 0 ? "text-emerald-500" : "text-red-500"}`} data-testid={`text-rnow-${signal.id}`}>
+                        {rNow.toFixed(2)}R
+                      </span>
+                    )}
+                    <span className="text-muted-foreground" data-testid={`text-progress-${signal.id}`}>
+                      {Math.round(live.progressToTarget * 100)}% to target
+                    </span>
+                    {live.activeMinutes != null && (
+                      <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
+                        {live.activeMinutes}m active
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    {live.distToTargetAtr != null && (
+                      <span data-testid={`text-to-t1-${signal.id}`}>
+                        T1: {live.distToTargetAtr.toFixed(1)} ATR
+                      </span>
+                    )}
+                    {live.distToStopAtr != null && (
+                      <span data-testid={`text-to-stop-${signal.id}`}>
+                        Stop: {live.distToStopAtr.toFixed(1)} ATR
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground" data-testid={`badge-live-unavailable-${signal.id}`}>
+                  Live price unavailable
+                </div>
               )}
-              <span className="text-muted-foreground" data-testid={`text-progress-${signal.id}`}>
-                {Math.round(live.progressToTarget * 100)}% to target
-              </span>
-              {live.activeMinutes != null && (
-                <span className="text-muted-foreground" data-testid={`text-active-min-${signal.id}`}>
-                  {live.activeMinutes}m active
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              {live.distToTargetAtr != null && (
-                <span data-testid={`text-to-t1-${signal.id}`}>
-                  T1: {live.distToTargetAtr.toFixed(1)} ATR
-                </span>
-              )}
-              {live.distToStopAtr != null && (
-                <span data-testid={`text-to-stop-${signal.id}`}>
-                  Stop: {live.distToStopAtr.toFixed(1)} ATR
-                </span>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground" data-testid={`badge-live-unavailable-${signal.id}`}>
-            Live price unavailable
-          </div>
-        )}
 
-        {signal.activationStatus === "ACTIVE" && (signal.entryPriceAtActivation == null || signal.stopPrice == null) ? (
-          <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-incomplete-${signal.id}`}>
-            Live trade data incomplete
-          </Badge>
-        ) : (
-          <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
-        )}
+              {signal.activationStatus === "ACTIVE" && (signal.entryPriceAtActivation == null || signal.stopPrice == null) ? (
+                <Badge variant="outline" className="text-[10px] text-muted-foreground" data-testid={`badge-incomplete-${signal.id}`}>
+                  Live trade data incomplete
+                </Badge>
+              ) : (
+                <ProgressBar signal={signal} currentPrice={live?.currentPrice} />
+              )}
+            </div>
+          );
+        })()}
 
         <OptionsPanel signal={signal} />
 
