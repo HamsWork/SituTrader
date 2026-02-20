@@ -417,6 +417,66 @@ function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad";
   return { state: "neutral", title: "Trade Health: Neutral", Icon: CircleDot, className: "bg-yellow-500/10 text-yellow-500" };
 }
 
+function OptionTracker({ signal }: { signal: SignalApi }) {
+  const ol = signal.live?.optionLive;
+  if (!ol) return null;
+  if (signal.activationStatus !== "ACTIVE") return null;
+
+  const markNow = ol.optionMarkNow ?? ol.mid;
+  const entryMark = ol.optionEntryMark;
+  const changeAbs = ol.optionChangeAbs;
+  const changePct = ol.optionChangePct;
+  const isStale = ol.stale;
+
+  if (markNow == null) {
+    return (
+      <div className="text-[10px] text-muted-foreground italic" data-testid={`option-tracker-unavailable-${signal.id}`}>
+        Option quote unavailable
+      </div>
+    );
+  }
+
+  if (entryMark == null) {
+    return (
+      <div className="text-[10px] text-muted-foreground italic" data-testid={`option-tracker-waiting-${signal.id}`}>
+        Waiting for option baseline...
+      </div>
+    );
+  }
+
+  const isPositive = changeAbs != null && changeAbs >= 0;
+  const changeColor = isPositive ? "text-emerald-500" : "text-red-500";
+  const barColor = isPositive ? "bg-emerald-500" : "bg-red-500";
+  const changePctAbs = changePct != null ? Math.abs(changePct) : 0;
+  const barWidth = Math.min(changePctAbs, 100);
+
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-muted/30 px-2 py-1.5" data-testid={`option-tracker-${signal.id}`}>
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold shrink-0">Opt</span>
+      <span className="text-xs font-bold" data-testid={`text-option-mark-${signal.id}`}>${markNow.toFixed(2)}</span>
+      {changeAbs != null && changePct != null && (
+        <span className={`text-xs font-semibold ${changeColor}`} data-testid={`text-option-change-${signal.id}`}>
+          {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
+        </span>
+      )}
+      {isStale && (
+        <span className="text-[9px] text-amber-500 font-medium" title="Quote is stale (fallback or single-sided)" data-testid={`badge-option-stale-${signal.id}`}>
+          stale
+        </span>
+      )}
+      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[40px]" data-testid={`bar-option-progress-${signal.id}`}>
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${barWidth}%` }}
+        />
+      </div>
+      <span className="text-[10px] text-muted-foreground shrink-0">
+        from ${entryMark.toFixed(2)}
+      </span>
+    </div>
+  );
+}
+
 function TradeNowCard({ signal }: { signal: SignalApi }) {
   const tp = signal.tradePlanJson as TradePlan | null;
   const isBuy = tp?.bias === "BUY" || (!tp && !signal.direction.toLowerCase().includes("down") && signal.direction !== "SELL");
@@ -508,6 +568,8 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
             Live price unavailable
           </div>
         )}
+
+        <OptionTracker signal={signal} />
 
         <div className="rounded-md bg-muted/50 p-2 font-mono text-xs" data-testid={`text-one-line-${signal.id}`}>
           {(() => {

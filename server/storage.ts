@@ -86,6 +86,8 @@ export interface IStorage {
   seedDefaultProfiles(): Promise<void>;
 
   updateSignalOptions(id: number, optionsJson: any): Promise<void>;
+  updateSignalOptionTracking(id: number, updates: { optionContractTicker?: string | null; optionEntryMark?: number | null }): Promise<void>;
+  getActivatedSignals(): Promise<Signal[]>;
   getPendingSignalsForEnrichment(): Promise<Signal[]>;
 
   getSchedulerState(): Promise<SchedulerState>;
@@ -290,6 +292,15 @@ export class DatabaseStorage implements IStorage {
 
   async updateSignalOptions(id: number, optionsJson: any): Promise<void> {
     await db.update(signals).set({ optionsJson }).where(eq(signals.id, id));
+  }
+
+  async updateSignalOptionTracking(id: number, updates: { optionContractTicker?: string | null; optionEntryMark?: number | null }): Promise<void> {
+    await db.update(signals).set(updates).where(eq(signals.id, id));
+  }
+
+  async getActivatedSignals(): Promise<Signal[]> {
+    return db.select().from(signals)
+      .where(and(eq(signals.status, "pending"), eq(signals.activationStatus, "ACTIVE")));
   }
 
   async getPendingSignalsForEnrichment(): Promise<Signal[]> {

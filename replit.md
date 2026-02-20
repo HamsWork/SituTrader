@@ -40,6 +40,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/alerts.ts` - Alert engine with rate limiting, tier-based routing, universe_pass check
 - `server/lib/activation.ts` - Activation engine: entry trigger scanning, ACTIVE/NOT_ACTIVE/INVALIDATED tracking
 - `server/lib/options.ts` - Options enrichment: fetches ATM contracts (6-25 DTE), validates OI/spread, attaches options_json to pending signals
+- `server/lib/optionMonitor.ts` - Option price monitor: server-side polling for ACTIVE signal option quotes (NBBO → last trade fallback), entry mark capture, change tracking
 - `server/lib/tradeplan.ts` - Trade plan generation
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
 - `server/lib/expectancy.ts` - Expectancy computation: R-multiples, profit factor, tradeability, setup categorization
@@ -54,7 +55,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/symbols` - Add symbol
 - `PATCH /api/symbols/:ticker` - Toggle enabled
 - `DELETE /api/symbols/:ticker` - Remove symbol
-- `GET /api/signals` - List signals (includes qualityScore, tier, alertState, pHit60, pHit120, pHit390, timeScore, universePass). ACTIVE signals hydrated with `live` object (currentPrice, activeMinutes, progressToTarget, rNow, distToTargetAtr, distToStopAtr, atr14). Auto-refetches every 30s on dashboard.
+- `GET /api/signals` - List signals (includes qualityScore, tier, alertState, pHit60, pHit120, pHit390, timeScore, universePass). ACTIVE signals hydrated with `live` object (currentPrice, activeMinutes, progressToTarget, rNow, distToTargetAtr, distToStopAtr, atr14) and `optionLive` object (bid/ask/mark/spread/stale/optionEntryMark/optionChangeAbs/optionChangePct). Auto-refetches every 30s on dashboard.
 - `GET /api/stats` - Dashboard statistics (includes topSignalsToday)
 - `GET /api/symbol/:ticker` - Symbol detail with bars, signals, coverage
 - `POST /api/refresh` - Fetch market data, generate signals with quality scores and time-to-hit stats
@@ -81,6 +82,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/scheduler/toggle` - Toggle Author Mode ({ authorModeEnabled: boolean })
 - `POST /api/scheduler/run` - Manual run with autoNow context-aware job selection
 - `POST /api/signals/enrich-options` - Run options enrichment on pending signals ({ force?: boolean, minOI?: number, maxSpread?: number })
+- `GET /api/dev/option-quote?contract=O:...` - Dev test: fetch NBBO mark/bid/ask/spread/stale for any option contract
+- `POST /api/options/refresh` - Force refresh option quotes for all ACTIVE signals
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus
@@ -94,7 +97,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `symbols` - Managed tickers (includes isWatchlist flag to distinguish manual watchlist from auto-discovered)
 - `daily_bars` - OHLCV daily data
 - `intraday_bars` - OHLCV intraday data
-- `signals` - Generated signals with quality/tier/alert/probability/activation fields (includes stop_price, entry_trigger_price, invalidation_ts, stop_stage, stop_moved_to_be_ts, time_stop_triggered_ts, options_json)
+- `signals` - Generated signals with quality/tier/alert/probability/activation fields (includes stop_price, entry_trigger_price, invalidation_ts, stop_stage, stop_moved_to_be_ts, time_stop_triggered_ts, options_json, option_contract_ticker, option_entry_mark)
 - `backtests` - Backtest results with details
 - `time_to_hit_stats` - Probability distributions per ticker+setup (p15..p390)
 - `universe_members` - Universe membership per date (universeDate, ticker, avgDollarVol20d, rank, included)

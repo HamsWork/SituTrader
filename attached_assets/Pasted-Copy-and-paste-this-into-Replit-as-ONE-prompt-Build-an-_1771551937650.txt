@@ -1,0 +1,125 @@
+Copy and paste this into Replit as ONE prompt:
+
+⸻
+
+Build an “Option Price Tracker” system in the situ app that mirrors the exact methodology in the pasted Polygon option code (NBBO first, last trade fallback), and wire it into the existing Trade Now UI so we can track and display option price change over time the same way we currently track stock price.
+
+GOAL
+	1.	For every ACTIVE signal (activationStatus = ACTIVE), track the option contract’s live price (mark price) and show:
+
+	•	Current option mark price (and bid, ask, spread)
+	•	Change since activation (absolute and percent)
+	•	Mini progress indicator: option change vs entry option price
+	•	Status flags: “stale” when we had to fall back to last trade or missing quote sides
+
+	2.	Do NOT replace the current stock tracking. Add this as an additional parallel tracker.
+	3.	Use the same quote logic as the provided code:
+
+	•	Primary: Polygon NBBO for the option contract ticker (/v2/last/nbbo/{contract_ticker})
+	•	Compute mark price:
+	•	if bid > 0 and ask > 0: mark = (bid + ask) / 2
+	•	else if ask > 0: mark = ask
+	•	else if bid > 0: mark = bid
+	•	else fallback
+	•	Fallback: Polygon last trade for the option contract (/v2/last/trade/{contract_ticker}) OR contract snapshot if already available
+	•	Spread = ask - bid when both exist
+	•	Store bid/ask/mark/spread plus timestamp and a “stale” boolean (true when we used fallback or when only one side exists)
+
+DATA REQUIREMENTS
+A) We need a way to know the option contract ticker for each signal.
+	•	If signal already has an option contract identifier, use it.
+	•	If not, add a nullable field on Signal, e.g. signal.optionContractTicker (string | null).
+	•	Populate it from wherever we currently display the option line in TradeNowCard (the UI already shows something like “o:SPY260226C00685000”).
+	•	Normalize it to Polygon format expected by endpoints. If the string is “o:…” convert to “O:…” as needed.
+
+B) Persist the option tracking snapshot so the UI can show “since activation”.
+	•	Add fields in live payload (SignalLive) to include:
+	•	optionMarkNow: number | null
+	•	optionBidNow: number | null
+	•	optionAskNow: number | null
+	•	optionSpreadNow: number | null
+	•	optionNowTs: number | null
+	•	optionStale: boolean
+	•	optionEntryMark: number | null   (captured at activation time, first successful mark)
+	•	optionChangeAbs: number | null   (markNow - entryMark)
+	•	optionChangePct: number | null   ((markNow - entryMark) / entryMark) * 100
+	•	optionRNow: number | null        (optional: map to R multiple using option stop if available later, but stub ok)
+Keep existing SignalLive fields unchanged.
+
+BACKEND IMPLEMENTATION
+	1.	Create a server-side polling routine (or API route logic) that refreshes option quotes for ACTIVE signals on an interval similar to stock live monitoring.
+
+	•	Do NOT depend on a manual Refresh button as the primary method.
+	•	Keep Refresh as a secondary manual trigger.
+
+	2.	Add an endpoint (or extend existing /api/signals response) so that each SignalApi includes live.option* fields.
+
+	•	The current app already fetches /api/signals every 30 seconds. Keep that.
+	•	Additionally, implement “live monitor” on the server to update option data every 15–30 seconds for ACTIVE signals, but only during market hours. Outside market hours, update less frequently (e.g. every 5 minutes) or skip.
+
+	3.	Market hours logic:
+
+	•	Use Polygon market status endpoint (/v1/marketstatus/now) or existing market-open logic.
+	•	If market is open: 15–30s option refresh cadence for ACTIVE signals.
+	•	If market closed: slow cadence or none.
+
+	4.	Quote fetch function (Node/TS):
+
+	•	Implement fetchOptionNbbo(contractTicker): returns { bid, ask, mark, spread, ts, stale:false } if possible
+	•	If bid/ask missing -> still return mark but set stale:true when only one side exists
+	•	If NBBO fails or yields no usable bid/ask -> call fetchOptionLastTrade(contractTicker)
+	•	fetchOptionLastTrade returns { mark:lastPrice, bid:null, ask:null, spread:null, ts, stale:true }
+	•	Always guard against network errors and rate limits; never crash the process.
+
+	5.	Activation baseline:
+
+	•	When a signal becomes ACTIVE, capture optionEntryMark as soon as we get the first valid mark (prefer NBBO mark).
+	•	Store it and never overwrite it unless the signal deactivates and reactivates (then reset).
+
+FRONTEND IMPLEMENTATION (TradeNowCard)
+	1.	In the TradeNowCard header row where we already show:
+Current stock price, Active minutes, R Now, Progress, ATR distances
+Add a compact “Option” readout:
+
+	•	“Opt: 6.67  +0.42 (6.7%)” style (use markNow + changeAbs + changePct)
+	•	If optionStale true, show a subtle “stale” indicator (like a dot or small label).
+
+	2.	Add a small option mini-bar below or beside the stock ProgressBar:
+
+	•	It does NOT need Stop/Entry/T1 anchors like the stock bar.
+	•	It should show:
+	•	Entry option mark as baseline at 0%
+	•	Current option mark as a marker
+	•	Simple coloring:
+	•	green if changeAbs > 0
+	•	red if changeAbs < 0
+	•	Handle edge cases:
+	•	if optionEntryMark missing, show “waiting for option baseline…”
+	•	if markNow missing, show “option quote unavailable”
+
+	3.	Keep it visually tight and do not take up prime top-of-dashboard space. This belongs inside each TradeNowCard.
+
+TESTING / DEBUG
+	1.	Add logging for one sample ticker (SPY) to confirm:
+
+	•	NBBO bid/ask retrieved
+	•	mark computed correctly
+	•	fallback triggers only when necessary
+
+	2.	Add unit-like tests or simple dev test route:
+
+	•	/api/dev/option-quote?contract=O:SPY260226C00685000 returning computed mark/bid/ask/spread/stale
+
+DELIVERABLES
+	•	Code changes across backend + shared schema + frontend
+	•	No breaking type errors
+	•	Keep existing /api/signals query working
+	•	Make sure everything works with the current refetchInterval 30000, and server-side live monitor updates independently
+
+IMPORTANT CONSTRAINTS
+	•	Use async HTTP (fetch/axios). Do not use blocking requests inside async.
+	•	Follow the exact quote-to-mark logic from the pasted code (NBBO bid/ask -> mid; fallback to last trade).
+	•	Don’t add new top-level dashboard panels that steal space.
+	•	Keep manual Refresh button, but auto-monitor should be primary for ACTIVE signals.
+
+Now implement it.

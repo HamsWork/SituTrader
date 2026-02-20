@@ -16,7 +16,9 @@ import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy"
 import { log } from "./index";
 import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
 import { enrichPendingSignalsWithOptions } from "./lib/options";
-import type { SetupType } from "@shared/schema";
+import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSignals } from "./lib/optionMonitor";
+import { fetchOptionMark } from "./lib/polygon";
+import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
 
@@ -38,6 +40,7 @@ export async function registerRoutes(
   await seedSymbols();
   await storage.seedDefaultProfiles();
   await initScheduler();
+  startOptionMonitor();
 
   app.get("/api/profiles", async (_req, res) => {
     try {
@@ -199,15 +202,16 @@ export async function registerRoutes(
         } catch {}
       }));
 
-      const optionLiveMap = new Map<number, { bid: number | null; ask: number | null; mid: number | null; openInterest: number | null; volume: number | null; impliedVol: number | null; delta: number | null; lastUpdated: string | null }>();
-      const enrichedSignals = pendingSignals.filter(sig => {
+      const optionLiveMap = new Map<number, OptionLive>();
+      for (const sig of pendingSignals) {
+        const cached = getOptionLiveData(sig.id);
+        if (cached) {
+          optionLiveMap.set(sig.id, cached);
+          continue;
+        }
         const opts = sig.optionsJson as any;
-        return opts?.tradable && opts?.candidate?.contractSymbol;
-      });
-      if (enrichedSignals.length > 0) {
-        await Promise.all(enrichedSignals.map(async (sig) => {
+        if (opts?.tradable && opts?.candidate?.contractSymbol) {
           try {
-            const opts = sig.optionsJson as any;
             const snap = await fetchOptionSnapshot(sig.ticker, opts.candidate.contractSymbol);
             if (snap) {
               const mid = snap.bid != null && snap.ask != null ? Math.round((snap.bid + snap.ask) / 2 * 100) / 100 : null;
@@ -220,10 +224,19 @@ export async function registerRoutes(
                 impliedVol: snap.impliedVol,
                 delta: snap.delta,
                 lastUpdated: new Date().toISOString(),
+                stale: false,
+                optionMarkNow: mid,
+                optionBidNow: snap.bid,
+                optionAskNow: snap.ask,
+                optionSpreadNow: snap.bid != null && snap.ask != null && snap.bid > 0 ? Math.round((snap.ask - snap.bid) * 100) / 100 : null,
+                optionNowTs: Date.now(),
+                optionEntryMark: sig.optionEntryMark ?? null,
+                optionChangeAbs: sig.optionEntryMark != null && mid != null ? Math.round((mid - sig.optionEntryMark) * 100) / 100 : null,
+                optionChangePct: sig.optionEntryMark != null && sig.optionEntryMark > 0 && mid != null ? Math.round(((mid - sig.optionEntryMark) / sig.optionEntryMark) * 10000) / 100 : null,
               });
             }
           } catch {}
-        }));
+        }
       }
 
       const nowMs = Date.now();
@@ -594,6 +607,8 @@ export async function registerRoutes(
               stopMovedToBeTs: null,
               timeStopTriggeredTs: null,
               optionsJson: null,
+              optionContractTicker: null,
+              optionEntryMark: null,
             });
           }
 
@@ -900,6 +915,28 @@ export async function registerRoutes(
       }
       const result = await runAutoNow();
       res.json({ ok: true, job: result.job, summary: result.summary });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dev/option-quote", async (req, res) => {
+    try {
+      const contract = req.query.contract as string;
+      if (!contract) {
+        return res.status(400).json({ message: "contract query param required (e.g. O:SPY260226C00685000)" });
+      }
+      const result = await fetchOptionMark(contract);
+      res.json({ contract, result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/options/refresh", async (_req, res) => {
+    try {
+      const updated = await refreshOptionQuotesForActiveSignals();
+      res.json({ ok: true, updated });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

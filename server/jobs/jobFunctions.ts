@@ -180,6 +180,8 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
             entryTriggerPrice: null, invalidationTs: null,
             stopStage: "INITIAL", stopMovedToBeTs: null, timeStopTriggeredTs: null,
             optionsJson: null,
+            optionContractTicker: null,
+            optionEntryMark: null,
           });
 
           summary.signalsGenerated++;

@@ -79,6 +79,8 @@ export const signals = pgTable("signals", {
   stopMovedToBeTs: text("stop_moved_to_be_ts"),
   timeStopTriggeredTs: text("time_stop_triggered_ts"),
   optionsJson: jsonb("options_json"),
+  optionContractTicker: text("option_contract_ticker"),
+  optionEntryMark: real("option_entry_mark"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -283,6 +285,15 @@ export type OptionLive = {
   impliedVol: number | null;
   delta: number | null;
   lastUpdated: string | null;
+  stale: boolean;
+  optionMarkNow: number | null;
+  optionBidNow: number | null;
+  optionAskNow: number | null;
+  optionSpreadNow: number | null;
+  optionNowTs: number | null;
+  optionEntryMark: number | null;
+  optionChangeAbs: number | null;
+  optionChangePct: number | null;
 };
 
 export type SignalLive = {

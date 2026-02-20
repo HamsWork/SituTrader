@@ -5,8 +5,9 @@ const API_KEY = process.env.POLYGON_API_KEY;
 
 const requestCache = new Map<string, { data: any; ts: number }>();
 const CACHE_TTL = 5 * 60 * 1000;
+const LIVE_CACHE_TTL = 15 * 1000;
 
-async function polygonGet(path: string, params: Record<string, string> = {}): Promise<any> {
+async function polygonGet(path: string, params: Record<string, string> = {}, cacheTtl: number = CACHE_TTL): Promise<any> {
   if (!API_KEY) throw new Error("POLYGON_API_KEY not set");
 
   const url = new URL(`${POLYGON_BASE}${path}`);
@@ -17,7 +18,7 @@ async function polygonGet(path: string, params: Record<string, string> = {}): Pr
 
   const cacheKey = url.toString();
   const cached = requestCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+  if (cached && Date.now() - cached.ts < cacheTtl) {
     return cached.data;
   }
 
@@ -222,4 +223,149 @@ export async function fetchSnapshot(ticker: string): Promise<{
   } catch {
     return null;
   }
+}
+
+export interface OptionMarkResult {
+  bid: number | null;
+  ask: number | null;
+  mark: number | null;
+  spread: number | null;
+  ts: number;
+  stale: boolean;
+  openInterest: number | null;
+  volume: number | null;
+  impliedVol: number | null;
+  delta: number | null;
+}
+
+export async function fetchOptionNbbo(contractTicker: string): Promise<OptionMarkResult | null> {
+  try {
+    const normalized = contractTicker.startsWith("o:") ? "O:" + contractTicker.slice(2) : contractTicker;
+    const data = await polygonGet(`/v3/quotes/${encodeURIComponent(normalized)}`, { limit: "1", order: "desc", sort: "timestamp" }, LIVE_CACHE_TTL);
+    const results = data.results ?? [];
+    if (results.length === 0) return null;
+    const q = results[0];
+    const bid = q.bid_price ?? null;
+    const ask = q.ask_price ?? null;
+
+    let mark: number | null = null;
+    let stale = false;
+    if (bid != null && bid > 0 && ask != null && ask > 0) {
+      mark = Math.round((bid + ask) / 2 * 100) / 100;
+    } else if (ask != null && ask > 0) {
+      mark = ask;
+      stale = true;
+    } else if (bid != null && bid > 0) {
+      mark = bid;
+      stale = true;
+    }
+
+    const spread = (bid != null && ask != null && bid > 0) ? Math.round((ask - bid) * 100) / 100 : null;
+
+    return {
+      bid, ask, mark, spread,
+      ts: q.sip_timestamp ? Math.floor(q.sip_timestamp / 1e6) : Date.now(),
+      stale,
+      openInterest: null,
+      volume: null,
+      impliedVol: null,
+      delta: null,
+    };
+  } catch (err: any) {
+    log(`NBBO fetch error for ${contractTicker}: ${err.message}`, "polygon");
+    return null;
+  }
+}
+
+export async function fetchOptionLastTrade(contractTicker: string): Promise<OptionMarkResult | null> {
+  try {
+    const normalized = contractTicker.startsWith("o:") ? "O:" + contractTicker.slice(2) : contractTicker;
+    const data = await polygonGet(`/v2/last/trade/${encodeURIComponent(normalized)}`, {}, LIVE_CACHE_TTL);
+    const r = data.results;
+    if (!r || !r.p) return null;
+    return {
+      bid: null,
+      ask: null,
+      mark: r.p,
+      spread: null,
+      ts: r.t ? Math.floor(r.t / 1e6) : Date.now(),
+      stale: true,
+      openInterest: null,
+      volume: null,
+      impliedVol: null,
+      delta: null,
+    };
+  } catch (err: any) {
+    log(`Last trade fetch error for ${contractTicker}: ${err.message}`, "polygon");
+    return null;
+  }
+}
+
+export async function fetchOptionMark(contractTicker: string, underlyingTicker?: string): Promise<OptionMarkResult | null> {
+  let result = await fetchOptionNbbo(contractTicker);
+  if (result && result.mark != null) {
+    if (underlyingTicker) {
+      try {
+        const snap = await fetchOptionSnapshot(underlyingTicker, contractTicker);
+        if (snap) {
+          result.openInterest = snap.openInterest;
+          result.volume = snap.volume;
+          result.impliedVol = snap.impliedVol;
+          result.delta = snap.delta;
+        }
+      } catch {}
+    }
+    return result;
+  }
+
+  const fallback = await fetchOptionLastTrade(contractTicker);
+  if (fallback) {
+    if (underlyingTicker) {
+      try {
+        const snap = await fetchOptionSnapshot(underlyingTicker, contractTicker);
+        if (snap) {
+          fallback.openInterest = snap.openInterest;
+          fallback.volume = snap.volume;
+          fallback.impliedVol = snap.impliedVol;
+          fallback.delta = snap.delta;
+        }
+      } catch {}
+    }
+    return fallback;
+  }
+
+  if (underlyingTicker) {
+    try {
+      const snap = await fetchOptionSnapshot(underlyingTicker, contractTicker);
+      if (snap) {
+        const bid = snap.bid;
+        const ask = snap.ask;
+        let mark: number | null = null;
+        let stale = false;
+        if (bid != null && bid > 0 && ask != null && ask > 0) {
+          mark = Math.round((bid + ask) / 2 * 100) / 100;
+        } else if (ask != null && ask > 0) {
+          mark = ask;
+          stale = true;
+        } else if (bid != null && bid > 0) {
+          mark = bid;
+          stale = true;
+        }
+        if (mark != null) {
+          return {
+            bid, ask, mark,
+            spread: (bid != null && ask != null && bid > 0) ? Math.round((ask - bid) * 100) / 100 : null,
+            ts: Date.now(),
+            stale,
+            openInterest: snap.openInterest,
+            volume: snap.volume,
+            impliedVol: snap.impliedVol,
+            delta: snap.delta,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  return null;
 }
