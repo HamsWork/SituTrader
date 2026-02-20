@@ -1,4 +1,4 @@
-# Situational Signals
+# SITU GOAT Trader
 
 ## Overview
 A full-stack web application that detects multi-day "situational analysis" setups in stock markets and produces actionable Buy/Sell bias signals with quantified hit rates. Uses real market data from Polygon.io API. Includes a quality scoring system (0-100) with tier-based alert routing, time-to-hit probability engine, and universe filtering.

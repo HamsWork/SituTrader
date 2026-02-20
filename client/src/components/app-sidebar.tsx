@@ -33,7 +33,7 @@ export function AppSidebar() {
             </div>
             <div>
               <h1 className="text-sm font-semibold leading-tight" data-testid="text-app-title">
-                Situational Signals
+                SITU GOAT Trader
               </h1>
               <p className="text-xs text-muted-foreground leading-tight">Market Analysis</p>
             </div>
