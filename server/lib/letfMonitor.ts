@@ -83,7 +83,8 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
           ? Math.round(((livePrice - entryPrice) / entryPrice) * 10000) / 100
           : null;
 
-        const staleQuote = quote?.stale ?? true;
+        const hasSnap = snap != null && snap.lastPrice > 0;
+        const staleQuote = !hasSnap && (quote?.stale ?? true);
         const quoteTs = quote?.ts ?? Date.now();
 
         const instrLive: InstrumentLive = {
