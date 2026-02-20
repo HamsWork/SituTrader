@@ -363,12 +363,12 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         });
 
         try {
-          const autoExec = await storage.getSetting("ibkrAutoExecute");
-          if (autoExec === "enabled") {
+          const { isConnected } = await import("./ibkr");
+          if (isConnected()) {
             const { executeTradeForSignal } = await import("./ibkrOrders");
             const qty = parseInt(await storage.getSetting("ibkrDefaultQuantity") || "1") || 1;
             await executeTradeForSignal(sig.id, qty);
-            log(`Auto-executed IBKR trade for signal ${sig.id} (qty: ${qty})`, "activation");
+            log(`Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty})`, "activation");
           }
         } catch (autoErr: any) {
           log(`Auto-execute IBKR failed for signal ${sig.id}: ${autoErr.message}`, "activation");
