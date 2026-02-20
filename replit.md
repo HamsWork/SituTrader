@@ -27,6 +27,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Author Mode**: Hougaard-style 3-window automation with single master toggle. After Close (3:10 PM CT): full scan generating tomorrow's signals. Pre-Open (8:20 AM CT): re-rank and activation check. Live Monitor (every 60s during RTH 8:30 AM-3:00 PM CT): activation + alerts for active signals. Uses node-cron + dayjs timezone. Holiday/weekend gating via NYSE calendar. Compact header pill with Sheet for details. "Run Now (Manual Override)" uses autoNow logic (context-aware job selection).
 - **Auto Leveraged ETF Mode**: Per-signal instrument selection between Options/Shares/Best LETF. Mapping table covers major indices (SPY→SPXL/SPXS, QQQ→TQQQ/SQQQ, etc.) and sector ETFs. Liquidity scoring via Polygon NBBO (spread, volume, stale checks). Auto-selects best LETF on activation (prefers 3x over 2x if liquid). Per-card Trade Via selector (Option/Shares/LETF) with entry price capture. Live tracking in 30s refresh cycle with P&L display.
 - **Market Calendar**: NYSE holiday-aware date handling
+- **IBKR Integration**: Automated trade execution via Interactive Brokers TWS/Gateway using @stoqey/ib. Market/limit/stop order placement, position tracking, account summary. Auto-execute on signal activation (configurable). 3-part stop sync: initial → break-even → time-tightened. Trade lifecycle monitoring in live scheduler. Manual close via IBKR Dashboard.
+- **Discord Alerts**: Dual-channel webhook posting. GOAT Alerts channel for options trade embeds, GOAT Swings channel for LETF swing embeds. Trade update notifications (fill, stop, BE move, close). Webhook URLs configurable via settings page or env vars.
 
 ## Project Structure
 - `shared/schema.ts` - Database schema and TypeScript types
@@ -47,9 +49,12 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
 - `server/lib/expectancy.ts` - Expectancy computation: R-multiples, profit factor, tradeability, setup categorization
 - `server/lib/universe.ts` - Universe builder: Polygon grouped daily, ranking, top N persistence, 24h cache
+- `server/lib/ibkr.ts` - IBKR connection management: connect/disconnect, order placement (MKT/LMT/STP), position tracking, account summary
+- `server/lib/ibkrOrders.ts` - Trade execution: executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData
+- `server/lib/discord.ts` - Discord webhook posting: options alerts, LETF swing alerts, trade updates (fill/stop/BE/close)
 - `server/jobs/scheduler.ts` - Auto scheduler: 3 cron jobs (afterClose/preOpen/liveMonitor) with timezone + holiday gating
-- `server/jobs/jobFunctions.ts` - Job implementations wiring into existing scan/activation/alert logic
-- `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings)
+- `server/jobs/jobFunctions.ts` - Job implementations wiring into existing scan/activation/alert logic + IBKR trade monitoring
+- `client/src/pages/` - React pages (dashboard, symbol-detail, backtest, settings, ibkr-dashboard)
 - `client/src/components/` - Reusable UI components
 
 ## API Routes
@@ -88,6 +93,14 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/options/refresh` - Force refresh option quotes for all ACTIVE signals
 - `POST /api/signals/:id/instrument` - Switch instrument type (OPTION/SHARES/LEVERAGED_ETF) with entry price capture
 - `POST /api/signals/:id/suggest-letf` - Auto-suggest best leveraged ETF for a signal
+- `POST /api/ibkr/connect` - Connect to IBKR TWS/Gateway
+- `POST /api/ibkr/disconnect` - Disconnect from IBKR
+- `GET /api/ibkr/status` - IBKR connection status
+- `GET /api/ibkr/dashboard` - Full IBKR dashboard data (account, positions, trades, stats)
+- `POST /api/ibkr/execute` - Execute trade for signal ({ signalId, quantity })
+- `POST /api/ibkr/close/:tradeId` - Manually close a trade
+- `GET /api/ibkr/trades` - List all IBKR trades
+- `POST /api/ibkr/monitor` - Run trade monitor cycle (stop updates, BE moves)
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus
@@ -110,8 +123,15 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `signal_profiles` - Saved filter profiles (name, allowedSetups[], minTier, minQualityScore, minSampleSize, minHitRate, minExpectancyR, timePriorityMode, isPinned, isActive)
 - `app_settings` - Key-value settings (includes focusMode, focusWinRateThreshold, focusExpectancyThreshold, focusMinSampleSize)
 - `scheduler_state` - Scheduler configuration and run history (single row, key="default")
+- `ibkr_trades` - IBKR trade records (signalId, ticker, instrumentType, side, quantity, entryPrice, exitPrice, pnl, rMultiple, status, stopPrice, ibkrOrderId, ibkrStopOrderId)
+- `ibkr_state` - IBKR connection state (single row, key="default")
 
 ## Environment
 - `POLYGON_API_KEY` - Required for market data
 - `DATABASE_URL` - PostgreSQL connection (auto-configured)
+- `IBKR_HOST` - IBKR Gateway host (default: 127.0.0.1, overridable via settings page)
+- `IBKR_PORT` - IBKR Gateway port (default: 4003, overridable via settings page)
+- `IBKR_CLIENT_ID` - IBKR client ID (default: 1)
+- `DISCORD_GOAT_ALERTS_WEBHOOK` - Discord webhook for options alerts (overridable via settings page)
+- `DISCORD_GOAT_SWINGS_WEBHOOK` - Discord webhook for LETF swing alerts (overridable via settings page)
 - Default seed symbols: SPY, QQQ, AAPL, MSFT, AMZN, NVDA, GOOGL, META, TSLA, ARM, AMD, PLTR, NFLX, DIS, LLY, UNH, BABA

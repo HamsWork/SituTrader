@@ -182,6 +182,10 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
             optionsJson: null,
             optionContractTicker: null,
             optionEntryMark: null,
+            instrumentType: "OPTION",
+            instrumentTicker: null,
+            instrumentEntryPrice: null,
+            leveragedEtfJson: null,
           });
 
           summary.signalsGenerated++;
@@ -286,6 +290,13 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
       await enrichPendingSignalsWithOptions();
     } catch (err: any) {
       log(`Live monitor: Options enrichment error: ${err.message}`, "scheduler");
+    }
+
+    try {
+      const { monitorActiveTrades } = await import("../lib/ibkrOrders");
+      await monitorActiveTrades();
+    } catch (err: any) {
+      log(`Live monitor: IBKR trade monitor error: ${err.message}`, "scheduler");
     }
   } catch (err: any) {
     log(`Live monitor: Fatal error: ${err.message}`, "scheduler");

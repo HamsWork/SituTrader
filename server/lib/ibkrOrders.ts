@@ -27,15 +27,13 @@ export async function executeTradeForSignal(signalId: number, quantity: number =
 
   const contract = makeContract(instrumentType, signal.ticker, instrumentTicker, optionTicker);
 
-  const actualQty = instrumentType === "OPTION" ? quantity : quantity;
-
   const trade = await storage.createIbkrTrade({
     signalId: signal.id,
     ticker: signal.ticker,
     instrumentType,
     instrumentTicker: instrumentType === "OPTION" ? optionTicker : instrumentTicker,
     side: action,
-    quantity: actualQty,
+    quantity,
     stopPrice: signal.stopPrice ?? null,
     target1Price: tp.t1 ?? null,
     target2Price: tp.t2 ?? null,
@@ -43,7 +41,7 @@ export async function executeTradeForSignal(signalId: number, quantity: number =
   });
 
   try {
-    const { orderId, promise } = await placeMarketOrder(contract, action, actualQty);
+    const { orderId, promise } = await placeMarketOrder(contract, action, quantity);
 
     await storage.updateIbkrTrade(trade.id, {
       ibkrOrderId: orderId,
@@ -59,17 +57,22 @@ export async function executeTradeForSignal(signalId: number, quantity: number =
       filledAt: new Date().toISOString(),
     });
 
-    if (signal.stopPrice && entryPrice) {
+    if (entryPrice) {
       try {
-        let stopContractPrice = signal.stopPrice;
+        let stopContractPrice: number;
         if (instrumentType === "OPTION") {
-          const entryDiff = entryPrice;
-          stopContractPrice = Math.max(0.01, entryDiff * 0.5);
+          const riskPct = 0.50;
+          stopContractPrice = Math.max(0.01, Math.round(entryPrice * (1 - riskPct) * 100) / 100);
+        } else {
+          stopContractPrice = signal.stopPrice ?? (tp.bias === "BUY"
+            ? entryPrice - (tp.stopDistance ?? entryPrice * 0.02)
+            : entryPrice + (tp.stopDistance ?? entryPrice * 0.02));
         }
 
-        const stopResult = await placeStopOrder(contract, closeAction, actualQty, stopContractPrice);
+        const stopResult = await placeStopOrder(contract, closeAction, quantity, stopContractPrice);
         await storage.updateIbkrTrade(trade.id, {
           ibkrStopOrderId: stopResult.orderId,
+          stopPrice: stopContractPrice,
         });
       } catch (err: any) {
         log(`Failed to place stop order for trade ${trade.id}: ${err.message}`, "ibkr");
@@ -86,7 +89,7 @@ export async function executeTradeForSignal(signalId: number, quantity: number =
 
     await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
 
-    log(`Trade executed for signal ${signalId}: ${action} ${actualQty} ${contract.symbol} filled at $${entryPrice}`, "ibkr");
+    log(`Trade executed for signal ${signalId}: ${action} ${quantity} ${contract.symbol} filled at $${entryPrice}`, "ibkr");
 
     return await storage.getIbkrTrade(trade.id);
   } catch (err: any) {

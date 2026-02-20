@@ -1,14 +1,23 @@
 import { IBApi, EventName, Contract, Order, OrderAction, OrderType, SecType, TimeInForce, OptionType, ErrorCode } from "@stoqey/ib";
 import { log } from "../index";
+import { storage } from "../storage";
 
 let ibApi: IBApi | null = null;
 let connected = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let nextOrderId = 1;
 
-const IBKR_HOST = process.env.IBKR_HOST || "127.0.0.1";
-const IBKR_PORT = parseInt(process.env.IBKR_PORT || "4003");
 const IBKR_CLIENT_ID = parseInt(process.env.IBKR_CLIENT_ID || "1");
+
+async function getIbkrHost(): Promise<string> {
+  const fromDb = await storage.getSetting("ibkrHost");
+  return fromDb || process.env.IBKR_HOST || "127.0.0.1";
+}
+
+async function getIbkrPort(): Promise<number> {
+  const fromDb = await storage.getSetting("ibkrPort");
+  return fromDb ? parseInt(fromDb) : parseInt(process.env.IBKR_PORT || "4003");
+}
 
 export interface IbkrPosition {
   account: string;
@@ -57,7 +66,7 @@ function setupEventHandlers() {
 
   ibApi.on(EventName.connected, () => {
     connected = true;
-    log(`IBKR connected to ${IBKR_HOST}:${IBKR_PORT}`, "ibkr");
+    log(`IBKR connected`, "ibkr");
     ibApi!.reqPositions();
     ibApi!.reqAccountSummary(9001, "All", "$LEDGER");
   });
@@ -151,11 +160,16 @@ export async function connectIBKR(): Promise<boolean> {
       try { ibApi.disconnect(); } catch {}
     }
 
+    const host = await getIbkrHost();
+    const port = await getIbkrPort();
+
     ibApi = new IBApi({
-      host: IBKR_HOST,
-      port: IBKR_PORT,
+      host,
+      port,
       clientId: IBKR_CLIENT_ID,
     });
+
+    log(`IBKR connecting to ${host}:${port}...`, "ibkr");
 
     setupEventHandlers();
 

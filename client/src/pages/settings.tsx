@@ -822,6 +822,38 @@ export default function SettingsPage() {
               data-testid="input-ibkr-quantity"
             />
           </div>
+          <Separator />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label className="text-xs">IBKR Gateway Host</Label>
+              <Input
+                placeholder="127.0.0.1"
+                defaultValue={currentSettings.ibkrHost ?? ""}
+                onBlur={(e) => {
+                  if (e.target.value !== (currentSettings.ibkrHost ?? "")) {
+                    saveSetting.mutate({ key: "ibkrHost", value: e.target.value });
+                  }
+                }}
+                className="text-xs"
+                data-testid="input-ibkr-host"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">IBKR Gateway Port</Label>
+              <Input
+                placeholder="4003"
+                defaultValue={currentSettings.ibkrPort ?? ""}
+                onBlur={(e) => {
+                  if (e.target.value !== (currentSettings.ibkrPort ?? "")) {
+                    saveSetting.mutate({ key: "ibkrPort", value: e.target.value });
+                  }
+                }}
+                className="text-xs w-24"
+                data-testid="input-ibkr-port"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">Falls back to IBKR_HOST / IBKR_PORT environment variables if blank</p>
         </CardContent>
       </Card>
     </div>
