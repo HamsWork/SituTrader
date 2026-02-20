@@ -167,15 +167,13 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
   };
 
   const optBarRange = hasLivePnl ? (() => {
-    const lower = Math.min(entryMark * 0.6, liveMid);
-    const upper = Math.max(entryMark * 1.6, liveMid);
-    const range = upper - lower || 1;
-    const toP = (v: number) => Math.max(0, Math.min(100, ((v - lower) / range) * 100));
-    const entryPct = toP(entryMark);
-    const nowPct = toP(liveMid);
-    const fillL = Math.min(entryPct, nowPct);
-    const fillW = Math.abs(nowPct - entryPct);
-    return { entryPct, nowPct, fillL, fillW };
+    const pctChange = (liveMid - entryMark) / entryMark;
+    const maxSwing = Math.max(Math.abs(pctChange), 0.05);
+    const nowPct = 50 + (pctChange / maxSwing) * 45;
+    const clampedNow = Math.max(2, Math.min(98, nowPct));
+    const fillL = Math.min(50, clampedNow);
+    const fillW = Math.abs(clampedNow - 50);
+    return { entryPct: 50, nowPct: clampedNow, fillL, fillW };
   })() : null;
 
   return (
@@ -361,15 +359,13 @@ function LetfLivePanel({ signal }: { signal: SignalApi }) {
   const barRange = hasLivePnl ? (() => {
     const entry = instrLive!.entryPrice!;
     const now = instrLive!.priceNow!;
-    const lower = Math.min(entry * 0.9, now);
-    const upper = Math.max(entry * 1.1, now);
-    const range = upper - lower || 1;
-    const toP = (v: number) => Math.max(0, Math.min(100, ((v - lower) / range) * 100));
-    const entryPct = toP(entry);
-    const nowPct = toP(now);
-    const fillL = Math.min(entryPct, nowPct);
-    const fillW = Math.abs(nowPct - entryPct);
-    return { entryPct, nowPct, fillL, fillW };
+    const pctChange = (now - entry) / entry;
+    const maxSwing = Math.max(Math.abs(pctChange), 0.05);
+    const nowPct = 50 + (pctChange / maxSwing) * 45;
+    const clampedNow = Math.max(2, Math.min(98, nowPct));
+    const fillL = Math.min(50, clampedNow);
+    const fillW = Math.abs(clampedNow - 50);
+    return { entryPct: 50, nowPct: clampedNow, fillL, fillW };
   })() : null;
 
   return (
