@@ -1014,7 +1014,7 @@ export default function Dashboard() {
                 <SelectValue placeholder="Select profile" />
               </SelectTrigger>
               <SelectContent>
-                {profiles.map(p => (
+                {[...profiles].sort((a, b) => (b.minQualityScore ?? 0) - (a.minQualityScore ?? 0) || (b.minHitRate ?? 0) - (a.minHitRate ?? 0)).map(p => (
                   <SelectItem key={p.id} value={p.id.toString()} data-testid={`option-profile-${p.id}`}>
                     {p.name} {p.isPinned ? "📌" : ""}
                   </SelectItem>
