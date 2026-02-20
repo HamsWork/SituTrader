@@ -222,10 +222,11 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
               style={{ left: `${optBarRange.nowPct}%`, transform: "translateX(-50%)" }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+          <div className="flex items-center justify-center gap-3 text-[10px] text-muted-foreground mt-0.5">
             <span data-testid={`text-option-entry-${signal.id}`}>
               Entry <span className="font-semibold text-foreground">${entryMark.toFixed(2)}</span>
             </span>
+            <span className="text-muted-foreground/40">•</span>
             <span data-testid={`text-option-mark-${signal.id}`}>
               Now <span className={`font-semibold ${changeColor}`}>${liveMid.toFixed(2)}</span>
             </span>
@@ -415,10 +416,11 @@ function LetfLivePanel({ signal }: { signal: SignalApi }) {
               style={{ left: `${barRange.nowPct}%`, transform: "translateX(-50%)" }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+          <div className="flex items-center justify-center gap-3 text-[10px] text-muted-foreground mt-0.5">
             <span data-testid={`text-letf-entry-${signal.id}`}>
               Entry <span className="font-semibold text-foreground">${instrLive!.entryPrice!.toFixed(2)}</span>
             </span>
+            <span className="text-muted-foreground/40">•</span>
             <span data-testid={`text-letf-now-${signal.id}`}>
               Now <span className={`font-semibold ${changeColor}`}>${instrLive!.priceNow!.toFixed(2)}</span>
             </span>
