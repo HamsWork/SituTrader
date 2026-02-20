@@ -87,6 +87,8 @@ export interface IStorage {
 
   updateSignalOptions(id: number, optionsJson: any): Promise<void>;
   updateSignalOptionTracking(id: number, updates: { optionContractTicker?: string | null; optionEntryMark?: number | null }): Promise<void>;
+  updateSignalInstrument(id: number, instrumentType: string, instrumentTicker: string | null, instrumentEntryPrice: number | null): Promise<Signal | null>;
+  updateSignalLeveragedEtf(id: number, leveragedEtfJson: any): Promise<void>;
   getActivatedSignals(): Promise<Signal[]>;
   getPendingSignalsForEnrichment(): Promise<Signal[]>;
 
@@ -296,6 +298,18 @@ export class DatabaseStorage implements IStorage {
 
   async updateSignalOptionTracking(id: number, updates: { optionContractTicker?: string | null; optionEntryMark?: number | null }): Promise<void> {
     await db.update(signals).set(updates).where(eq(signals.id, id));
+  }
+
+  async updateSignalInstrument(id: number, instrumentType: string, instrumentTicker: string | null, instrumentEntryPrice: number | null): Promise<Signal | null> {
+    const result = await db.update(signals)
+      .set({ instrumentType, instrumentTicker, instrumentEntryPrice })
+      .where(eq(signals.id, id))
+      .returning();
+    return result[0] ?? null;
+  }
+
+  async updateSignalLeveragedEtf(id: number, leveragedEtfJson: any): Promise<void> {
+    await db.update(signals).set({ leveragedEtfJson }).where(eq(signals.id, id));
   }
 
   async getActivatedSignals(): Promise<Signal[]> {

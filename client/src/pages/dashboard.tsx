@@ -56,7 +56,7 @@ import {
   Pen,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy, OptionsData, OptionLive } from "@shared/schema";
+import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy, OptionsData, OptionLive, InstrumentLive, LeveragedEtfSuggestion } from "@shared/schema";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -267,6 +267,186 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function InstrumentPanel({ signal }: { signal: SignalApi }) {
+  const isActive = signal.activationStatus === "ACTIVE";
+  if (!isActive) return null;
+
+  const letfSuggestion = signal.leveragedEtfJson as LeveragedEtfSuggestion | null;
+  const instrType = signal.instrumentType ?? "OPTION";
+  const instrLive = signal.instrumentLive;
+  const opts = signal.optionsJson as OptionsData | null;
+  const hasOptions = opts?.tradable && opts?.candidate;
+
+  const instrumentMutation = useMutation({
+    mutationFn: async ({ instrumentType, instrumentTicker }: { instrumentType: string; instrumentTicker: string | null }) => {
+      await apiRequest("POST", `/api/signals/${signal.id}/instrument`, { instrumentType, instrumentTicker });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
+    },
+  });
+
+  const validOptionTicker = opts?.candidate?.contractSymbol ?? null;
+
+  const handleSwitch = (type: string) => {
+    let ticker: string | null = null;
+    if (type === "LEVERAGED_ETF" && letfSuggestion) {
+      ticker = letfSuggestion.ticker;
+    } else if (type === "OPTION" && validOptionTicker) {
+      ticker = validOptionTicker;
+    }
+    instrumentMutation.mutate({ instrumentType: type, instrumentTicker: ticker });
+  };
+
+  const showLetfOption = !!letfSuggestion;
+
+  return (
+    <div className="flex items-center gap-1 text-[10px]" data-testid={`instrument-selector-${signal.id}`}>
+      <span className="text-muted-foreground font-medium mr-0.5">Trade via:</span>
+      {hasOptions && validOptionTicker && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => handleSwitch("OPTION")}
+          className={`h-5 px-1.5 py-0 text-[10px] ${instrType === "OPTION" ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold" : "text-muted-foreground"}`}
+          data-testid={`btn-instr-option-${signal.id}`}
+        >
+          Option
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => handleSwitch("SHARES")}
+        className={`h-5 px-1.5 py-0 text-[10px] ${instrType === "SHARES" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 font-semibold" : "text-muted-foreground"}`}
+        data-testid={`btn-instr-shares-${signal.id}`}
+      >
+        Shares
+      </Button>
+      {showLetfOption && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => handleSwitch("LEVERAGED_ETF")}
+          className={`h-5 px-1.5 py-0 text-[10px] ${instrType === "LEVERAGED_ETF" ? "bg-purple-500/20 text-purple-600 dark:text-purple-400 font-semibold" : "text-muted-foreground"}`}
+          data-testid={`btn-instr-letf-${signal.id}`}
+        >
+          {letfSuggestion!.ticker} ({letfSuggestion!.leverage}x)
+        </Button>
+      )}
+      {instrumentMutation.isPending && (
+        <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />
+      )}
+    </div>
+  );
+}
+
+function LetfLivePanel({ signal }: { signal: SignalApi }) {
+  const instrLive = signal.instrumentLive;
+  const letfSuggestion = signal.leveragedEtfJson as LeveragedEtfSuggestion | null;
+  const isActive = signal.activationStatus === "ACTIVE";
+  if (!isActive || signal.instrumentType !== "LEVERAGED_ETF" || !letfSuggestion) return null;
+
+  const hasLivePnl = instrLive && instrLive.entryPrice != null && instrLive.priceNow != null;
+  const isPositive = (instrLive?.changeAbs ?? 0) >= 0;
+  const changeColor = isPositive ? "text-emerald-500" : "text-red-500";
+  const panelBg = hasLivePnl
+    ? (isPositive ? "bg-purple-500/5 border-purple-500/20" : "bg-red-500/5 border-red-500/20")
+    : "bg-purple-500/5 border-purple-500/15";
+
+  const barRange = hasLivePnl ? (() => {
+    const entry = instrLive!.entryPrice!;
+    const now = instrLive!.priceNow!;
+    const lower = Math.min(entry * 0.9, now);
+    const upper = Math.max(entry * 1.1, now);
+    const range = upper - lower || 1;
+    const toP = (v: number) => Math.max(0, Math.min(100, ((v - lower) / range) * 100));
+    const entryPct = toP(entry);
+    const nowPct = toP(now);
+    const fillL = Math.min(entryPct, nowPct);
+    const fillW = Math.abs(nowPct - entryPct);
+    return { entryPct, nowPct, fillL, fillW };
+  })() : null;
+
+  return (
+    <div className={`rounded-md border p-2.5 space-y-2 ${panelBg}`} data-testid={`panel-letf-${signal.id}`}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-semibold text-purple-600 dark:text-purple-400">
+            {letfSuggestion.ticker} · {letfSuggestion.leverage}x {letfSuggestion.direction}
+          </span>
+          {instrLive?.stale && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-500 font-medium">delayed</span>
+          )}
+          {instrLive?.wideSpread && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/20 text-red-500 font-medium">wide spread</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasLivePnl && instrLive!.changeAbs != null && instrLive!.changePct != null && (
+            <span className={`text-xs font-bold ${changeColor}`} data-testid={`text-letf-change-${signal.id}`}>
+              {instrLive!.changeAbs >= 0 ? "+" : ""}{instrLive!.changeAbs.toFixed(2)} ({instrLive!.changePct >= 0 ? "+" : ""}{instrLive!.changePct.toFixed(1)}%)
+            </span>
+          )}
+          {instrLive?.priceNow != null && (
+            <span className="text-sm font-bold" data-testid={`text-letf-price-${signal.id}`}>
+              ${instrLive.priceNow.toFixed(2)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {hasLivePnl && barRange && (
+        <div data-testid={`bar-letf-progress-${signal.id}`}>
+          <div className="relative h-2.5 rounded-full bg-muted">
+            {barRange.fillW > 0 && (
+              <div
+                className={`absolute h-full rounded-full transition-all duration-300 ${isPositive ? "bg-purple-400/50 dark:bg-purple-500/40" : "bg-red-400/50 dark:bg-red-500/40"}`}
+                style={{ left: `${barRange.fillL}%`, width: `${Math.min(barRange.fillW, 100 - barRange.fillL)}%` }}
+              />
+            )}
+            <div
+              className="absolute w-2 h-2 rounded-full bg-muted-foreground/80 border-2 border-background top-[1px] z-[2]"
+              style={{ left: `${barRange.entryPct}%`, transform: "translateX(-50%)" }}
+              title={`Entry: $${instrLive!.entryPrice!.toFixed(2)}`}
+            />
+            <div
+              className={`absolute w-0.5 h-full z-[3] ${isPositive ? "bg-purple-500" : "bg-red-500"}`}
+              style={{ left: `${barRange.nowPct}%`, transform: "translateX(-50%)" }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+            <span data-testid={`text-letf-entry-${signal.id}`}>
+              Entry <span className="font-semibold text-foreground">${instrLive!.entryPrice!.toFixed(2)}</span>
+            </span>
+            <span data-testid={`text-letf-now-${signal.id}`}>
+              Now <span className={`font-semibold ${changeColor}`}>${instrLive!.priceNow!.toFixed(2)}</span>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {instrLive && (
+        <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
+          {instrLive.bid != null && instrLive.ask != null && (
+            <span data-testid={`text-letf-bidask-${signal.id}`}>
+              ${instrLive.bid.toFixed(2)}×${instrLive.ask.toFixed(2)}
+              {instrLive.spread != null && (
+                <span className="text-muted-foreground"> (${instrLive.spread.toFixed(2)})</span>
+              )}
+            </span>
+          )}
+          {instrLive.spreadPct != null && (
+            <span>
+              Spread: <span className={`font-semibold ${instrLive.spreadPct > 0.005 ? "text-amber-500" : ""}`}>{(instrLive.spreadPct * 100).toFixed(2)}%</span>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -584,6 +764,10 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
         })()}
 
         <OptionsPanel signal={signal} />
+
+        <LetfLivePanel signal={signal} />
+
+        <InstrumentPanel signal={signal} />
 
         {tp && (
           <div className="grid gap-1.5 grid-cols-3">

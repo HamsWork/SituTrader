@@ -25,6 +25,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Signal Profiles**: Saved filter profiles that control dashboard visibility + alert eligibility. Each profile defines: allowed setups, min tier, min quality score, min sample size, min hit rate, min expectancy, time priority mode. Dropdown + banner on dashboard. "Show All" toggle bypasses profile filter. 3 default profiles seeded: Win-Rate Focus (A/B), Balanced, Home Run. Never deletes signal data — profiles only change what you see.
 - **Focus Mode**: Expectancy-based setup prioritization with 3 modes (WIN_RATE, EXPECTANCY, BARBELL). Gates alerts by setup category (PRIMARY/SECONDARY/OFF). Includes MAE-based tradeability filtering (CLEAN/CAUTION/AVOID).
 - **Author Mode**: Hougaard-style 3-window automation with single master toggle. After Close (3:10 PM CT): full scan generating tomorrow's signals. Pre-Open (8:20 AM CT): re-rank and activation check. Live Monitor (every 60s during RTH 8:30 AM-3:00 PM CT): activation + alerts for active signals. Uses node-cron + dayjs timezone. Holiday/weekend gating via NYSE calendar. Compact header pill with Sheet for details. "Run Now (Manual Override)" uses autoNow logic (context-aware job selection).
+- **Auto Leveraged ETF Mode**: Per-signal instrument selection between Options/Shares/Best LETF. Mapping table covers major indices (SPY→SPXL/SPXS, QQQ→TQQQ/SQQQ, etc.) and sector ETFs. Liquidity scoring via Polygon NBBO (spread, volume, stale checks). Auto-selects best LETF on activation (prefers 3x over 2x if liquid). Per-card Trade Via selector (Option/Shares/LETF) with entry price capture. Live tracking in 30s refresh cycle with P&L display.
 - **Market Calendar**: NYSE holiday-aware date handling
 
 ## Project Structure
@@ -41,6 +42,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `server/lib/activation.ts` - Activation engine: entry trigger scanning, ACTIVE/NOT_ACTIVE/INVALIDATED tracking
 - `server/lib/options.ts` - Options enrichment: fetches ATM contracts (6-25 DTE), validates OI/spread, attaches options_json to pending signals
 - `server/lib/optionMonitor.ts` - Option price monitor: server-side polling for ACTIVE signal option quotes (NBBO → last trade fallback), entry mark capture, change tracking
+- `server/lib/leveragedEtf.ts` - Leveraged ETF module: mapping table, NBBO liquidity scoring, auto-selection algorithm (3x preferred over 2x if liquid)
 - `server/lib/tradeplan.ts` - Trade plan generation
 - `server/lib/backtest.ts` - Backtest engine with time-to-hit probability computation
 - `server/lib/expectancy.ts` - Expectancy computation: R-multiples, profit factor, tradeability, setup categorization
@@ -84,6 +86,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `POST /api/signals/enrich-options` - Run options enrichment on pending signals ({ force?: boolean, minOI?: number, maxSpread?: number })
 - `GET /api/dev/option-quote?contract=O:...` - Dev test: fetch NBBO mark/bid/ask/spread/stale for any option contract
 - `POST /api/options/refresh` - Force refresh option quotes for all ACTIVE signals
+- `POST /api/signals/:id/instrument` - Switch instrument type (OPTION/SHARES/LEVERAGED_ETF) with entry price capture
+- `POST /api/signals/:id/suggest-letf` - Auto-suggest best leveraged ETF for a signal
 
 ## Quality Score Components
 - Edge Strength (0-35): Base score by setup type + trigger margin bonus

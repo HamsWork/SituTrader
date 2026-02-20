@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { filterRTHBars, timestampToET } from "./validate";
 import { fetchSnapshot, fetchOptionMark, fetchOptionMarkAtTime } from "./polygon";
+import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./leveragedEtf";
 import { log } from "../index";
 import type { Signal, TradePlan, OptionsData } from "@shared/schema";
 
@@ -328,6 +329,21 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
             }
           } catch (err: any) {
             log(`Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`, "activation");
+          }
+        }
+
+        if (hasLeveragedEtfMapping(ticker) && (!sig.instrumentType || sig.instrumentType === "OPTION") && !sig.instrumentTicker) {
+          try {
+            const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
+            if (suggestion) {
+              const letfQuote = await fetchStockNbbo(suggestion.ticker);
+              const letfEntry = letfQuote?.mid ?? null;
+              await storage.updateSignalLeveragedEtf(sig.id, suggestion);
+              await storage.updateSignalInstrument(sig.id, "LEVERAGED_ETF", suggestion.ticker, letfEntry);
+              log(`Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"}`, "activation");
+            }
+          } catch (err: any) {
+            log(`Failed to auto-select LETF for signal ${sig.id}: ${err.message}`, "activation");
           }
         }
 

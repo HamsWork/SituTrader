@@ -18,6 +18,7 @@ import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, co
 import { enrichPendingSignalsWithOptions } from "./lib/options";
 import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSignals } from "./lib/optionMonitor";
 import { fetchOptionMark } from "./lib/polygon";
+import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./lib/leveragedEtf";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -239,6 +240,22 @@ export async function registerRoutes(
         }
       }
 
+      const instrumentQuoteMap = new Map<string, any>();
+      const leveragedEtfTickers = new Set<string>();
+      for (const sig of sigs) {
+        if (sig.instrumentType === "LEVERAGED_ETF" && sig.instrumentTicker && sig.status === "pending") {
+          leveragedEtfTickers.add(sig.instrumentTicker);
+        }
+      }
+      if (leveragedEtfTickers.size > 0) {
+        await Promise.all(Array.from(leveragedEtfTickers).map(async (t) => {
+          try {
+            const q = await fetchStockNbbo(t);
+            if (q) instrumentQuoteMap.set(t, q);
+          } catch {}
+        }));
+      }
+
       const nowMs = Date.now();
 
       const hydrated = sigs.map(sig => {
@@ -303,6 +320,29 @@ export async function registerRoutes(
         const timeStopMinutes = parseInt(appSettings.timeStopMinutes || "120");
         const timeStopMinutesLeft = timeStopEnabled && activeMinutes != null ? Math.max(0, timeStopMinutes - activeMinutes) : null;
 
+        let instrumentLive: any = undefined;
+        if (sig.instrumentType === "LEVERAGED_ETF" && sig.instrumentTicker) {
+          const instrQuote = instrumentQuoteMap.get(sig.instrumentTicker);
+          if (instrQuote) {
+            const entryP = sig.instrumentEntryPrice;
+            const chAbs = entryP != null && instrQuote.mid != null ? Math.round((instrQuote.mid - entryP) * 100) / 100 : null;
+            const chPct = entryP != null && entryP > 0 && instrQuote.mid != null ? Math.round(((instrQuote.mid - entryP) / entryP) * 10000) / 100 : null;
+            instrumentLive = {
+              priceNow: instrQuote.mid,
+              entryPrice: entryP,
+              changeAbs: chAbs,
+              changePct: chPct,
+              bid: instrQuote.bid,
+              ask: instrQuote.ask,
+              spread: instrQuote.spread,
+              spreadPct: instrQuote.spreadPct != null ? Math.round(instrQuote.spreadPct * 10000) / 10000 : null,
+              ts: instrQuote.ts,
+              stale: instrQuote.stale,
+              wideSpread: instrQuote.wideSpread,
+            };
+          }
+        }
+
         return {
           ...sig,
           live: {
@@ -317,6 +357,7 @@ export async function registerRoutes(
             timeStopMinutesLeft,
             ...(optLive ? { optionLive: optLive } : {}),
           },
+          ...(instrumentLive ? { instrumentLive } : {}),
         };
       });
 
@@ -609,6 +650,10 @@ export async function registerRoutes(
               optionsJson: null,
               optionContractTicker: null,
               optionEntryMark: null,
+              instrumentType: "OPTION",
+              instrumentTicker: null,
+              instrumentEntryPrice: null,
+              leveragedEtfJson: null,
             });
           }
 
@@ -937,6 +982,54 @@ export async function registerRoutes(
     try {
       const updated = await refreshOptionQuotesForActiveSignals();
       res.json({ ok: true, updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/signals/:id/instrument", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid signal id" });
+      const { instrumentType, instrumentTicker } = req.body;
+      if (!["OPTION", "SHARES", "LEVERAGED_ETF"].includes(instrumentType)) {
+        return res.status(400).json({ message: "instrumentType must be OPTION, SHARES, or LEVERAGED_ETF" });
+      }
+
+      let entryPrice: number | null = null;
+      if (instrumentType === "LEVERAGED_ETF" && instrumentTicker) {
+        const quote = await fetchStockNbbo(instrumentTicker);
+        entryPrice = quote?.mid ?? null;
+      } else if (instrumentType === "SHARES") {
+        const sigs = await storage.getSignals(undefined, 500);
+        const sig = sigs.find(s => s.id === id);
+        entryPrice = sig?.entryPriceAtActivation ?? null;
+      }
+
+      const updated = await storage.updateSignalInstrument(id, instrumentType, instrumentTicker ?? null, entryPrice);
+      res.json({ ok: true, signal: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/signals/:id/suggest-letf", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid signal id" });
+
+      const sigs = await storage.getSignals(undefined, 500);
+      const sig = sigs.find(s => s.id === id);
+      if (!sig) return res.status(404).json({ message: "Signal not found" });
+
+      const tp = sig.tradePlanJson as any;
+      const bias: "BUY" | "SELL" = tp?.bias === "SELL" ? "SELL" : "BUY";
+      const suggestion = await selectBestLeveragedEtf(sig.ticker, bias);
+
+      if (suggestion) {
+        await storage.updateSignalLeveragedEtf(id, suggestion);
+      }
+      res.json({ suggestion });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
