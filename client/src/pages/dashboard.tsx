@@ -56,7 +56,7 @@ import {
   Pen,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy, OptionsData } from "@shared/schema";
+import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy, OptionsData, OptionLive } from "@shared/schema";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -104,34 +104,111 @@ function OptionsBadge({ signal }: { signal: SignalApi }) {
   const opts = signal.optionsJson as OptionsData | null | undefined;
   if (!opts || opts.mode !== "AUTO") return null;
 
-  const tooltipLines: string[] = [];
-  if (opts.candidate) {
-    const c = opts.candidate;
-    tooltipLines.push(`${c.right === "C" ? "Call" : "Put"} ${c.strike} exp ${c.expiry} (${c.dte}d)`);
-    tooltipLines.push(`Contract: ${c.contractSymbol}`);
-  }
-  if (opts.checks) {
-    const ch = opts.checks;
-    tooltipLines.push(`OI: ${ch.openInterest ?? "—"} (${ch.oiOk ? "OK" : "FAIL"})`);
-    if (ch.bid != null && ch.ask != null) {
-      tooltipLines.push(`Bid/Ask: ${ch.bid.toFixed(2)}/${ch.ask.toFixed(2)}`);
-    }
-    tooltipLines.push(`Spread: ${ch.spread != null ? (ch.spread * 100).toFixed(1) + "%" : "—"} (${ch.spreadOk ? "OK" : "FAIL"})`);
-    if (ch.reasonIfFail) tooltipLines.push(`Reason: ${ch.reasonIfFail}`);
-  }
-
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help ${
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
         opts.tradable
           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
           : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
       }`}
-      title={tooltipLines.join("\n")}
       data-testid={`badge-options-${signal.id}`}
     >
-      {opts.tradable ? "Options OK" : "Options Fail"}
+      {opts.tradable ? "Opt" : "No Opt"}
     </span>
+  );
+}
+
+function OptionsPanel({ signal }: { signal: SignalApi }) {
+  const opts = signal.optionsJson as OptionsData | null | undefined;
+  if (!opts || opts.mode !== "AUTO") return null;
+  const c = opts.candidate;
+  const ch = opts.checks;
+  const ol = signal.live?.optionLive;
+
+  if (!opts.tradable) {
+    return (
+      <div className="rounded-md bg-amber-500/5 border border-amber-500/15 p-2 text-xs" data-testid={`panel-options-${signal.id}`}>
+        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+          <span className="font-semibold">Options:</span>
+          <span>{ch?.reasonIfFail?.replace(/,/g, " · ") || "No tradable contract"}</span>
+          {c && (
+            <span className="text-muted-foreground ml-auto">
+              Checked: {c.right === "C" ? "Call" : "Put"} {c.strike} ({c.dte}d)
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!c) return null;
+
+  const liveBid = ol?.bid ?? ch?.bid ?? null;
+  const liveAsk = ol?.ask ?? ch?.ask ?? null;
+  const liveMid = ol?.mid ?? (liveBid != null && liveAsk != null ? Math.round((liveBid + liveAsk) / 2 * 100) / 100 : null);
+  const liveOI = ol?.openInterest ?? ch?.openInterest ?? null;
+  const liveVol = ol?.volume ?? null;
+  const iv = ol?.impliedVol ?? null;
+  const delta = ol?.delta ?? null;
+
+  const formatExpiry = (exp: string) => {
+    if (exp.length === 8) return `${exp.slice(4, 6)}/${exp.slice(6, 8)}`;
+    return exp;
+  };
+
+  return (
+    <div className="rounded-md bg-emerald-500/5 border border-emerald-500/15 p-2.5 space-y-1.5" data-testid={`panel-options-${signal.id}`}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+            {c.right === "C" ? "CALL" : "PUT"} ${c.strike} · {formatExpiry(c.expiry)} · {c.dte}d
+          </span>
+          <span className="text-[10px] text-muted-foreground font-mono">{c.contractSymbol}</span>
+        </div>
+        {liveMid != null && (
+          <span className="text-sm font-bold" data-testid={`text-option-mid-${signal.id}`}>
+            ${liveMid.toFixed(2)}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+        {liveBid != null && liveAsk != null && (
+          <span data-testid={`text-option-ba-${signal.id}`}>
+            Bid/Ask: <span className="font-semibold">${liveBid.toFixed(2)} / ${liveAsk.toFixed(2)}</span>
+          </span>
+        )}
+        {liveOI != null && (
+          <span data-testid={`text-option-oi-${signal.id}`}>
+            OI: <span className="font-semibold">{liveOI.toLocaleString()}</span>
+          </span>
+        )}
+        {liveVol != null && liveVol > 0 && (
+          <span data-testid={`text-option-vol-${signal.id}`}>
+            Vol: <span className="font-semibold">{liveVol.toLocaleString()}</span>
+          </span>
+        )}
+        {(() => {
+          const spread = liveBid != null && liveAsk != null && liveBid > 0
+            ? (liveAsk - liveBid) / liveBid
+            : ch?.spread ?? null;
+          return spread != null ? (
+            <span data-testid={`text-option-spread-${signal.id}`}>
+              Spread: <span className={`font-semibold ${spread <= 0.05 ? "" : "text-amber-500"}`}>{(spread * 100).toFixed(1)}%</span>
+            </span>
+          ) : null;
+        })()}
+        {delta != null && (
+          <span data-testid={`text-option-delta-${signal.id}`}>
+            Delta: <span className="font-semibold">{delta.toFixed(2)}</span>
+          </span>
+        )}
+        {iv != null && (
+          <span data-testid={`text-option-iv-${signal.id}`}>
+            IV: <span className="font-semibold">{(iv * 100).toFixed(1)}%</span>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -499,6 +576,8 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           </div>
         )}
 
+        <OptionsPanel signal={signal} />
+
         <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
           {signal.pHit60 != null && (
             <div className="flex items-center gap-1" data-testid={`text-early-hit-${signal.id}`}>
@@ -642,6 +721,8 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
             </div>
           </div>
         )}
+
+        <OptionsPanel signal={signal} />
 
         <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
           <div className="flex items-center gap-1">

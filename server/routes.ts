@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { fetchDailyBars, fetchIntradayBars, fetchSnapshot } from "./lib/polygon";
+import { fetchDailyBars, fetchIntradayBars, fetchSnapshot, fetchOptionSnapshot } from "./lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, prevTradingDay } from "./lib/calendar";
 import { detectAllSetups } from "./lib/rules";
 import { validateMagnetTouch } from "./lib/validate";
@@ -199,6 +199,33 @@ export async function registerRoutes(
         } catch {}
       }));
 
+      const optionLiveMap = new Map<number, { bid: number | null; ask: number | null; mid: number | null; openInterest: number | null; volume: number | null; impliedVol: number | null; delta: number | null; lastUpdated: string | null }>();
+      const enrichedSignals = pendingSignals.filter(sig => {
+        const opts = sig.optionsJson as any;
+        return opts?.tradable && opts?.candidate?.contractSymbol;
+      });
+      if (enrichedSignals.length > 0) {
+        await Promise.all(enrichedSignals.map(async (sig) => {
+          try {
+            const opts = sig.optionsJson as any;
+            const snap = await fetchOptionSnapshot(sig.ticker, opts.candidate.contractSymbol);
+            if (snap) {
+              const mid = snap.bid != null && snap.ask != null ? Math.round((snap.bid + snap.ask) / 2 * 100) / 100 : null;
+              optionLiveMap.set(sig.id, {
+                bid: snap.bid,
+                ask: snap.ask,
+                mid,
+                openInterest: snap.openInterest,
+                volume: snap.volume,
+                impliedVol: snap.impliedVol,
+                delta: snap.delta,
+                lastUpdated: new Date().toISOString(),
+              });
+            }
+          } catch {}
+        }));
+      }
+
       const nowMs = Date.now();
 
       const hydrated = sigs.map(sig => {
@@ -206,11 +233,13 @@ export async function registerRoutes(
 
         const currentPrice = priceMap.get(sig.ticker);
 
+        const optLive = optionLiveMap.get(sig.id);
+
         if (sig.activationStatus !== "ACTIVE") {
           if (currentPrice != null) {
             return {
               ...sig,
-              live: { currentPrice, activeMinutes: null, progressToTarget: 0, rNow: null, distToTargetAtr: null, distToStopAtr: null, atr14: atrMap.get(sig.ticker) ?? null, stopStage: sig.stopStage || "INITIAL", timeStopMinutesLeft: null },
+              live: { currentPrice, activeMinutes: null, progressToTarget: 0, rNow: null, distToTargetAtr: null, distToStopAtr: null, atr14: atrMap.get(sig.ticker) ?? null, stopStage: sig.stopStage || "INITIAL", timeStopMinutesLeft: null, ...(optLive ? { optionLive: optLive } : {}) },
             };
           }
           return sig;
@@ -273,6 +302,7 @@ export async function registerRoutes(
             atr14: atr > 0 ? atr : null,
             stopStage: sig.stopStage || "INITIAL",
             timeStopMinutesLeft,
+            ...(optLive ? { optionLive: optLive } : {}),
           },
         };
       });

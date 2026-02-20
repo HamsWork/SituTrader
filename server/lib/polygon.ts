@@ -182,6 +182,9 @@ export async function fetchOptionSnapshot(underlyingTicker: string, contractSymb
   openInterest: number | null;
   bid: number | null;
   ask: number | null;
+  volume: number | null;
+  impliedVol: number | null;
+  delta: number | null;
 } | null> {
   try {
     const encoded = encodeURIComponent(contractSymbol);
@@ -192,6 +195,9 @@ export async function fetchOptionSnapshot(underlyingTicker: string, contractSymb
       openInterest: r.open_interest ?? null,
       bid: r.last_quote?.bid ?? null,
       ask: r.last_quote?.ask ?? null,
+      volume: r.day?.volume ?? null,
+      impliedVol: r.implied_volatility ?? null,
+      delta: r.greeks?.delta ?? null,
     };
   } catch (err: any) {
     log(`Error fetching option snapshot for ${contractSymbol}: ${err.message}`, "polygon");

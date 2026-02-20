@@ -274,6 +274,17 @@ export interface TradePlan {
   notes?: string;
 }
 
+export type OptionLive = {
+  bid: number | null;
+  ask: number | null;
+  mid: number | null;
+  openInterest: number | null;
+  volume: number | null;
+  impliedVol: number | null;
+  delta: number | null;
+  lastUpdated: string | null;
+};
+
 export type SignalLive = {
   currentPrice: number;
   activeMinutes: number | null;
@@ -284,6 +295,7 @@ export type SignalLive = {
   atr14: number | null;
   stopStage: string;
   timeStopMinutesLeft: number | null;
+  optionLive?: OptionLive;
 };
 
 export type SignalApi = Signal & { live?: SignalLive };
