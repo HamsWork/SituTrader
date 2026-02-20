@@ -492,55 +492,60 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
     : resolvedStop;
 
   const isSell = tp.bias === "SELL";
-
-  const keyPrices = [targetPrice, resolvedEntry, originalStop];
-  if (currentPrice != null) keyPrices.push(currentPrice);
-  const rawMin = Math.min(...keyPrices);
-  const rawMax = Math.max(...keyPrices);
-  const rawRange = rawMax - rawMin || 1;
-  const pad = rawRange * 0.12;
-  const priceMin = rawMin - pad;
-  const priceMax = rawMax + pad;
-  const range = priceMax - priceMin;
-
-  const toPercent = (price: number) => Math.max(0, Math.min(100, ((price - priceMin) / range) * 100));
-
-  const originalStopPct = toPercent(originalStop);
-  const stopPct = toPercent(resolvedStop);
   const stopMoved = Math.abs(resolvedStop - originalStop) > 0.001;
-  const entryPct = toPercent(resolvedEntry);
-  const targetPct = toPercent(targetPrice);
 
-  const rawCurrentPct = currentPrice != null ? ((currentPrice - priceMin) / range) * 100 : null;
-  const currentPct = rawCurrentPct != null ? Math.max(0, Math.min(100, rawCurrentPct)) : null;
-  const currentClamped = rawCurrentPct != null && (rawCurrentPct < 0 || rawCurrentPct > 100);
+  const stopDist = Math.abs(resolvedEntry - originalStop);
+  const targetDist = Math.abs(targetPrice - resolvedEntry);
+  const baseDist = Math.max(stopDist, targetDist) || 1;
 
-  const beyondStop = currentPrice != null && ((isSell && currentPrice > resolvedStop) || (!isSell && currentPrice < resolvedStop));
-  const pastTarget = currentPrice != null && ((isSell && currentPrice < targetPrice) || (!isSell && currentPrice > targetPrice));
+  let profitOverflow = 0;
+  if (currentPrice != null) {
+    const profitDelta = isSell ? (resolvedEntry - currentPrice) : (currentPrice - resolvedEntry);
+    if (profitDelta > targetDist) {
+      profitOverflow = profitDelta - targetDist;
+    }
+  }
 
-  const progressFillLeft = currentPct != null ? Math.min(entryPct, currentPct) : null;
-  const progressFillWidth = currentPct != null ? Math.abs(currentPct - entryPct) : null;
+  const halfScale = baseDist + profitOverflow * 1.15;
+
+  const toBarPct = (price: number) => {
+    const delta = price - resolvedEntry;
+    const normalized = delta / halfScale;
+    const pct = 50 + normalized * 45;
+    return Math.max(0, Math.min(100, pct));
+  };
+
+  const entryPct = 50;
+  const originalStopPct = toBarPct(originalStop);
+  const currentStopPct = toBarPct(resolvedStop);
+  const targetPct = toBarPct(targetPrice);
+
+  const currentPct = currentPrice != null ? toBarPct(currentPrice) : null;
 
   const isWinning =
     currentPrice != null && ((!isSell && currentPrice > resolvedEntry) || (isSell && currentPrice < resolvedEntry));
+  const beyondStop = currentPrice != null && ((isSell && currentPrice > originalStop) || (!isSell && currentPrice < originalStop));
+  const pastTarget = currentPrice != null && ((isSell && currentPrice < targetPrice) || (!isSell && currentPrice > targetPrice));
 
-  const nowPillAnchor =
-    currentPct != null ? (currentPct > 85 ? "right" : currentPct < 15 ? "left" : "center") : "center";
+  const fillLeft = currentPct != null ? Math.min(entryPct, currentPct) : null;
+  const fillWidth = currentPct != null ? Math.abs(currentPct - entryPct) : null;
 
   const delta =
     currentPrice != null ? (isSell ? (resolvedEntry - currentPrice) : (currentPrice - resolvedEntry)) : null;
 
+  const nowPillAnchor =
+    currentPct != null ? (currentPct > 85 ? "right" : currentPct < 15 ? "left" : "center") : "center";
+
   return (
     <div data-testid={`progress-bar-${signal.id}`}>
       <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">LOW</span>
-        <span
-          className={`text-[9px] font-semibold tracking-wide ${isSell ? "text-red-400" : "text-emerald-500"}`}
-          data-testid={`label-profit-dir-${signal.id}`}
-        >
-          {isSell ? "← Profit" : "Profit →"}
+        <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">
+          {isSell ? "PROFIT" : "RISK"}
         </span>
-        <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">HIGH</span>
+        <span className="text-[9px] text-muted-foreground/50">Entry</span>
+        <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">
+          {isSell ? "RISK" : "PROFIT"}
+        </span>
       </div>
 
       {currentPct != null && currentPrice != null && (
@@ -570,19 +575,18 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
               {pastTarget && "✓ "}
               {currentPrice.toFixed(2)}
               {delta != null && <span className="opacity-80 ml-0.5">({delta >= 0 ? "+" : ""}{delta.toFixed(2)})</span>}
-              {currentClamped && " ⚠"}
             </span>
           </div>
         </div>
       )}
 
       <div className="relative h-3 rounded-full bg-muted">
-        {progressFillLeft != null && progressFillWidth != null && progressFillWidth > 0 && (
+        {fillLeft != null && fillWidth != null && fillWidth > 0 && (
           <div
             className={`absolute h-full rounded-full transition-all duration-300 ${
               isWinning ? "bg-emerald-400/50 dark:bg-emerald-500/40" : "bg-red-400/50 dark:bg-red-500/40"
             }`}
-            style={{ left: `${progressFillLeft}%`, width: `${Math.min(progressFillWidth, 100 - progressFillLeft)}%` }}
+            style={{ left: `${fillLeft}%`, width: `${Math.min(fillWidth, 100 - fillLeft)}%` }}
             data-testid={`fill-progress-${signal.id}`}
           />
         )}
@@ -596,7 +600,7 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
         {stopMoved && (
           <div
             className="absolute w-1 h-full rounded-sm bg-amber-400/70 dark:bg-amber-400/60 z-[1]"
-            style={{ left: `${stopPct}%`, transform: "translateX(-50%)" }}
+            style={{ left: `${currentStopPct}%`, transform: "translateX(-50%)" }}
             title={`Stop (BE): ${resolvedStop.toFixed(2)}`}
             data-testid={`marker-stop-be-${signal.id}`}
           />
@@ -625,19 +629,21 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
       </div>
 
       <div className="flex justify-between text-[10px] text-muted-foreground px-0.5 mt-1">
-        {isSell ? (
-          <>
-            <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></span>
-            <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
-            <span title={`Stop: ${originalStop.toFixed(2)}`}>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">(BE)</span>} <span className="text-red-400/70">(Risk)</span></span>
-          </>
-        ) : (
-          <>
-            <span title={`Stop: ${originalStop.toFixed(2)}`}>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">(BE)</span>} <span className="text-red-400/70">(Risk)</span></span>
-            <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
-            <span title={`T1: ${targetPrice.toFixed(2)}`}>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></span>
-          </>
-        )}
+        <span title={isSell ? `T1: ${targetPrice.toFixed(2)}` : `Stop: ${originalStop.toFixed(2)}`}>
+          {isSell ? (
+            <>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></>
+          ) : (
+            <>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">→BE</span>} <span className="text-red-400/70">(Risk)</span></>
+          )}
+        </span>
+        <span title={`Entry: ${resolvedEntry.toFixed(2)}`}>Entry {resolvedEntry.toFixed(2)}</span>
+        <span title={isSell ? `Stop: ${originalStop.toFixed(2)}` : `T1: ${targetPrice.toFixed(2)}`}>
+          {isSell ? (
+            <>Stop {originalStop.toFixed(2)}{stopMoved && <span className="text-amber-400/80 ml-0.5">→BE</span>} <span className="text-red-400/70">(Risk)</span></>
+          ) : (
+            <>T1 {targetPrice.toFixed(2)} <span className="text-emerald-500/70">(Reward)</span></>
+          )}
+        </span>
       </div>
     </div>
   );
