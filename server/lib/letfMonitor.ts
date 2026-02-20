@@ -7,6 +7,7 @@ import type { Signal, InstrumentLive, LeveragedEtfSuggestion } from "@shared/sch
 
 const letfLiveCache = new Map<number, InstrumentLive>();
 const entryValidated = new Set<number>();
+const letfEntryPriceCache = new Map<number, number>();
 
 let monitorInterval: ReturnType<typeof setInterval> | null = null;
 let lastTickMs = 0;
@@ -56,22 +57,32 @@ export async function refreshLetfQuotesForActiveSignals(): Promise<number> {
         const livePrice = snap?.lastPrice ?? quote?.mid ?? null;
         if (livePrice == null || livePrice <= 0) continue;
 
-        let entryPrice = sig.instrumentType === "LEVERAGED_ETF" ? sig.instrumentEntryPrice : null;
+        let entryPrice: number | null = null;
 
-        if (sig.instrumentType === "LEVERAGED_ETF" && !entryValidated.has(sig.id) && sig.activatedTs) {
+        if (sig.instrumentType === "LEVERAGED_ETF" && sig.instrumentEntryPrice != null) {
+          entryPrice = sig.instrumentEntryPrice;
+        } else if (letfEntryPriceCache.has(sig.id)) {
+          entryPrice = letfEntryPriceCache.get(sig.id)!;
+        }
+
+        if (!entryValidated.has(sig.id) && sig.activatedTs) {
           const activationMs = new Date(sig.activatedTs).getTime();
           const historicalPrice = await fetchStockPriceAtTime(instrTicker, activationMs);
           if (historicalPrice != null) {
             if (entryPrice == null || Math.abs(entryPrice - historicalPrice) > 0.01) {
-              const oldEntry = entryPrice;
               entryPrice = historicalPrice;
-              await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
-              log(`LETF entry price corrected for signal ${sig.id} (${instrTicker}): $${oldEntry} → $${entryPrice} @ ${sig.activatedTs}`, "letfMonitor");
+              if (sig.instrumentType === "LEVERAGED_ETF") {
+                await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
+              }
             }
           } else if (entryPrice == null) {
             entryPrice = livePrice;
-            await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
-            log(`LETF entry price fallback to current for signal ${sig.id} (${instrTicker}): $${entryPrice}`, "letfMonitor");
+            if (sig.instrumentType === "LEVERAGED_ETF") {
+              await storage.updateSignalInstrument(sig.id, sig.instrumentType!, instrTicker, entryPrice);
+            }
+          }
+          if (entryPrice != null) {
+            letfEntryPriceCache.set(sig.id, entryPrice);
           }
           entryValidated.add(sig.id);
         }
