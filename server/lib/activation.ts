@@ -1,8 +1,8 @@
 import { storage } from "../storage";
 import { filterRTHBars, timestampToET } from "./validate";
-import { fetchSnapshot } from "./polygon";
+import { fetchSnapshot, fetchOptionMark, fetchOptionMarkAtTime } from "./polygon";
 import { log } from "../index";
-import type { Signal, TradePlan } from "@shared/schema";
+import type { Signal, TradePlan, OptionsData } from "@shared/schema";
 
 export interface ActivationEvent {
   signalId: number;
@@ -308,6 +308,29 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           stopPrice,
           result.entryTriggerPrice
         );
+
+        const opts = sig.optionsJson as OptionsData | null;
+        const contractTicker = sig.optionContractTicker || opts?.candidate?.contractSymbol;
+        if (contractTicker) {
+          try {
+            const triggerMs = result.triggerTs ? new Date(result.triggerTs).getTime() : Date.now();
+            let entryMarkPrice = await fetchOptionMarkAtTime(contractTicker, triggerMs);
+            if (entryMarkPrice == null) {
+              const liveQuote = await fetchOptionMark(contractTicker, ticker);
+              if (liveQuote && liveQuote.mark != null) entryMarkPrice = liveQuote.mark;
+            }
+            if (entryMarkPrice != null) {
+              await storage.updateSignalOptionTracking(sig.id, {
+                optionContractTicker: contractTicker,
+                optionEntryMark: entryMarkPrice,
+              });
+              log(`Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${result.triggerTs} (${contractTicker})`, "activation");
+            }
+          } catch (err: any) {
+            log(`Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`, "activation");
+          }
+        }
+
         events.push({
           signalId: sig.id,
           ticker,

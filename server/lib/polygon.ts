@@ -301,6 +301,46 @@ export async function fetchOptionLastTrade(contractTicker: string): Promise<Opti
   }
 }
 
+export async function fetchOptionMarkAtTime(contractTicker: string, timestampMs: number): Promise<number | null> {
+  try {
+    const windowStart = timestampMs - 5 * 60 * 1000;
+    const windowEnd = timestampMs + 5 * 60 * 1000;
+    const data = await polygonGet(`/v2/aggs/ticker/${contractTicker}/range/1/minute/${windowStart}/${windowEnd}`, {
+      adjusted: "true",
+      sort: "asc",
+      limit: "20",
+    });
+    if (data?.results && data.results.length > 0) {
+      let closest = data.results[0];
+      let minDist = Math.abs(closest.t - timestampMs);
+      for (const bar of data.results) {
+        const dist = Math.abs(bar.t - timestampMs);
+        if (dist < minDist) {
+          closest = bar;
+          minDist = dist;
+        }
+      }
+      const vwap = closest.vw ?? ((closest.h + closest.l) / 2);
+      return Math.round(vwap * 100) / 100;
+    }
+
+    const tradesData = await polygonGet(`/v3/trades/${contractTicker}`, {
+      "timestamp.gte": new Date(windowStart).toISOString(),
+      "timestamp.lte": new Date(windowEnd).toISOString(),
+      limit: "10",
+      sort: "timestamp",
+      order: "desc",
+    });
+    if (tradesData?.results && tradesData.results.length > 0) {
+      return tradesData.results[0].price;
+    }
+    return null;
+  } catch (err: any) {
+    log(`fetchOptionMarkAtTime error for ${contractTicker}: ${err.message}`, "polygon");
+    return null;
+  }
+}
+
 export async function fetchOptionMark(contractTicker: string, underlyingTicker?: string): Promise<OptionMarkResult | null> {
   let result = await fetchOptionNbbo(contractTicker);
   if (result && result.mark != null) {

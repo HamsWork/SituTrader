@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { fetchOptionMark } from "./polygon";
+import { fetchOptionMark, fetchOptionMarkAtTime } from "./polygon";
 import { log } from "../index";
 import { isRTH } from "../jobs/scheduler";
 import type { Signal, OptionsData, OptionLive } from "@shared/schema";
@@ -44,9 +44,19 @@ export async function refreshOptionQuotesForActiveSignals(): Promise<number> {
 
         let entryMark = sig.optionEntryMark;
         if (entryMark == null) {
-          entryMark = result.mark;
+          if (sig.activatedTs) {
+            const activationMs = new Date(sig.activatedTs).getTime();
+            const historicalMark = await fetchOptionMarkAtTime(contractTicker, activationMs);
+            if (historicalMark != null) {
+              entryMark = historicalMark;
+              log(`Option entry mark backfilled from historical data for signal ${sig.id} (${sig.ticker}): $${entryMark} @ ${sig.activatedTs}`, "optionMonitor");
+            }
+          }
+          if (entryMark == null) {
+            entryMark = result.mark;
+            log(`Option entry mark fallback to current for signal ${sig.id} (${sig.ticker}): $${entryMark}`, "optionMonitor");
+          }
           await storage.updateSignalOptionTracking(sig.id, { optionEntryMark: entryMark });
-          log(`Option entry mark captured for signal ${sig.id} (${sig.ticker}): $${entryMark}`, "optionMonitor");
         }
 
         const changeAbs = entryMark != null ? Math.round((result.mark - entryMark) * 100) / 100 : null;
