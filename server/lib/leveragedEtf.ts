@@ -9,7 +9,7 @@ const nbboCache = new Map<string, { data: any; ts: number }>();
 
 interface EtfCandidate {
   ticker: string;
-  leverage: 2 | 3;
+  leverage: 1 | 2 | 3;
   direction: "BULL" | "BEAR";
 }
 
@@ -35,51 +35,48 @@ const LEVERAGED_ETF_MAP: Record<string, EtfCandidate[]> = {
     { ticker: "TWM", leverage: 2, direction: "BEAR" },
   ],
   AAPL: [
-    { ticker: "AAPB", leverage: 2, direction: "BULL" },
-    { ticker: "AAPD", leverage: 2, direction: "BEAR" },
+    { ticker: "AAPU", leverage: 2, direction: "BULL" },
+    { ticker: "AAPD", leverage: 1, direction: "BEAR" },
   ],
   MSFT: [
     { ticker: "MSFU", leverage: 2, direction: "BULL" },
-    { ticker: "MSFD", leverage: 2, direction: "BEAR" },
+    { ticker: "MSFD", leverage: 1, direction: "BEAR" },
   ],
   AMZN: [
     { ticker: "AMZU", leverage: 2, direction: "BULL" },
-    { ticker: "AMZD", leverage: 2, direction: "BEAR" },
+    { ticker: "AMZD", leverage: 1, direction: "BEAR" },
   ],
   NVDA: [
-    { ticker: "NVDL", leverage: 2, direction: "BULL" },
-    { ticker: "NVD",  leverage: 2, direction: "BEAR" },
+    { ticker: "NVDU", leverage: 2, direction: "BULL" },
+    { ticker: "NVDD", leverage: 1, direction: "BEAR" },
   ],
   TSLA: [
     { ticker: "TSLL", leverage: 2, direction: "BULL" },
-    { ticker: "TSLS", leverage: 2, direction: "BEAR" },
+    { ticker: "TSLS", leverage: 1, direction: "BEAR" },
   ],
   GOOGL: [
     { ticker: "GGLL", leverage: 2, direction: "BULL" },
-    { ticker: "GOU",  leverage: 2, direction: "BULL" },
+    { ticker: "GGLS", leverage: 1, direction: "BEAR" },
   ],
   META: [
     { ticker: "METU", leverage: 2, direction: "BULL" },
-    { ticker: "METD", leverage: 2, direction: "BEAR" },
-    { ticker: "FBL",  leverage: 2, direction: "BULL" },
+    { ticker: "METD", leverage: 1, direction: "BEAR" },
   ],
   AMD: [
     { ticker: "AMDU", leverage: 2, direction: "BULL" },
-    { ticker: "AMDD", leverage: 2, direction: "BEAR" },
+    { ticker: "AMDD", leverage: 1, direction: "BEAR" },
   ],
   NFLX: [
     { ticker: "NFXL", leverage: 2, direction: "BULL" },
   ],
   PLTR: [
     { ticker: "PLTU", leverage: 2, direction: "BULL" },
-    { ticker: "PTIR", leverage: 2, direction: "BULL" },
   ],
   COIN: [
     { ticker: "CONL", leverage: 2, direction: "BULL" },
   ],
   BABA: [
     { ticker: "BABU", leverage: 2, direction: "BULL" },
-    { ticker: "BABX", leverage: 2, direction: "BULL" },
   ],
   XLK: [
     { ticker: "TECL", leverage: 3, direction: "BULL" },
@@ -116,6 +113,7 @@ const UNDERLYING_ALIASES: Record<string, string> = {
   NQ: "QQQ", NDX: "QQQ",
   RTY: "IWM",
   GOOG: "GOOGL",
+  MAG7: "QQQU",
 };
 
 function resolveUnderlying(ticker: string): string {
@@ -228,8 +226,9 @@ export async function selectBestLeveragedEtf(
 
   const tier3 = candidates.filter(c => c.leverage === 3);
   const tier2 = candidates.filter(c => c.leverage === 2);
+  const tier1 = candidates.filter(c => c.leverage === 1);
 
-  for (const tier of [tier3, tier2]) {
+  for (const tier of [tier3, tier2, tier1]) {
     if (tier.length === 0) continue;
 
     const scored = await Promise.all(
