@@ -679,6 +679,7 @@ function getTradeHealth(signal: SignalApi): { state: "good" | "neutral" | "bad";
 
 
 function TradeNowCard({ signal }: { signal: SignalApi }) {
+  const { toast } = useToast();
   const tp = signal.tradePlanJson as TradePlan | null;
   const isBuy = tp?.bias === "BUY" || (!tp && !signal.direction.toLowerCase().includes("down") && signal.direction !== "SELL");
   const biasLabel = isBuy ? "BUY" : "SELL";
@@ -686,6 +687,20 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
   const biasBg = isBuy ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30";
   const live = signal.live;
   const paceLabel = getPaceLabel(signal);
+
+  const executeTradeMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/ibkr/execute", { signalId: signal.id, quantity: 1 });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ibkr/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
+      toast({ title: `Trade executed for ${signal.ticker}`, description: "Bracket order placed on IBKR + Discord alert sent" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Trade execution failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   return (
     <Card className={`border-2 ${biasBg}`} data-testid={`card-trade-now-${signal.id}`}>
@@ -705,6 +720,16 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
             <OptionsBadge signal={signal} />
           </div>
           <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white gap-1"
+              onClick={() => executeTradeMutation.mutate()}
+              disabled={executeTradeMutation.isPending}
+              data-testid={`button-trade-now-${signal.id}`}
+            >
+              <Zap className="w-3 h-3" />
+              {executeTradeMutation.isPending ? "Placing..." : "Trade Now"}
+            </Button>
             <span className={`text-sm font-bold ${getQualityColor(signal.qualityScore)}`} data-testid={`text-quality-${signal.id}`}>
               Q{signal.qualityScore}
             </span>

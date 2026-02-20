@@ -5,6 +5,7 @@ import { storage } from "../storage";
 let ibApi: IBApi | null = null;
 let connected = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 let nextOrderId = 1;
 
 const IBKR_CLIENT_ID = parseInt(process.env.IBKR_CLIENT_ID || "1");
@@ -152,6 +153,26 @@ function scheduleReconnect() {
   }, 10000);
 }
 
+function startKeepAlive() {
+  stopKeepAlive();
+  keepAliveTimer = setInterval(() => {
+    if (!connected || !ibApi) return;
+    try {
+      ibApi.reqPositions();
+      ibApi.reqAccountSummary(9001, "All", "$LEDGER");
+    } catch (err: any) {
+      log(`Keep-alive poll error: ${err.message}`, "ibkr");
+    }
+  }, 30000);
+}
+
+function stopKeepAlive() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+}
+
 export async function connectIBKR(): Promise<boolean> {
   try {
     if (connected && ibApi) return true;
@@ -181,6 +202,7 @@ export async function connectIBKR(): Promise<boolean> {
 
       ibApi!.once(EventName.connected, () => {
         clearTimeout(timeout);
+        startKeepAlive();
         resolve(true);
       });
 
@@ -199,6 +221,7 @@ export async function connectIBKR(): Promise<boolean> {
 }
 
 export function disconnectIBKR() {
+  stopKeepAlive();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

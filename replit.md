@@ -27,8 +27,8 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - **Author Mode**: Hougaard-style 3-window automation with single master toggle. After Close (3:10 PM CT): full scan generating tomorrow's signals. Pre-Open (8:20 AM CT): re-rank and activation check. Live Monitor (every 60s during RTH 8:30 AM-3:00 PM CT): activation + alerts for active signals. Uses node-cron + dayjs timezone. Holiday/weekend gating via NYSE calendar. Compact header pill with Sheet for details. "Run Now (Manual Override)" uses autoNow logic (context-aware job selection).
 - **Auto Leveraged ETF Mode**: Per-signal instrument selection between Options/Shares/Best LETF. Mapping table covers major indices (SPY→SPXL/SPXS, QQQ→TQQQ/SQQQ, etc.) and sector ETFs. Liquidity scoring via Polygon NBBO (spread, volume, stale checks). Auto-selects best LETF on activation (prefers 3x over 2x if liquid). Per-card Trade Via selector (Option/Shares/LETF) with entry price capture. Live tracking in 30s refresh cycle with P&L display.
 - **Market Calendar**: NYSE holiday-aware date handling
-- **IBKR Integration**: Automated trade execution via Interactive Brokers TWS/Gateway using @stoqey/ib. Market/limit/stop order placement, position tracking, account summary. Auto-execute on signal activation (configurable). 3-part stop sync: initial → break-even → time-tightened. Trade lifecycle monitoring in live scheduler. Manual close via IBKR Dashboard.
-- **Discord Alerts**: Dual-channel webhook posting. GOAT Alerts channel for options trade embeds, GOAT Swings channel for LETF swing embeds. Trade update notifications (fill, stop, BE move, close). Webhook URLs configurable via settings page or env vars.
+- **IBKR Integration**: Full bracket order execution via Interactive Brokers TWS/Gateway using @stoqey/ib. Entry (MKT) + Stop (STP) + TP1 limit (partial close) + TP2 limit (remaining). Fill detection polling, auto stop-to-BE on TP1 fill, multi-TP progression tracking (tpHitLevel 0→1→2). LETF trades monitor underlying price for TP levels. Keep-alive with 30s position polling and auto-reconnect. "Trade Now" button on dashboard cards. Manual close via IBKR Dashboard.
+- **Discord Alerts**: Dual-channel webhook posting with lifecycle embeds. GOAT Alerts channel for options, GOAT Swings for LETF. Color-coded events: green (entry fill), cyan (TP1 partial), purple (TP2 full close), red (stop loss), orange (BE stop after TP1), gold (stop moved). Full P&L and R-multiple in trade update embeds.
 
 ## Project Structure
 - `shared/schema.ts` - Database schema and TypeScript types
@@ -123,7 +123,7 @@ A full-stack web application that detects multi-day "situational analysis" setup
 - `signal_profiles` - Saved filter profiles (name, allowedSetups[], minTier, minQualityScore, minSampleSize, minHitRate, minExpectancyR, timePriorityMode, isPinned, isActive)
 - `app_settings` - Key-value settings (includes focusMode, focusWinRateThreshold, focusExpectancyThreshold, focusMinSampleSize)
 - `scheduler_state` - Scheduler configuration and run history (single row, key="default")
-- `ibkr_trades` - IBKR trade records (signalId, ticker, instrumentType, side, quantity, entryPrice, exitPrice, pnl, rMultiple, status, stopPrice, ibkrOrderId, ibkrStopOrderId)
+- `ibkr_trades` - IBKR trade records (signalId, ticker, instrumentType, side, quantity, originalQuantity, remainingQuantity, tpHitLevel, entryPrice, exitPrice, stopPrice, target1Price, target2Price, tp1FillPrice, tp2FillPrice, tp1PnlRealized, ibkrOrderId, ibkrStopOrderId, ibkrTp1OrderId, ibkrTp2OrderId, status, pnl, rMultiple, stopMovedToBe)
 - `ibkr_state` - IBKR connection state (single row, key="default")
 
 ## Environment

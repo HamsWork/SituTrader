@@ -50,6 +50,8 @@ const RED = 0xef4444;
 const BLUE = 0x3b82f6;
 const ORANGE = 0xf97316;
 const PURPLE = 0xa855f7;
+const CYAN = 0x06b6d4;
+const GOLD = 0xeab308;
 
 function biasColor(bias: string): number {
   return bias === "BUY" ? GREEN : RED;
@@ -62,6 +64,17 @@ function tierEmoji(tier: string): string {
     case "B": return "✅";
     default: return "📊";
   }
+}
+
+function fmtPrice(p: number | null | undefined): string {
+  if (p == null) return "—";
+  return `$${p.toFixed(2)}`;
+}
+
+function fmtPnl(pnl: number | null | undefined): string {
+  if (pnl == null) return "—";
+  const prefix = pnl >= 0 ? "+" : "";
+  return `${prefix}$${pnl.toFixed(2)}`;
 }
 
 export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promise<boolean> {
@@ -89,10 +102,10 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
       { name: "Quality", value: `${signal.qualityScore}/100`, inline: true },
       { name: "Contract", value: contractSymbol, inline: false },
       { name: "Strike / Expiry", value: `$${strike} ${right} — ${expiry}`, inline: false },
-      { name: "Entry", value: `$${signal.entryPriceAtActivation?.toFixed(2) ?? "MKT"}`, inline: true },
-      { name: "Stop", value: `$${tp.stopDistance ? (signal.entryPriceAtActivation ? (tp.bias === "BUY" ? signal.entryPriceAtActivation - tp.stopDistance : signal.entryPriceAtActivation + tp.stopDistance) : "?").toString() : "?"}`, inline: true },
-      { name: "T1", value: `$${tp.t1?.toFixed(2)}`, inline: true },
-      { name: "T2", value: tp.t2 ? `$${tp.t2.toFixed(2)}` : "—", inline: true },
+      { name: "Entry", value: fmtPrice(trade?.entryPrice ?? signal.entryPriceAtActivation), inline: true },
+      { name: "Stop", value: fmtPrice(trade?.stopPrice ?? signal.stopPrice), inline: true },
+      { name: "T1", value: fmtPrice(tp.t1), inline: true },
+      { name: "T2", value: tp.t2 ? fmtPrice(tp.t2) : "—", inline: true },
       { name: "R:R", value: tp.riskReward?.toFixed(1) ?? "?", inline: true },
     ],
     footer: { text: "SITU GOAT Trader • Options Alert" },
@@ -137,10 +150,10 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
       { name: "Underlying", value: signal.ticker, inline: true },
       { name: "LETF", value: `${letfTicker} (${leverage}x)`, inline: true },
       { name: "Direction", value: direction, inline: true },
-      { name: "Underlying Entry", value: `$${signal.entryPriceAtActivation?.toFixed(2) ?? "MKT"}`, inline: true },
-      { name: "T1 (Underlying)", value: `$${tp.t1?.toFixed(2)}`, inline: true },
-      { name: "T2 (Underlying)", value: tp.t2 ? `$${tp.t2.toFixed(2)}` : "—", inline: true },
-      { name: "Stop (Underlying)", value: `$${signal.stopPrice?.toFixed(2) ?? "?"}`, inline: true },
+      { name: "Underlying Entry", value: fmtPrice(signal.entryPriceAtActivation), inline: true },
+      { name: "T1 (Underlying)", value: fmtPrice(tp.t1), inline: true },
+      { name: "T2 (Underlying)", value: tp.t2 ? fmtPrice(tp.t2) : "—", inline: true },
+      { name: "Stop (Underlying)", value: fmtPrice(signal.stopPrice), inline: true },
       { name: "R:R", value: tp.riskReward?.toFixed(1) ?? "?", inline: true },
     ],
     footer: { text: "SITU GOAT Trader • Swing Alert" },
@@ -151,7 +164,7 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
     embed.fields.push(
       { name: "IBKR Order", value: `#${trade.ibkrOrderId ?? "pending"}`, inline: true },
       { name: "Qty", value: `${trade.quantity}`, inline: true },
-      { name: "LETF Entry", value: `$${trade.entryPrice?.toFixed(2) ?? "MKT"}`, inline: true },
+      { name: "LETF Entry", value: fmtPrice(trade.entryPrice), inline: true },
     );
   }
 
@@ -164,57 +177,114 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
   const url = await getWebhookUrl(isOption ? "alerts" : "swings");
   if (!url) return false;
 
+  const tp = signal.tradePlanJson as TradePlan;
+
   let color = BLUE;
   let emoji = "📝";
+  let title = "";
 
   switch (event) {
     case "FILLED":
       color = GREEN;
       emoji = "✅";
-      break;
-    case "STOPPED_OUT":
-      color = RED;
-      emoji = "🛑";
+      title = `Entry Filled — ${signal.ticker}`;
       break;
     case "TP1_HIT":
-      color = GREEN;
+      color = CYAN;
       emoji = "🎯";
+      title = `TP1 Hit — ${signal.ticker} (Partial Close)`;
       break;
     case "TP2_HIT":
       color = PURPLE;
       emoji = "🏆";
+      title = `TP2 Hit — ${signal.ticker} (Full Close)`;
+      break;
+    case "STOPPED_OUT":
+      color = RED;
+      emoji = "🛑";
+      title = `Stopped Out — ${signal.ticker}`;
+      break;
+    case "STOPPED_OUT_AFTER_TP":
+      color = ORANGE;
+      emoji = "🔄";
+      title = `Stopped at BE — ${signal.ticker} (After TP1)`;
       break;
     case "CLOSED":
       color = trade.pnl && trade.pnl > 0 ? GREEN : RED;
       emoji = trade.pnl && trade.pnl > 0 ? "💰" : "📉";
+      title = `Trade Closed — ${signal.ticker}`;
       break;
     case "BE_STOP":
-      color = ORANGE;
-      emoji = "🔄";
+      color = GOLD;
+      emoji = "🔒";
+      title = `Stop → Break Even — ${signal.ticker}`;
       break;
   }
 
   const embed: DiscordEmbed = {
-    title: `${emoji} ${event.replace("_", " ")} — ${signal.ticker}`,
+    title: `${emoji} ${title}`,
     color,
     fields: [
       { name: "Instrument", value: trade.instrumentTicker || signal.ticker, inline: true },
       { name: "Side", value: trade.side, inline: true },
-      { name: "Qty", value: `${trade.quantity}`, inline: true },
+      { name: "Original Qty", value: `${trade.originalQuantity}`, inline: true },
     ],
     footer: { text: "SITU GOAT Trader • Trade Update" },
     timestamp: new Date().toISOString(),
   };
 
   if (trade.entryPrice) {
-    embed.fields.push({ name: "Entry", value: `$${trade.entryPrice.toFixed(2)}`, inline: true });
-  }
-  if (trade.pnl != null) {
-    embed.fields.push(
-      { name: "P&L", value: `$${trade.pnl.toFixed(2)}`, inline: true },
-      { name: "R", value: trade.rMultiple?.toFixed(2) ?? "?", inline: true },
-    );
+    embed.fields.push({ name: "Entry", value: fmtPrice(trade.entryPrice), inline: true });
   }
 
-  return sendWebhook(url, `**${emoji} ${event.replace("_", " ")}** — ${signal.ticker}`, [embed]);
+  if (event === "TP1_HIT") {
+    const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
+    embed.fields.push(
+      { name: "TP1 Fill", value: fmtPrice(trade.tp1FillPrice), inline: true },
+      { name: "Qty Closed", value: `${tp1Qty}`, inline: true },
+      { name: "TP1 P&L", value: fmtPnl(trade.tp1PnlRealized), inline: true },
+      { name: "Remaining", value: `${trade.remainingQuantity}`, inline: true },
+      { name: "Stop Moved", value: `→ BE (${fmtPrice(trade.entryPrice)})`, inline: true },
+    );
+    if (tp?.t2) {
+      embed.fields.push({ name: "Next Target", value: `TP2: ${fmtPrice(tp.t2)}`, inline: true });
+    }
+  }
+
+  if (event === "TP2_HIT") {
+    embed.fields.push(
+      { name: "TP2 Fill", value: fmtPrice(trade.tp2FillPrice), inline: true },
+      { name: "Total P&L", value: fmtPnl(trade.pnl), inline: true },
+      { name: "R-Multiple", value: trade.rMultiple?.toFixed(2) ?? "—", inline: true },
+    );
+    embed.description = trade.pnl && trade.pnl > 0 ? "🟢 Full target achieved!" : "Trade completed";
+  }
+
+  if (event === "STOPPED_OUT" || event === "STOPPED_OUT_AFTER_TP") {
+    embed.fields.push(
+      { name: "Exit Price", value: fmtPrice(trade.exitPrice), inline: true },
+      { name: "Total P&L", value: fmtPnl(trade.pnl), inline: true },
+      { name: "R-Multiple", value: trade.rMultiple?.toFixed(2) ?? "—", inline: true },
+    );
+    if (event === "STOPPED_OUT_AFTER_TP") {
+      embed.fields.push({ name: "TP1 P&L", value: fmtPnl(trade.tp1PnlRealized), inline: true });
+      embed.description = "Stopped at break-even after taking partial profit at TP1";
+    }
+  }
+
+  if (event === "CLOSED") {
+    if (trade.exitPrice) {
+      embed.fields.push({ name: "Exit", value: fmtPrice(trade.exitPrice), inline: true });
+    }
+    if (trade.pnl != null) {
+      embed.fields.push(
+        { name: "Total P&L", value: fmtPnl(trade.pnl), inline: true },
+        { name: "R", value: trade.rMultiple?.toFixed(2) ?? "—", inline: true },
+      );
+    }
+  }
+
+  const channelLabel = isOption ? "GOAT Alert" : "GOAT Swing";
+  const content = `**${emoji} ${event.replace(/_/g, " ")}** — ${signal.ticker} | ${channelLabel}`;
+  return sendWebhook(url, content, [embed]);
 }

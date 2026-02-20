@@ -792,18 +792,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createIbkrTrade(data: Partial<IbkrTrade>): Promise<IbkrTrade> {
+    const qty = data.quantity ?? 1;
     const rows = await db.insert(ibkrTrades).values({
       signalId: data.signalId ?? null,
       ticker: data.ticker ?? "",
       instrumentType: data.instrumentType ?? "OPTION",
       instrumentTicker: data.instrumentTicker ?? null,
       side: data.side ?? "BUY",
-      quantity: data.quantity ?? 1,
+      quantity: qty,
+      originalQuantity: data.originalQuantity ?? qty,
+      remainingQuantity: data.remainingQuantity ?? qty,
+      tpHitLevel: data.tpHitLevel ?? 0,
       entryPrice: data.entryPrice ?? null,
       exitPrice: data.exitPrice ?? null,
       stopPrice: data.stopPrice ?? null,
       target1Price: data.target1Price ?? null,
       target2Price: data.target2Price ?? null,
+      tp1FillPrice: data.tp1FillPrice ?? null,
+      tp2FillPrice: data.tp2FillPrice ?? null,
+      tp1PnlRealized: data.tp1PnlRealized ?? null,
       ibkrOrderId: data.ibkrOrderId ?? null,
       ibkrStopOrderId: data.ibkrStopOrderId ?? null,
       ibkrTp1OrderId: data.ibkrTp1OrderId ?? null,
@@ -814,6 +821,9 @@ export class DatabaseStorage implements IStorage {
       rMultiple: data.rMultiple ?? null,
       filledAt: data.filledAt ?? null,
       closedAt: data.closedAt ?? null,
+      tp1FilledAt: data.tp1FilledAt ?? null,
+      tp2FilledAt: data.tp2FilledAt ?? null,
+      stopMovedToBe: data.stopMovedToBe ?? false,
       discordAlertSent: data.discordAlertSent ?? false,
       discordUpdateSent: data.discordUpdateSent ?? false,
       notes: data.notes ?? null,
