@@ -166,10 +166,14 @@ function OptionsPanel({ signal }: { signal: SignalApi }) {
     return exp;
   };
 
+  const tp = signal.tradePlanJson as { bias?: string } | null;
+  const isSellSignal = tp?.bias === "SELL";
+
   const optBarRange = hasLivePnl ? (() => {
     const pctChange = (liveMid - entryMark) / entryMark;
     const scale = 0.50;
-    const nowPct = 50 + (pctChange / scale) * 45;
+    const dir = isSellSignal ? -1 : 1;
+    const nowPct = 50 + (dir * pctChange / scale) * 45;
     const clampedNow = Math.max(3, Math.min(97, nowPct));
     const fillL = Math.min(50, clampedNow);
     const fillW = Math.abs(clampedNow - 50);
@@ -357,12 +361,16 @@ function LetfLivePanel({ signal }: { signal: SignalApi }) {
     ? (isPositive ? "bg-purple-500/5 border-purple-500/20" : "bg-red-500/5 border-red-500/20")
     : "bg-purple-500/5 border-purple-500/15";
 
+  const tpLetf = signal.tradePlanJson as { bias?: string } | null;
+  const isSellLetf = tpLetf?.bias === "SELL";
+
   const barRange = hasLivePnl ? (() => {
     const entry = instrLive!.entryPrice!;
     const now = instrLive!.priceNow!;
     const pctChange = (now - entry) / entry;
     const scale = 0.15;
-    const nowPct = 50 + (pctChange / scale) * 45;
+    const dir = isSellLetf ? -1 : 1;
+    const nowPct = 50 + (dir * pctChange / scale) * 45;
     const clampedNow = Math.max(3, Math.min(97, nowPct));
     const fillL = Math.min(50, clampedNow);
     const fillW = Math.abs(clampedNow - 50);
