@@ -117,7 +117,7 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
   const fields: DiscordField[] = [
     { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
     { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
-    { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+    { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
     { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
     { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPrice.toFixed(2)}`, inline: true },
     { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`, inline: false },
@@ -211,7 +211,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (trade.entryPrice && strike && expiry) {
         fields.push(
-          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
           { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
           { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(trade.entryPrice)}`, inline: true },
         );
@@ -236,7 +236,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
           { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
           { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
         );
@@ -280,7 +280,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
           { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
           { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
         );
@@ -319,7 +319,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
           { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
           { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
         );
@@ -353,7 +353,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
           { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
           { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
         );
