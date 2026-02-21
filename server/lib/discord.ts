@@ -201,7 +201,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
   switch (event) {
     case "FILLED": {
-      color = GREEN;
+      color = CYAN;
       title = `\u2705 ${signal.ticker} Entry Filled \u2014 ${dateLabel}`;
 
       fields.push(
@@ -440,8 +440,6 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     title,
     color,
     fields: fields.length > 0 ? fields : undefined,
-    footer: { text: "SITU GOAT Trader \u2022 Trade Update" },
-    timestamp: new Date().toISOString(),
   };
 
   return sendWebhook(url, `@everyone`, [embed]);
