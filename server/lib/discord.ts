@@ -242,7 +242,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP1_HIT": {
-      color = CYAN;
+      color = GREEN;
       heading = `**\u{1F3AF} ${signal.ticker} Take Profit HIT**`;
       const entry = trade.entryPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
@@ -277,7 +277,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP2_HIT": {
-      color = PURPLE;
+      color = GREEN;
       heading = `**\u{1F3AF} ${signal.ticker} Take Profit 2 HIT**`;
       const entry = trade.entryPrice ?? 0;
       const tp2Fill = trade.tp2FillPrice ?? 0;
@@ -313,7 +313,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP3_HIT": {
-      color = PURPLE;
+      color = GREEN;
       heading = `**\u{1F3AF} ${signal.ticker} Take Profit 3 HIT**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? trade.tp2FillPrice ?? 0;
@@ -451,21 +451,6 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
           { name: "Total P&L", value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, inline: false },
         );
       }
-      break;
-    }
-
-    case "BE_STOP": {
-      color = GOLD;
-      heading = `**\u{1F512} ${signal.ticker} Stop \u2192 Break Even**`;
-      const entry = trade.entryPrice ?? 0;
-
-      fields.push(
-        { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: false },
-        { ...SPACER },
-        { name: "\u{1F6A8} Status: Stop Moved to Break Even \u{1F6A8}", value: "\u200b", inline: false },
-        { ...SPACER },
-        { name: "\u{1F6E1}\uFE0F Risk Management", value: `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.`, inline: false },
-      );
       break;
     }
 
