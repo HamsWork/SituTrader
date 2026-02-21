@@ -76,7 +76,9 @@ function setupEventHandlers() {
   ibApi.on(EventName.disconnected, () => {
     connected = false;
     log("IBKR disconnected", "ibkr");
-    scheduleReconnect();
+    if (!connecting) {
+      scheduleReconnect();
+    }
   });
 
   ibApi.on(EventName.error, (err: Error, code: ErrorCode, reqId: number) => {
@@ -206,13 +208,31 @@ export async function connectIBKR(): Promise<boolean> {
     setupEventHandlers();
 
     return new Promise((resolve) => {
+      let settled = false;
+
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+      };
+
       const timeout = setTimeout(() => {
-        log("IBKR connection timeout after 10s", "ibkr");
+        cleanup();
+        log("IBKR connection timeout after 15s", "ibkr");
+        if (ibApi) {
+          try {
+            ibApi.removeAllListeners();
+            ibApi.disconnect();
+          } catch {}
+          ibApi = null;
+        }
         connecting = false;
+        scheduleReconnect();
         resolve(false);
-      }, 10000);
+      }, 15000);
 
       ibApi!.once(EventName.connected, () => {
+        if (settled) return;
+        cleanup();
         clearTimeout(timeout);
         connecting = false;
         startKeepAlive();
@@ -220,6 +240,8 @@ export async function connectIBKR(): Promise<boolean> {
       });
 
       ibApi!.once(EventName.error, () => {
+        if (settled) return;
+        cleanup();
         clearTimeout(timeout);
         connecting = false;
         resolve(false);
