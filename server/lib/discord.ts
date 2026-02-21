@@ -60,6 +60,7 @@ const CYAN = 0x06b6d4;
 const GOLD = 0xeab308;
 const BLURPLE = 0x5865f2;
 
+const SPACER: DiscordField = { name: "\u200b", value: "\u200b", inline: false };
 const DISCLAIMER = "Disclaimer: Not financial advice. Trade at your own risk.";
 
 function fmtPrice(p: number | null | undefined): string {
@@ -108,26 +109,28 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
   let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
   if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
+  let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
+    tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
   }
 
-  let desc = `\u{1F7E2} **Ticker**\n${signal.ticker}(${signal.ticker})\n\n`;
-  desc += `\u{1F4CA} **Stock Price**\n$ ${entryPrice.toFixed(2)}\n\n`;
-  desc += `\u274C **Expiration**\n${expiry}\n\n`;
-  desc += `\u270D\uFE0F **Strike**\n${strike} ${right}\n\n`;
-  desc += `\u{1F4B5} **Option Price**\n$ ${optionPrice.toFixed(2)}\n\n`;
-  desc += `\u{1F4DD} **Trade Plan**\n`;
-  desc += `\u{1F3AF} Targets: ${targetsStr}\n`;
-  desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)\n\n`;
-  desc += `\u{1F4B0} **Take Profit Plan**\n`;
-  desc += tpPlanText;
+  const fields: DiscordField[] = [
+    { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}(${signal.ticker})`, inline: true },
+    { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
+    { ...SPACER },
+    { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+    { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+    { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPrice.toFixed(2)}`, inline: true },
+    { ...SPACER },
+    { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%), ${fmtPrice(entryPrice)}(+0%)`, inline: false },
+    { ...SPACER },
+    { name: `\u{1F4B0} **Take Profit Plan**`, value: tpPlanText, inline: false },
+  ];
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} Trade Alert`,
     color: BLURPLE,
-    description: desc,
+    fields,
     footer: { text: DISCLAIMER },
   };
 
@@ -158,20 +161,23 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
   let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
 
-  let desc = `\u{1F7E2} **Ticker**\n${signal.ticker}\n\n`;
-  desc += `\u{1F4B9} **LETF**\n${letfTicker} (${leverage}x ${direction})\n\n`;
-  desc += `\u{1F4CA} **Stock Price**\n$ ${entryPrice.toFixed(2)}\n\n`;
-  desc += `\u{1F4B0} **LETF Entry**\n${letfEntry > 0 ? `$ ${letfEntry.toFixed(2)}` : "Pending"}\n\n`;
-  desc += `\u{1F4DD} **Trade Plan**\n`;
-  desc += `\u{1F3AF} Targets: ${targetsStr}\n`;
-  desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)\n\n`;
-  desc += `\u{1F4B0} **Take Profit Plan**\n`;
-  desc += tpPlanText;
+  const fields: DiscordField[] = [
+    { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
+    { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
+    { name: `\u{1F4B9} **LETF**`, value: `${letfTicker} (${leverage}x ${direction})`, inline: true },
+    { ...SPACER },
+    { name: `\u{1F4B0} **LETF Entry**`, value: letfEntry > 0 ? `$ ${letfEntry.toFixed(2)}` : "Pending", inline: true },
+    { name: `\u{1F534} **Stop**`, value: `${fmtPrice(stopPrice)} (${stopPct}%)`, inline: true },
+    { ...SPACER },
+    { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`, inline: false },
+    { ...SPACER },
+    { name: `\u{1F4B0} **Take Profit Plan**`, value: tpPlanText, inline: false },
+  ];
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert`,
     color: BLURPLE,
-    description: desc,
+    fields,
     footer: { text: DISCLAIMER },
   };
 
@@ -191,7 +197,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
   let color = BLUE;
   let title = "";
-  let description = "";
+  const fields: DiscordField[] = [];
 
   switch (event) {
     case "FILLED": {
@@ -219,20 +225,26 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       if (tpData?.t2) tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
       if (tpData?.t3) tpPlanText += `\nTake Profit (3): At 30.0% take off 50.0% of remaining position.`;
 
-      description = `\u{1F7E2} **Ticker**\n${signal.ticker}(${signal.ticker})\n\n`;
-      description += `\u{1F4CA} **Stock Price**\n$ ${entryPx.toFixed(2)}\n\n`;
+      fields.push(
+        { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}(${signal.ticker})`, inline: true },
+        { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPx.toFixed(2)}`, inline: true },
+        { ...SPACER },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration**\n${expiry}\n\n`;
-        description += `\u270D\uFE0F **Strike**\n${strike} ${right}\n\n`;
-        description += `\u{1F4B5} **Option Price**\n$ ${optionPx.toFixed(2)}\n\n`;
+        fields.push(
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPx.toFixed(2)}`, inline: true },
+          { ...SPACER },
+        );
       }
 
-      description += `\u{1F4DD} **Trade Plan**\n`;
-      description += `\u{1F3AF} Targets: ${targetsLine}\n`;
-      description += `\u{1F534} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%)\n\n`;
-      description += `\u{1F4B0} **Take Profit Plan**\n`;
-      description += tpPlanText;
+      fields.push(
+        { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsLine}\n\u{1F534} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%), ${fmtPrice(entryPx)}(+0%)`, inline: false },
+        { ...SPACER },
+        { name: `\u{1F4B0} **Take Profit Plan**`, value: tpPlanText, inline: false },
+      );
       break;
     }
 
@@ -243,30 +255,31 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
 
-      description = `\u{1F7E2} **Trade Performance:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
+      fields.push(
+        { name: `\u{1F7E2} **Trade Performance:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration:** ${expiry}\n`;
-        description += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        description += `\u{1F4B5} **Price:** ${fmtPrice(entry)}\n\n`;
+        fields.push(
+          { ...SPACER },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
       }
 
-      description += `\u2705 **Entry:** ${fmtPrice(entry)}\n`;
-      description += `\u{1F3AF} **TP Hit:** ${fmtPrice(tp1Fill)}\n`;
-      description += `\u{1F4B8} **Profit:** ${profitPct}\n\n`;
-
-      description += `\u{1F6A8} __**Status: TP Reached**__ \u{1F6A8}\n\n`;
-
-      description += `\u{1F50D} **Position Management:**\n`;
-      description += `\u2705 Reduce position by 50% (lock in profit)\n`;
-      if (tp?.t2) {
-        description += `\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})\n`;
-      }
-      description += `\n`;
-
-      description += `\u{1F6E1}\uFE0F **Risk Management**\n`;
-      description += `Raising stop loss to ${fmtPrice(entry)} (break even) on remaining position to secure gains while allowing room to run.`;
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} **TP Hit**`, value: `${fmtPrice(tp1Fill)}`, inline: true },
+        { name: `\u{1F4B8} **Profit**`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: TP Reached__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { ...SPACER },
+        { name: `\u{1F50D} **Position Management:**`, value: `\u2705 Reduce position by 50% (lock in profit)${tp?.t2 ? `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})` : ""}`, inline: false },
+        { ...SPACER },
+        { name: `\u{1F6E1}\uFE0F **Risk Management**`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on remaining position to secure gains while allowing room to run.`, inline: false },
+      );
       break;
     }
 
@@ -278,27 +291,31 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, tp2Fill) : "?";
 
-      description = `\u{1F7E2} **Trade Performance:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
+      fields.push(
+        { name: `\u{1F7E2} **Trade Performance:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration:** ${expiry}\n`;
-        description += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        description += `\u{1F4B5} **Price:** ${fmtPrice(entry)}\n\n`;
+        fields.push(
+          { ...SPACER },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
       }
 
-      description += `\u2705 **Entry:** ${fmtPrice(entry)}\n`;
-      description += `\u{1F3AF} **TP2 Hit:** ${fmtPrice(tp2Fill)}\n`;
-      description += `\u{1F4B8} **Profit:** ${profitPct}\n\n`;
-
-      description += `\u{1F6A8} __**Status: TP2 Reached**__ \u{1F6A8}\n\n`;
-
-      description += `\u{1F50D} **Position Management:**\n`;
-      description += `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})\n`;
-      description += `\u{1F3AF} Set trailing stop on remaining runners\n\n`;
-
-      description += `\u{1F6E1}\uFE0F **Risk Management**\n`;
-      description += `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`;
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} **TP2 Hit**`, value: `${fmtPrice(tp2Fill)}`, inline: true },
+        { name: `\u{1F4B8} **Profit**`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: TP2 Reached__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { ...SPACER },
+        { name: `\u{1F50D} **Position Management:**`, value: `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})\n\u{1F3AF} Set trailing stop on remaining runners`, inline: false },
+        { ...SPACER },
+        { name: `\u{1F6E1}\uFE0F **Risk Management**`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`, inline: false },
+      );
       break;
     }
 
@@ -309,23 +326,29 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const exitPrice = trade.exitPrice ?? trade.tp2FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
 
-      description = `\u{1F7E2} **Trade Performance:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
+      fields.push(
+        { name: `\u{1F7E2} **Trade Performance:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration:** ${expiry}\n`;
-        description += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        description += `\u{1F4B5} **Price:** ${fmtPrice(entry)}\n\n`;
+        fields.push(
+          { ...SPACER },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
       }
 
-      description += `\u2705 **Entry:** ${fmtPrice(entry)}\n`;
-      description += `\u{1F3AF} **TP3 Hit:** ${fmtPrice(exitPrice)}\n`;
-      description += `\u{1F4B8} **Profit:** ${profitPct}\n\n`;
-
-      description += `\u{1F6A8} __**Status: Position Closed**__ \u{1F6A8}\n\n`;
-
-      description += `\u{1F50D} **Position Management:**\n`;
-      description += `\u2705 Full exit \u2014 all targets reached`;
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} **TP3 Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} **Profit**`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Position Closed__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { ...SPACER },
+        { name: `\u{1F50D} **Position Management:**`, value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
+      );
       break;
     }
 
@@ -336,22 +359,28 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const exitPrice = trade.exitPrice ?? 0;
       const lossPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
 
-      description = `\u{1F534} **Trade Performance:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
+      fields.push(
+        { name: `\u{1F534} **Trade Performance:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration:** ${expiry}\n`;
-        description += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        description += `\u{1F4B5} **Price:** ${fmtPrice(entry)}\n\n`;
+        fields.push(
+          { ...SPACER },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
       }
 
-      description += `\u2705 **Entry:** ${fmtPrice(entry)}\n`;
-      description += `\u{1F6D1} **Stop Hit:** ${fmtPrice(exitPrice)}\n`;
-      description += `\u{1F4B8} **Result:** ${lossPct}\n\n`;
-
-      description += `\u{1F6A8} __**Status: Position Closed**__ \u{1F6A8}\n\n`;
-
-      description += `\u{1F6E1}\uFE0F Discipline Matters: Following the plan keeps you in the game for winning trades`;
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F6D1} **Stop Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} **Result**`, value: `${lossPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Position Closed__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { name: `\u{1F6E1}\uFE0F Discipline Matters: Following the plan keeps you in the game for winning trades`, value: "\u200b", inline: false },
+      );
       break;
     }
 
@@ -363,25 +392,33 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const tp1Pct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
 
-      description = `\u{1F7E0} **Trade Performance:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
+      fields.push(
+        { name: `\u{1F7E0} **Trade Performance:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration:** ${expiry}\n`;
-        description += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        description += `\u{1F4B5} **Price:** ${fmtPrice(entry)}\n\n`;
+        fields.push(
+          { ...SPACER },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
       }
 
-      description += `\u2705 **Entry:** ${fmtPrice(entry)}\n`;
-      description += `\u{1F6D1} **BE Stop:** ${fmtPrice(exitPrice)}\n`;
-      description += `\u{1F4B8} **Profit:** ${tp1Pct} (TP1 only)\n\n`;
-
-      description += `\u{1F6A8} __**Status: Stopped at BE (after TP1)**__ \u{1F6A8}\n\n`;
-
-      description += `\u{1F6E1}\uFE0F Discipline Matters: Following the plan keeps you in the game for winning trades`;
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F6D1} **BE Stop**`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} **Profit**`, value: `${tp1Pct} (TP1 only)`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Stopped at BE (after TP1)__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { name: `\u{1F6E1}\uFE0F Discipline Matters: Following the plan keeps you in the game for winning trades`, value: "\u200b", inline: false },
+      );
 
       if (trade.tp1PnlRealized != null) {
-        description += `\n\n\u{1F4B0} **TP1 P&L (banked):** ${fmtPnl(trade.tp1PnlRealized)}`;
+        fields.push(
+          { name: `\u{1F4B0} **TP1 P&L (banked)**`, value: `${fmtPnl(trade.tp1PnlRealized)}`, inline: false },
+        );
       }
       break;
     }
@@ -394,50 +431,63 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const exitPrice = trade.exitPrice ?? 0;
       const pnlPct = entry > 0 && exitPrice > 0 ? fmtPct(entry, exitPrice) : "\u2014";
 
-      description = `${trade.pnl && trade.pnl > 0 ? "\u{1F7E2}" : "\u{1F534}"} **Trade Performance:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
+      fields.push(
+        { name: `${trade.pnl && trade.pnl > 0 ? "\u{1F7E2}" : "\u{1F534}"} **Trade Performance:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
 
       if (strike && expiry) {
-        description += `\u274C **Expiration:** ${expiry}\n`;
-        description += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        description += `\u{1F4B5} **Price:** ${fmtPrice(entry)}\n\n`;
+        fields.push(
+          { ...SPACER },
+          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
       }
 
-      description += `\u2705 **Entry:** ${fmtPrice(entry)}\n`;
-      description += `\u{1F3C1} **Exit:** ${fmtPrice(exitPrice)}\n`;
-      description += `\u{1F4B8} **Profit:** ${pnlPct}\n\n`;
-
-      description += `\u{1F6A8} __**Status: Position Closed**__ \u{1F6A8}`;
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3C1} **Exit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} **Profit**`, value: `${pnlPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Position Closed__ \u{1F6A8}`, value: "\u200b", inline: false },
+      );
 
       if (trade.pnl != null) {
-        description += `\n\n**Total P&L:** ${fmtPnl(trade.pnl)} | **R-Multiple:** ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`;
+        fields.push(
+          { name: `**Total P&L:** ${fmtPnl(trade.pnl)} | **R-Multiple:** ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, value: "\u200b", inline: false },
+        );
       }
       break;
     }
 
     case "BE_STOP": {
       color = GOLD;
-      title = `\\u{1F512} ${signal.ticker} Stop \u2192 Break Even`;
+      title = `\u{1F512} ${signal.ticker} Stop \u2192 Break Even`;
       const entry = trade.entryPrice ?? 0;
 
-      description = `\\u{1F7E2} **Trade Update:**\n\n`;
-      description += `**Ticker:** ${signal.ticker}\n\n`;
-      description += `\\u{1F6A8} __**Status: Stop Moved to Break Even**__ \\u{1F6A8}\n\n`;
-      description += `\\u{1F6E1}\️ **Risk Management**\n`;
-      description += `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.`;
+      fields.push(
+        { name: `\u{1F7E2} **Trade Update:**`, value: `Ticker: ${signal.ticker}`, inline: false },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Stop Moved to Break Even__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { ...SPACER },
+        { name: `\u{1F6E1}\uFE0F **Risk Management**`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.`, inline: false },
+      );
       break;
     }
 
     default: {
       title = `\u{1F4DD} ${signal.ticker} Trade Update`;
-      description = `**Event:** ${event}\n**Instrument:** ${trade.instrumentTicker || signal.ticker}`;
+      fields.push(
+        { name: `**Event:** ${event}`, value: `Instrument: ${trade.instrumentTicker || signal.ticker}`, inline: false },
+      );
     }
   }
 
   const embed: DiscordEmbed = {
     title,
     color,
-    description: description || undefined,
+    fields: fields.length > 0 ? fields : undefined,
     footer: { text: DISCLAIMER },
   };
 
