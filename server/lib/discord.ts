@@ -202,23 +202,47 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
   switch (event) {
     case "FILLED": {
       color = CYAN;
-      title = `\u2705 ${signal.ticker} Entry Filled \u2014 ${dateLabel}`;
+      title = `\u{1F6A8} ${signal.ticker} Trade Alert`;
+
+      const tpData = signal.tradePlanJson as any;
+      const entryPx = trade.entryPrice ?? signal.entryPriceAtActivation ?? 0;
+      const stopPx = trade.stopPrice ?? signal.stopPrice ?? 0;
+      const optionPx = signal.optionEntryMark ?? trade.entryPrice ?? 0;
+      const stopPctFill = entryPx > 0 ? (((stopPx - entryPx) / entryPx) * 100).toFixed(1) : "?";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
-        { name: `\u{1F7E2} Status: Entry Filled \u{1F7E2}`, value: `\u200b`, inline: false },
+        { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
+        { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPx.toFixed(2)}`, inline: true },
       );
 
-      if (trade.entryPrice && strike && expiry) {
+      if (strike && expiry) {
         fields.push(
           { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
           { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(trade.entryPrice)}`, inline: true },
+          { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPx.toFixed(2)}`, inline: true },
         );
       }
 
+      let targetsLine = "";
+      if (tpData) {
+        const t1 = tpData.t1 ?? 0;
+        const t2 = tpData.t2 ?? 0;
+        const t3 = tpData.t3 ?? 0;
+        const t1Pct = entryPx > 0 ? fmtPct(entryPx, t1) : "?";
+        targetsLine = `${fmtPrice(t1)} (${t1Pct})`;
+        if (t2) targetsLine += `, ${fmtPrice(t2)} (${fmtPct(entryPx, t2)})`;
+        if (t3) targetsLine += `, ${fmtPrice(t3)} (${fmtPct(entryPx, t3)})`;
+      }
+
       fields.push(
-        { name: `\u200b`, value: `Disclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsLine}\n\u{1F534} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%)`, inline: false },
+      );
+
+      let tpPlanFill = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
+      if (tpData?.t2) tpPlanFill += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
+      if (tpData?.t3) tpPlanFill += `\nTake Profit (3): At 30.0% take off 50.0% of remaining position.`;
+      fields.push(
+        { name: `\u{1F4B0} **Take Profit Plan**`, value: `${tpPlanFill}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
       );
       break;
     }
