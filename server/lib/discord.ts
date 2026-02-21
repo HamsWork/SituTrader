@@ -378,7 +378,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "STOPPED_OUT_AFTER_TP": {
-      color = ORANGE;
+      color = GOLD;
       heading = `**\u{1F504} ${signal.ticker} Stopped at BE**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
