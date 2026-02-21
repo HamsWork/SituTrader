@@ -109,24 +109,25 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
   let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
   if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let desc = `\u{1F7E2} **Ticker**\u2003\u2003\u2003\u2003\u2003\u{1F4C8} **Stock Price**\n`;
-  desc += `${signal.ticker}\u2003\u2003\u2003\u2003\u2003\u2003\u2003$ ${entryPrice.toFixed(2)}\n\n`;
-  desc += `\u274C **Expiration**\u2003\u2003\u{1F4B0} **Strike**\u2003\u2003\u{1F4B5} **Option Price**\n`;
-  desc += `${expiry}\u2003\u2003\u2003${strike} ${right}\u2003\u2003\u2003$ ${optionPrice.toFixed(2)}\n\n`;
-  desc += `\u{1F4CB} **Trade Plan**\n`;
-  desc += `\u{1F7E2} Targets: ${targetsStr}\n`;
-  desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)\n\n`;
-  desc += `\u{1F525} **Take Profit Plan**\n`;
-  desc += `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.\n`;
+  let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    desc += `Take Profit (2): At T2 take off remaining 50.0% of position.\n`;
+    tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
   }
-  desc += `\n\u26A0\uFE0F Disclaimer: Not financial advice. Trade at your own risk.`;
+
+  const fields: DiscordField[] = [
+    { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
+    { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
+    { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+    { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+    { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPrice.toFixed(2)}`, inline: true },
+    { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`, inline: false },
+    { name: `\u{1F525} **Take Profit Plan**`, value: `${tpPlanText}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+  ];
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} Trade Alert`,
-    description: desc,
     color: biasColor(tp.bias),
+    fields,
     footer: { text: "SITU GOAT Trader \u2022 Options Alert" },
     timestamp: new Date().toISOString(),
   };
@@ -152,30 +153,29 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
   const letfEntry = trade?.entryPrice ?? 0;
   const stopPct = entryPrice > 0 ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1) : "?";
 
-  let desc = `\u{1F7E2} **Ticker**\u2003\u2003\u2003\u2003\u2003\u{1F4C8} **Stock Price**\n`;
-  desc += `${signal.ticker}\u2003\u2003\u2003\u2003\u2003\u2003\u2003$ ${entryPrice.toFixed(2)}\n\n`;
-  desc += `\u{1F4B9} **LETF**\u2003\u2003\u2003\u2003\u2003\u{1F4CA} **Direction**\n`;
-  desc += `${letfTicker} (${leverage}x)\u2003\u2003\u2003${direction}\n\n`;
-  desc += `\u{1F4CB} **Trade Plan (Underlying)**\n`;
-  desc += `\u{1F7E2} Entry: ${fmtPrice(entryPrice)}\n`;
-  desc += `\u{1F7E2} T1: ${fmtPrice(tp.t1)} (${fmtPct(entryPrice, tp.t1)})\n`;
-  if (tp.t2) desc += `\u{1F7E2} T2: ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})\n`;
-  desc += `\u{1F534} Stop: ${fmtPrice(stopPrice)} (${stopPct}%)\n`;
-  desc += `R:R: ${tp.riskReward?.toFixed(1) ?? "?"}\n`;
-  if (letfEntry > 0) {
-    desc += `\n\u{1F4B0} **LETF Entry**: ${fmtPrice(letfEntry)}\n`;
-  }
-  desc += `\n\u{1F525} **Take Profit Plan**\n`;
-  desc += `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.\n`;
-  if (tp.t2) {
-    desc += `Take Profit (2): At T2 take off remaining 50.0% of position.\n`;
-  }
-  desc += `\n\u26A0\uFE0F Disclaimer: Not financial advice. Trade at your own risk.`;
+  let planText = `\u{1F7E2} Entry: ${fmtPrice(entryPrice)}\n`;
+  planText += `\u{1F3AF} T1: ${fmtPrice(tp.t1)} (${fmtPct(entryPrice, tp.t1)})\n`;
+  if (tp.t2) planText += `\u{1F3AF} T2: ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})\n`;
+  planText += `\u{1F534} Stop: ${fmtPrice(stopPrice)} (${stopPct}%)\nR:R: ${tp.riskReward?.toFixed(1) ?? "?"}`;
+  if (letfEntry > 0) planText += `\n\u{1F4B0} LETF Entry: ${fmtPrice(letfEntry)}`;
+
+  let tpText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
+  if (tp.t2) tpText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
+  tpText += `\n\nDisclaimer: Not financial advice. Trade at your own risk.`;
+
+  const fields: DiscordField[] = [
+    { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
+    { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
+    { name: `\u{1F4B9} **LETF**`, value: `${letfTicker} (${leverage}x)`, inline: true },
+    { name: `\u{1F4CA} **Direction**`, value: `${direction}`, inline: true },
+    { name: `\u{1F4DD} **Trade Plan (Underlying)**`, value: planText, inline: false },
+    { name: `\u{1F525} **Take Profit Plan**`, value: tpText, inline: false },
+  ];
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert`,
-    description: desc,
     color: biasColor(tp.bias),
+    fields,
     footer: { text: "SITU GOAT Trader \u2022 Swing Alert" },
     timestamp: new Date().toISOString(),
   };
@@ -210,13 +210,13 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (trade.entryPrice && strike && expiry) {
         fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u{1F4B0} **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4C8} **Price**`, value: `${fmtPrice(trade.entryPrice)}`, inline: true },
+          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(trade.entryPrice)}`, inline: true },
         );
       }
 
-      desc += `\n\u26A0\uFE0F Disclaimer: Not financial advice. Trade at your own risk.`;
+      desc += `\nDisclaimer: Not financial advice. Trade at your own risk.`;
       break;
     }
 
@@ -293,9 +293,9 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u{1F4B0} **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4C8} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
           { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
           { name: `\u{1F6D1} **Stop Loss Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
           { name: `\u{1F4B0} **Profit**`, value: `${lossPct}`, inline: true },
