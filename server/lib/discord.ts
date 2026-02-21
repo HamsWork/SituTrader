@@ -121,7 +121,7 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
   ];
 
   const embed: DiscordEmbed = {
-    description: `# \u{1F6A8} ${signal.ticker} Trade Alert`,
+    description: `**\u{1F6A8} ${signal.ticker} Trade Alert**`,
     color: BLURPLE,
     fields,
     footer: { text: DISCLAIMER },
@@ -168,7 +168,7 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
   ];
 
   const embed: DiscordEmbed = {
-    description: `# \u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert`,
+    description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert**`,
     color: BLURPLE,
     fields,
     footer: { text: DISCLAIMER },
@@ -195,7 +195,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
   switch (event) {
     case "FILLED": {
       color = BLURPLE;
-      heading = `# \u{1F6A8} ${signal.ticker} Trade Alert`;
+      heading = `**\u{1F6A8} ${signal.ticker} Trade Alert**`;
 
       const tpData = signal.tradePlanJson as any;
       const entryPx = trade.entryPrice ?? signal.entryPriceAtActivation ?? 0;
@@ -243,7 +243,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "TP1_HIT": {
       color = GREEN;
-      heading = `# \u{1F3AF} ${signal.ticker} Take Profit HIT`;
+      heading = `**\u{1F3AF} ${signal.ticker} Take Profit HIT**`;
       const entry = trade.entryPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
@@ -278,7 +278,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "TP2_HIT": {
       color = GREEN;
-      heading = `# \u{1F3AF} ${signal.ticker} Take Profit 2 HIT`;
+      heading = `**\u{1F3AF} ${signal.ticker} Take Profit 2 HIT**`;
       const entry = trade.entryPrice ?? 0;
       const tp2Fill = trade.tp2FillPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
@@ -314,7 +314,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "TP3_HIT": {
       color = GREEN;
-      heading = `# \u{1F3AF} ${signal.ticker} Take Profit 3 HIT`;
+      heading = `**\u{1F3AF} ${signal.ticker} Take Profit 3 HIT**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? trade.tp2FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
@@ -347,7 +347,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "STOPPED_OUT": {
       color = RED;
-      heading = `# \u{1F6D1} ${signal.ticker} Stop Loss HIT`;
+      heading = `**\u{1F6D1} ${signal.ticker} Stop Loss HIT**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
       const lossPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
@@ -379,7 +379,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "STOPPED_OUT_AFTER_TP": {
       color = ORANGE;
-      heading = `# \u{1F504} ${signal.ticker} Stopped at BE`;
+      heading = `**\u{1F504} ${signal.ticker} Stopped at BE**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
@@ -419,7 +419,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     case "CLOSED": {
       color = trade.pnl && trade.pnl > 0 ? GREEN : RED;
       const emoji = trade.pnl && trade.pnl > 0 ? "\u{1F4B0}" : "\u{1F4C9}";
-      heading = `# ${emoji} ${signal.ticker} Trade Closed`;
+      heading = `**${emoji} ${signal.ticker} Trade Closed**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
       const pnlPct = entry > 0 && exitPrice > 0 ? fmtPct(entry, exitPrice) : "\u2014";
@@ -456,7 +456,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "BE_STOP": {
       color = GOLD;
-      heading = `# \u{1F512} ${signal.ticker} Stop \u2192 Break Even`;
+      heading = `**\u{1F512} ${signal.ticker} Stop \u2192 Break Even**`;
       const entry = trade.entryPrice ?? 0;
 
       fields.push(
@@ -470,7 +470,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     default: {
-      heading = `# \u{1F4DD} ${signal.ticker} Trade Update`;
+      heading = `**\u{1F4DD} ${signal.ticker} Trade Update**`;
       fields.push(
         { name: `Event: ${event}`, value: `Instrument: ${trade.instrumentTicker || signal.ticker}`, inline: false },
       );
