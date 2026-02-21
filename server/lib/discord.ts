@@ -201,7 +201,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
   switch (event) {
     case "FILLED": {
-      color = 0x1e1f22;
+      color = 0x5865f2;
       title = `\u{1F6A8} ${signal.ticker} Trade Alert`;
 
       const tpData = signal.tradePlanJson as any;
