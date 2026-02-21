@@ -122,7 +122,7 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
     { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
     { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPrice.toFixed(2)}`, inline: true },
     { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`, inline: false },
-    { name: `\u{1F525} **Take Profit Plan**`, value: `${tpPlanText}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+    { name: `\u{1F525} **Take Profit Plan**`, value: tpPlanText, inline: false },
   ];
 
   const embed: DiscordEmbed = {
@@ -162,7 +162,6 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
 
   let tpText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) tpText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
-  tpText += `\n\nDisclaimer: Not financial advice. Trade at your own risk.`;
 
   const fields: DiscordField[] = [
     { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
@@ -202,7 +201,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
   switch (event) {
     case "FILLED": {
-      color = CYAN;
+      color = 0x2b2d31;
       title = `\u{1F6A8} ${signal.ticker} Trade Alert`;
 
       const tpData = signal.tradePlanJson as any;
@@ -244,7 +243,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       if (tpData?.t2) tpPlanFill += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
       if (tpData?.t3) tpPlanFill += `\nTake Profit (3): At 30.0% take off 50.0% of remaining position.`;
       fields.push(
-        { name: `\u{1F4B0} **Take Profit Plan**`, value: `${tpPlanFill}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F4B0} **Take Profit Plan**`, value: tpPlanFill, inline: false },
       );
       break;
     }
@@ -284,7 +283,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       }
       fields.push(
         { name: `\u{1F50D} Position Management:`, value: posMgmt, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on final 50% runner position to secure gains while allowing room to run.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on final 50% runner position to secure gains while allowing room to run.`, inline: false },
       );
       break;
     }
@@ -323,7 +322,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       posMgmt2 += `\n\u{1F3AF} Set trailing stop on remaining runners`;
       fields.push(
         { name: `\u{1F50D} Position Management:`, value: posMgmt2, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`, inline: false },
       );
       break;
     }
@@ -360,7 +359,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       fields.push(
         { name: `\u{1F50D} Position Management:`, value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Position fully closed at TP3.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Position fully closed at TP3.`, inline: false },
       );
       break;
     }
@@ -389,7 +388,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
         { name: `\u{1F6D1} **Stop Loss Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
         { name: `\u{1F4B0} **Profit**`, value: `${lossPct}`, inline: true },
-        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 Stop Loss Exit (100%): ${fmtPrice(exitPrice)} (${lossPct})\n\u{1F534} Average exit: ${fmtPrice(exitPrice)} (${lossPct} blended)\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 Stop Loss Exit (100%): ${fmtPrice(exitPrice)} (${lossPct})\n\u{1F534} Average exit: ${fmtPrice(exitPrice)} (${lossPct} blended)`, inline: false },
       );
       break;
     }
@@ -408,7 +407,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
         { name: `\u{1F6D1} **BE Stop**`, value: `${fmtPrice(exitPrice)}`, inline: true },
         { name: `\u{1F4B0} **Profit**`, value: `${tp1Pct} (TP1 only)`, inline: true },
-        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} Runner stopped at BE: ${fmtPrice(exitPrice)}\nTP1 P&L (banked): ${fmtPnl(trade.tp1PnlRealized)}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} Runner stopped at BE: ${fmtPrice(exitPrice)}\nTP1 P&L (banked): ${fmtPnl(trade.tp1PnlRealized)}`, inline: false },
       );
       break;
     }
@@ -431,11 +430,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       if (trade.pnl != null) {
         fields.push(
-          { name: `Total P&L: ${fmtPnl(trade.pnl)}`, value: `R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
-        );
-      } else {
-        fields.push(
-          { name: `\u200b`, value: `Disclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+          { name: `Total P&L: ${fmtPnl(trade.pnl)}`, value: `R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, inline: false },
         );
       }
       break;
@@ -449,7 +444,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       fields.push(
         { name: `\u{1F7E2} Trade Update:`, value: `Ticker: ${signal.ticker}`, inline: false },
         { name: `\u{1F7E2} Status: Stop Moved to Break Even \u{1F7E2}`, value: `\u200b`, inline: false },
-        { name: `\u{1F534} Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F534} Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.`, inline: false },
       );
       break;
     }
@@ -457,7 +452,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     default: {
       title = `\u{1F4DD} ${signal.ticker} Trade Update \u2014 ${dateLabel}`;
       fields.push(
-        { name: `Event: ${event}`, value: `Instrument: ${trade.instrumentTicker || signal.ticker}\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `Event: ${event}`, value: `Instrument: ${trade.instrumentTicker || signal.ticker}`, inline: false },
       );
     }
   }
@@ -466,6 +461,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     title,
     color,
     fields: fields.length > 0 ? fields : undefined,
+    footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
   };
 
   return sendWebhook(url, `@everyone`, [embed]);
