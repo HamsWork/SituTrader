@@ -224,7 +224,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP1_HIT": {
-      color = CYAN;
+      color = GREEN;
       title = `\u{1F3AF} ${signal.ticker} Take Profit 1 HIT \u2014 ${dateLabel}`;
       const entry = trade.entryPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
@@ -264,7 +264,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP2_HIT": {
-      color = PURPLE;
+      color = GREEN;
       title = `\u{1F3AF} ${signal.ticker} Take Profit 2 HIT \u2014 ${dateLabel}`;
       const entry = trade.entryPrice ?? 0;
       const tp2Fill = trade.tp2FillPrice ?? 0;
@@ -297,13 +297,13 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       posMgmt2 += `\n\u{1F3AF} Set trailing stop on remaining runners`;
       fields.push(
         { name: `\u{1F50D} Position Management:`, value: posMgmt2, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.\n\n\u{1F7E2} Strategy Executed:\n\u{1F534} TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} TP2 (50% of remaining): ${fmtPrice(tp2Fill)} (${profitPct})\nAverage exit: ${fmtPrice(avgExit)} (${avgPct} blended)\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
       );
       break;
     }
 
     case "TP3_HIT": {
-      color = PURPLE;
+      color = GREEN;
       title = `\u{1F3AF} ${signal.ticker} Take Profit 3 HIT \u2014 ${dateLabel}`;
       const entry = trade.entryPrice ?? 0;
       const tp2Fill = trade.tp2FillPrice ?? 0;
@@ -334,7 +334,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
       fields.push(
         { name: `\u{1F50D} Position Management:`, value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Position fully closed at TP3.\n\n\u{1F7E2} Strategy Executed:\n\u{1F534} TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} TP2 (50% of remaining): ${fmtPrice(tp2Fill)} (${tp2Pct})\n\u{1F534} TP3 (remaining runners): ${fmtPrice(exitPrice)} (${profitPct})\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Position fully closed at TP3.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
       );
       break;
     }
