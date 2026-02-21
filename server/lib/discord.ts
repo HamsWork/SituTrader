@@ -129,8 +129,7 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
     title: `\u{1F6A8} ${signal.ticker} Trade Alert`,
     color: biasColor(tp.bias),
     fields,
-    footer: { text: "SITU GOAT Trader \u2022 Options Alert" },
-    timestamp: new Date().toISOString(),
+    footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
   };
 
   return sendWebhook(DISCORD_GOAT_ALERTS_URL, `@everyone`, [embed]);
@@ -176,8 +175,7 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
     title: `\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert`,
     color: biasColor(tp.bias),
     fields,
-    footer: { text: "SITU GOAT Trader \u2022 Swing Alert" },
-    timestamp: new Date().toISOString(),
+    footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
   };
 
   return sendWebhook(DISCORD_GOAT_SWINGS_URL, `@everyone`, [embed]);
