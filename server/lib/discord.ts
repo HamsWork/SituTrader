@@ -122,7 +122,7 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
 
   const embed: DiscordEmbed = {
     description: `**\u{1F6A8} ${signal.ticker} Trade Alert**`,
-    color: BLURPLE,
+    color: GREEN,
     fields,
     footer: { text: DISCLAIMER },
   };
@@ -169,7 +169,7 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
 
   const embed: DiscordEmbed = {
     description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert**`,
-    color: BLURPLE,
+    color: GREEN,
     fields,
     footer: { text: DISCLAIMER },
   };
@@ -194,7 +194,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
   switch (event) {
     case "FILLED": {
-      color = BLURPLE;
+      color = GREEN;
       heading = `**\u{1F6A8} ${signal.ticker} Trade Alert**`;
 
       const tpData = signal.tradePlanJson as any;
@@ -242,7 +242,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP1_HIT": {
-      color = GREEN;
+      color = CYAN;
       heading = `**\u{1F3AF} ${signal.ticker} Take Profit HIT**`;
       const entry = trade.entryPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
@@ -277,7 +277,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP2_HIT": {
-      color = GREEN;
+      color = PURPLE;
       heading = `**\u{1F3AF} ${signal.ticker} Take Profit 2 HIT**`;
       const entry = trade.entryPrice ?? 0;
       const tp2Fill = trade.tp2FillPrice ?? 0;
@@ -313,7 +313,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
     }
 
     case "TP3_HIT": {
-      color = GREEN;
+      color = PURPLE;
       heading = `**\u{1F3AF} ${signal.ticker} Take Profit 3 HIT**`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? trade.tp2FillPrice ?? 0;
