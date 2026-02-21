@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { connectIBKR, isConnected } from "./lib/ibkr";
 
 const app = express();
 const httpServer = createServer(app);
@@ -98,6 +99,18 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      setTimeout(async () => {
+        if (!isConnected()) {
+          log("Auto-connecting to IBKR...", "ibkr");
+          const ok = await connectIBKR();
+          if (ok) {
+            log("IBKR auto-connect successful", "ibkr");
+          } else {
+            log("IBKR auto-connect failed — will retry via keep-alive", "ibkr");
+          }
+        }
+      }, 3000);
     },
   );
 })();
