@@ -252,13 +252,13 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         { name: `\u{1F6A8} Status: TP1 Zone Reached \u{1F6A8}`, value: `\u200b`, inline: false },
       );
 
-      let posMgmt = `\u{1F534} Reduce position by 50% (lock in ${profitPct} on half)`;
+      let posMgmt = `\u2705 Reduce position by 50% (lock in ${profitPct} on half)`;
       if (tp?.t2) {
-        posMgmt += `\n\u{1F7E2} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})`;
+        posMgmt += `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})`;
       }
       fields.push(
         { name: `\u{1F50D} Position Management:`, value: posMgmt, inline: false },
-        { name: `\u{1F534} Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on final 50% runner position to secure gains while allowing room to run.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on final 50% runner position to secure gains while allowing room to run.\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
       );
       break;
     }
