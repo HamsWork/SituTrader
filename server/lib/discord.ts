@@ -114,21 +114,21 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
     tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
   }
 
-  const fields: DiscordField[] = [
-    { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
-    { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
-    { name: `\u200b`, value: `\u200b`, inline: false },
-    { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-    { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-    { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPrice.toFixed(2)}`, inline: true },
-    { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`, inline: false },
-    { name: `\u{1F525} **Take Profit Plan**`, value: tpPlanText, inline: false },
-  ];
+  let desc = `\u{1F7E2} **Ticker:** ${signal.ticker}\n`;
+  desc += `\u{1F4CA} **Stock Price:** $ ${entryPrice.toFixed(2)}\n`;
+  desc += `\u274C **Expiration:** ${expiry}\n`;
+  desc += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
+  desc += `\u{1F4B5} **Option Price:** $ ${optionPrice.toFixed(2)}\n`;
+  desc += `\u{1F4DD} **Trade Plan**\n`;
+  desc += `\u{1F3AF} Targets: ${targetsStr}\n`;
+  desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)\n`;
+  desc += `\u{1F4B0} **Take Profit Plan**\n`;
+  desc += tpPlanText;
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} Trade Alert`,
     color: biasColor(tp.bias),
-    fields,
+    description: desc,
     footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
   };
 
@@ -195,6 +195,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
   let color = BLUE;
   let title = "";
+  let description: string | undefined;
   const fields: DiscordField[] = [];
 
   switch (event) {
@@ -208,18 +209,13 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const optionPx = signal.optionEntryMark ?? trade.entryPrice ?? 0;
       const stopPctFill = entryPx > 0 ? (((stopPx - entryPx) / entryPx) * 100).toFixed(1) : "?";
 
-      fields.push(
-        { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
-        { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPx.toFixed(2)}`, inline: true },
-        { name: `\u200b`, value: `\u200b`, inline: false },
-      );
+      let desc = `\u{1F7E2} **Ticker:** ${signal.ticker}\n`;
+      desc += `\u{1F4CA} **Stock Price:** $ ${entryPx.toFixed(2)}\n`;
 
       if (strike && expiry) {
-        fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPx.toFixed(2)}`, inline: true },
-        );
+        desc += `\u274C **Expiration:** ${expiry}\n`;
+        desc += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
+        desc += `\u{1F4B5} **Option Price:** $ ${optionPx.toFixed(2)}\n`;
       }
 
       let targetsLine = "";
@@ -233,16 +229,16 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         if (t3) targetsLine += `, ${fmtPrice(t3)} (${fmtPct(entryPx, t3)})`;
       }
 
-      fields.push(
-        { name: `\u{1F4DD} **Trade Plan**`, value: `\u{1F3AF} Targets: ${targetsLine}\n\u{1F534} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%)`, inline: false },
-      );
+      desc += `\u{1F4DD} **Trade Plan**\n`;
+      desc += `\u{1F3AF} Targets: ${targetsLine}\n`;
+      desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%)\n`;
 
-      let tpPlanFill = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
-      if (tpData?.t2) tpPlanFill += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
-      if (tpData?.t3) tpPlanFill += `\nTake Profit (3): At 30.0% take off 50.0% of remaining position.`;
-      fields.push(
-        { name: `\u{1F4B0} **Take Profit Plan**`, value: tpPlanFill, inline: false },
-      );
+      desc += `\u{1F4B0} **Take Profit Plan**\n`;
+      desc += `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.\n`;
+      if (tpData?.t2) desc += `Take Profit (2): At 20.0% take off 50.0% of remaining position.\n`;
+      if (tpData?.t3) desc += `Take Profit (3): At 30.0% take off 50.0% of remaining position.\n`;
+
+      description = desc;
       break;
     }
 
@@ -458,6 +454,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
   const embed: DiscordEmbed = {
     title,
     color,
+    description: description || undefined,
     fields: fields.length > 0 ? fields : undefined,
     footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
   };
