@@ -290,8 +290,51 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
         { name: `\u{1F3AF} **TP2 Hit**`, value: `${fmtPrice(tp2Fill)}`, inline: true },
         { name: `\u{1F4B0} **Profit**`, value: `${profitPct}`, inline: true },
+        { name: `\u{1F6A8} Status: TP2 Zone Reached \u{1F6A8}`, value: `\u200b`, inline: false },
+      );
+
+      let posMgmt2 = `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})`;
+      posMgmt2 += `\n\u{1F3AF} Set trailing stop on remaining runners`;
+      fields.push(
+        { name: `\u{1F50D} Position Management:`, value: posMgmt2, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.\n\n\u{1F7E2} Strategy Executed:\n\u{1F534} TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} TP2 (50% of remaining): ${fmtPrice(tp2Fill)} (${profitPct})\nAverage exit: ${fmtPrice(avgExit)} (${avgPct} blended)\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+      );
+      break;
+    }
+
+    case "TP3_HIT": {
+      color = PURPLE;
+      title = `\u{1F3AF} ${signal.ticker} Take Profit 3 HIT \u2014 ${dateLabel}`;
+      const entry = trade.entryPrice ?? 0;
+      const tp2Fill = trade.tp2FillPrice ?? 0;
+      const tp1Fill = trade.tp1FillPrice ?? 0;
+      const exitPrice = trade.exitPrice ?? tp2Fill;
+      const profitPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
+      const tp1Pct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
+      const tp2Pct = entry > 0 ? fmtPct(entry, tp2Fill) : "?";
+
+      fields.push(
+        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
+      );
+
+      if (strike && expiry) {
+        fields.push(
+          { name: `\u2716\uFE0F **Expiration**`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+        );
+      }
+
+      fields.push(
+        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} **TP3 Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B0} **Profit**`, value: `${profitPct}`, inline: true },
         { name: `\u{1F6A8} Status: Position Closed \u{1F6A8}`, value: `\u200b`, inline: false },
-        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 Full Exit (100%): ${fmtPrice(tp2Fill)} (${profitPct})\n\u{1F534} TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} TP2 (50%): ${fmtPrice(tp2Fill)} (${profitPct})\nAverage exit: ${fmtPrice(avgExit)} (${avgPct} blended)\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
+      );
+
+      fields.push(
+        { name: `\u{1F50D} Position Management:`, value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Position fully closed at TP3.\n\n\u{1F7E2} Strategy Executed:\n\u{1F534} TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} TP2 (50% of remaining): ${fmtPrice(tp2Fill)} (${tp2Pct})\n\u{1F534} TP3 (remaining runners): ${fmtPrice(exitPrice)} (${profitPct})\n\nDisclaimer: Not financial advice. Trade at your own risk.`, inline: false },
       );
       break;
     }
