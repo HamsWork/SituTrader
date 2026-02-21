@@ -58,9 +58,13 @@ const ORANGE = 0xf97316;
 const PURPLE = 0xa855f7;
 const CYAN = 0x06b6d4;
 const GOLD = 0xeab308;
+const BLURPLE = 0x5865f2;
+
+const SPACER: DiscordField = { name: "", value: "\u200b", inline: false };
+const DISCLAIMER = "Disclaimer: Not financial advice. Trade at your own risk.";
 
 function biasColor(bias: string): number {
-  return bias === "BUY" ? GREEN : RED;
+  return bias === "BUY" ? BLURPLE : BLURPLE;
 }
 
 function fmtPrice(p: number | null | undefined): string {
@@ -114,22 +118,27 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
     tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
   }
 
-  let desc = `\u{1F7E2} **Ticker:** ${signal.ticker}\n`;
-  desc += `\u{1F4CA} **Stock Price:** $ ${entryPrice.toFixed(2)}\n`;
-  desc += `\u274C **Expiration:** ${expiry}\n`;
-  desc += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-  desc += `\u{1F4B5} **Option Price:** $ ${optionPrice.toFixed(2)}\n`;
-  desc += `\u{1F4DD} **Trade Plan**\n`;
-  desc += `\u{1F3AF} Targets: ${targetsStr}\n`;
-  desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)\n`;
-  desc += `\u{1F4B0} **Take Profit Plan**\n`;
-  desc += tpPlanText;
+  const fields: DiscordField[] = [
+    { name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: "", inline: false },
+    { ...SPACER },
+    { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+    { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+    { name: `\u{1F4B5} Price`, value: `$${optionPrice.toFixed(2)}`, inline: true },
+    { ...SPACER },
+    { name: `\u{1F4DD} **Game Plan**`, value: "", inline: false },
+    { name: `\u{1F3AF} Targets: ${targetsStr}`, value: "", inline: false },
+    { name: `\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)} (${stopPct}%)`, value: "", inline: false },
+    { ...SPACER },
+    { name: `\u{1F4B0} **Trade Detail**`, value: tpPlanText, inline: false },
+    { ...SPACER },
+    { name: `\u26A0\uFE0F Risk Management`, value: `1. Control Position Size\n2. Do your own due diligence. This is not a suggestion to buy, sell or hold`, inline: false },
+  ];
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} Trade Alert`,
-    color: biasColor(tp.bias),
-    description: desc,
-    footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
+    color: BLURPLE,
+    fields,
+    footer: { text: DISCLAIMER },
   };
 
   return sendWebhook(DISCORD_GOAT_ALERTS_URL, `@everyone`, [embed]);
@@ -153,29 +162,34 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade): Promise<
   const letfEntry = trade?.entryPrice ?? 0;
   const stopPct = entryPrice > 0 ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1) : "?";
 
-  let planText = `\u{1F7E2} Entry: ${fmtPrice(entryPrice)}\n`;
-  planText += `\u{1F3AF} T1: ${fmtPrice(tp.t1)} (${fmtPct(entryPrice, tp.t1)})\n`;
-  if (tp.t2) planText += `\u{1F3AF} T2: ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})\n`;
-  planText += `\u{1F534} Stop: ${fmtPrice(stopPrice)} (${stopPct}%)\nR:R: ${tp.riskReward?.toFixed(1) ?? "?"}`;
-  if (letfEntry > 0) planText += `\n\u{1F4B0} LETF Entry: ${fmtPrice(letfEntry)}`;
+  let targetsStr = `${fmtPrice(tp.t1)} (${fmtPct(entryPrice, tp.t1)})`;
+  if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let tpText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
-  if (tp.t2) tpText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
+  let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
+  if (tp.t2) tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
 
   const fields: DiscordField[] = [
-    { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
-    { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
-    { name: `\u{1F4B9} **LETF**`, value: `${letfTicker} (${leverage}x)`, inline: true },
-    { name: `\u{1F4CA} **Direction**`, value: `${direction}`, inline: true },
-    { name: `\u{1F4DD} **Trade Plan (Underlying)**`, value: planText, inline: false },
-    { name: `\u{1F525} **Take Profit Plan**`, value: tpText, inline: false },
+    { name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: "", inline: false },
+    { name: `\u{1F4B9} LETF: ${letfTicker} (${leverage}x ${direction})`, value: "", inline: false },
+    { ...SPACER },
+    { name: `\u{1F4CA} Stock Price`, value: `$${entryPrice.toFixed(2)}`, inline: true },
+    { name: `\u{1F4B0} LETF Entry`, value: letfEntry > 0 ? `$${letfEntry.toFixed(2)}` : "Pending", inline: true },
+    { name: `\u{1F534} Stop`, value: `${fmtPrice(stopPrice)} (${stopPct}%)`, inline: true },
+    { ...SPACER },
+    { name: `\u{1F4DD} **Game Plan**`, value: "", inline: false },
+    { name: `\u{1F3AF} Targets: ${targetsStr}`, value: "", inline: false },
+    { name: `\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)} (${stopPct}%)`, value: "", inline: false },
+    { ...SPACER },
+    { name: `\u{1F4B0} **Trade Detail**`, value: tpPlanText, inline: false },
+    { ...SPACER },
+    { name: `\u26A0\uFE0F Risk Management`, value: `1. Control Position Size\n2. Do your own due diligence. This is not a suggestion to buy, sell or hold`, inline: false },
   ];
 
   const embed: DiscordEmbed = {
     title: `\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert`,
-    color: biasColor(tp.bias),
+    color: BLURPLE,
     fields,
-    footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
+    footer: { text: DISCLAIMER },
   };
 
   return sendWebhook(DISCORD_GOAT_SWINGS_URL, `@everyone`, [embed]);
@@ -191,16 +205,14 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
   const strike = optData?.candidate?.strike ?? "";
   const expiry = optData?.candidate?.expiry ?? "";
   const right = optData?.candidate?.right === "C" ? "CALL" : optData?.candidate?.right === "P" ? "PUT" : "";
-  const dateLabel = fmtDate();
 
   let color = BLUE;
   let title = "";
-  let description: string | undefined;
   const fields: DiscordField[] = [];
 
   switch (event) {
     case "FILLED": {
-      color = 0x5865f2;
+      color = BLURPLE;
       title = `\u{1F6A8} ${signal.ticker} Trade Alert`;
 
       const tpData = signal.tradePlanJson as any;
@@ -208,15 +220,6 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const stopPx = trade.stopPrice ?? signal.stopPrice ?? 0;
       const optionPx = signal.optionEntryMark ?? trade.entryPrice ?? 0;
       const stopPctFill = entryPx > 0 ? (((stopPx - entryPx) / entryPx) * 100).toFixed(1) : "?";
-
-      let desc = `\u{1F7E2} **Ticker:** ${signal.ticker}\n`;
-      desc += `\u{1F4CA} **Stock Price:** $ ${entryPx.toFixed(2)}\n`;
-
-      if (strike && expiry) {
-        desc += `\u274C **Expiration:** ${expiry}\n`;
-        desc += `\u270D\uFE0F **Strike:** ${strike} ${right}\n`;
-        desc += `\u{1F4B5} **Option Price:** $ ${optionPx.toFixed(2)}\n`;
-      }
 
       let targetsLine = "";
       if (tpData) {
@@ -229,202 +232,250 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         if (t3) targetsLine += `, ${fmtPrice(t3)} (${fmtPct(entryPx, t3)})`;
       }
 
-      desc += `\u{1F4DD} **Trade Plan**\n`;
-      desc += `\u{1F3AF} Targets: ${targetsLine}\n`;
-      desc += `\u{1F534} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%)\n`;
+      let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
+      if (tpData?.t2) tpPlanText += `\nTake Profit (2): At T2 take off 50.0% of remaining position.`;
+      if (tpData?.t3) tpPlanText += `\nTake Profit (3): At T3 take off 50.0% of remaining position.`;
 
-      desc += `\u{1F4B0} **Take Profit Plan**\n`;
-      desc += `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.\n`;
-      if (tpData?.t2) desc += `Take Profit (2): At 20.0% take off 50.0% of remaining position.\n`;
-      if (tpData?.t3) desc += `Take Profit (3): At 30.0% take off 50.0% of remaining position.\n`;
+      fields.push(
+        { name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: "", inline: false },
+        { ...SPACER },
+      );
 
-      description = desc;
+      if (strike && expiry) {
+        fields.push(
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `$${optionPx.toFixed(2)}`, inline: true },
+          { ...SPACER },
+        );
+      }
+
+      fields.push(
+        { name: `\u{1F4DD} **Game Plan**`, value: "", inline: false },
+        { name: `\u{1F3AF} Targets: ${targetsLine}`, value: "", inline: false },
+        { name: `\u{1F6D1} Stop Loss: ${fmtPrice(stopPx)} (${stopPctFill}%)`, value: "", inline: false },
+        { ...SPACER },
+        { name: `\u{1F4B0} **Trade Detail**`, value: tpPlanText, inline: false },
+        { ...SPACER },
+        { name: `\u26A0\uFE0F Risk Management`, value: `1. Control Position Size\n2. Do your own due diligence. This is not a suggestion to buy, sell or hold`, inline: false },
+      );
       break;
     }
 
     case "TP1_HIT": {
       color = GREEN;
-      title = `\u{1F3AF} ${signal.ticker} Take Profit 1 HIT \u2014 ${dateLabel}`;
+      title = `\u{1F3AF} ${signal.ticker} Take Profit HIT`;
       const entry = trade.entryPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
       );
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `${fmtPrice(entry)}`, inline: true },
         );
       }
 
       fields.push(
-        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
-        { name: `\u{1F3AF} **TP1 Hit**`, value: `${fmtPrice(tp1Fill)}`, inline: true },
-        { name: `\u{1F4B0} **Profit**`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u2705 Entry`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} TP Hit`, value: `${fmtPrice(tp1Fill)}`, inline: true },
+        { name: `\u{1F4B8} Profit`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: TP Reached__ \u{1F6A8}`, value: "", inline: false },
+        { ...SPACER },
+        { name: `\u{1F50D} Position Management:`, value: "", inline: false },
+        { name: `\u2705 Reduce position by 50% (lock in profit)`, value: "", inline: false },
       );
 
-      fields.push(
-        { name: `\u{1F6A8} Status: TP1 Zone Reached \u{1F6A8}`, value: `\u200b`, inline: false },
-      );
-
-      let posMgmt = `\u2705 Reduce position by 50% (lock in ${profitPct} on half)`;
       if (tp?.t2) {
-        posMgmt += `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})`;
+        fields.push(
+          { name: `\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})`, value: "", inline: false },
+        );
       }
+
       fields.push(
-        { name: `\u{1F50D} Position Management:`, value: posMgmt, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on final 50% runner position to secure gains while allowing room to run.`, inline: false },
+        { ...SPACER },
+        { name: `\u{1F6E1}\uFE0F Risk Management`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) on remaining position to secure gains while allowing room to run.`, inline: false },
       );
       break;
     }
 
     case "TP2_HIT": {
       color = GREEN;
-      title = `\u{1F3AF} ${signal.ticker} Take Profit 2 HIT \u2014 ${dateLabel}`;
+      title = `\u{1F3AF} ${signal.ticker} Take Profit 2 HIT`;
       const entry = trade.entryPrice ?? 0;
       const tp2Fill = trade.tp2FillPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, tp2Fill) : "?";
-      const tp1Pct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
-      const avgExit = (tp1Fill + tp2Fill) / 2;
-      const avgPct = entry > 0 ? fmtPct(entry, avgExit) : "?";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
       );
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `${fmtPrice(entry)}`, inline: true },
         );
       }
 
       fields.push(
-        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
-        { name: `\u{1F3AF} **TP2 Hit**`, value: `${fmtPrice(tp2Fill)}`, inline: true },
-        { name: `\u{1F4B0} **Profit**`, value: `${profitPct}`, inline: true },
-        { name: `\u{1F6A8} Status: TP2 Zone Reached \u{1F6A8}`, value: `\u200b`, inline: false },
-      );
-
-      let posMgmt2 = `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})`;
-      posMgmt2 += `\n\u{1F3AF} Set trailing stop on remaining runners`;
-      fields.push(
-        { name: `\u{1F50D} Position Management:`, value: posMgmt2, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`, inline: false },
+        { ...SPACER },
+        { name: `\u2705 Entry`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} TP2 Hit`, value: `${fmtPrice(tp2Fill)}`, inline: true },
+        { name: `\u{1F4B8} Profit`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: TP2 Reached__ \u{1F6A8}`, value: "", inline: false },
+        { ...SPACER },
+        { name: `\u{1F50D} Position Management:`, value: "", inline: false },
+        { name: `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})`, value: "", inline: false },
+        { name: `\u{1F3AF} Set trailing stop on remaining runners`, value: "", inline: false },
+        { ...SPACER },
+        { name: `\u{1F6E1}\uFE0F Risk Management`, value: `Raising stop loss to ${fmtPrice(tp1Fill)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`, inline: false },
       );
       break;
     }
 
     case "TP3_HIT": {
       color = GREEN;
-      title = `\u{1F3AF} ${signal.ticker} Take Profit 3 HIT \u2014 ${dateLabel}`;
+      title = `\u{1F3AF} ${signal.ticker} Take Profit 3 HIT`;
       const entry = trade.entryPrice ?? 0;
-      const tp2Fill = trade.tp2FillPrice ?? 0;
-      const tp1Fill = trade.tp1FillPrice ?? 0;
-      const exitPrice = trade.exitPrice ?? tp2Fill;
+      const exitPrice = trade.exitPrice ?? trade.tp2FillPrice ?? 0;
       const profitPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
-      const tp1Pct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
-      const tp2Pct = entry > 0 ? fmtPct(entry, tp2Fill) : "?";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
       );
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `${fmtPrice(entry)}`, inline: true },
         );
       }
 
       fields.push(
-        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
-        { name: `\u{1F3AF} **TP3 Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
-        { name: `\u{1F4B0} **Profit**`, value: `${profitPct}`, inline: true },
-        { name: `\u{1F6A8} Status: Position Closed \u{1F6A8}`, value: `\u200b`, inline: false },
-      );
-
-      fields.push(
-        { name: `\u{1F50D} Position Management:`, value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
-        { name: `\u{1F6E1}\uFE0F Risk Management:`, value: `Position fully closed at TP3.`, inline: false },
+        { ...SPACER },
+        { name: `\u2705 Entry`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3AF} TP3 Hit`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} Profit`, value: `${profitPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Position Closed__ \u{1F6A8}`, value: "", inline: false },
+        { ...SPACER },
+        { name: `\u{1F50D} Position Management:`, value: "", inline: false },
+        { name: `\u2705 Full exit \u2014 all targets reached`, value: "", inline: false },
       );
       break;
     }
 
     case "STOPPED_OUT": {
       color = RED;
-      title = `\u{1F6D1} ${signal.ticker} Stop Loss HIT \u2014 ${dateLabel}`;
+      title = `\u{1F6D1} ${signal.ticker} Stop Loss HIT`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
       const lossPct = entry > 0 ? fmtPct(entry, exitPrice) : "?";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
-        { name: `\u{1F6A8} Status: Stop Loss Triggered \u{1F6A8}`, value: `\u200b`, inline: false },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
       );
 
       if (strike && expiry) {
         fields.push(
-          { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
-          { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
-          { name: `\u{1F4B5} **Price**`, value: `${fmtPrice(entry)}`, inline: true },
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `${fmtPrice(entry)}`, inline: true },
         );
       }
 
       fields.push(
-        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
-        { name: `\u{1F6D1} **Stop Loss Hit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
-        { name: `\u{1F4B0} **Profit**`, value: `${lossPct}`, inline: true },
-        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 Stop Loss Exit (100%): ${fmtPrice(exitPrice)} (${lossPct})\n\u{1F534} Average exit: ${fmtPrice(exitPrice)} (${lossPct} blended)`, inline: false },
+        { ...SPACER },
+        { name: `\u2705 Entry`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F6D1} Stop Hit`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} Result`, value: `${lossPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Position Closed__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { name: `\u{1F6E1}\uFE0F Discipline Matters: Following the plan keeps you in the game for winning trades`, value: "", inline: false },
       );
       break;
     }
 
     case "STOPPED_OUT_AFTER_TP": {
       color = ORANGE;
-      title = `\u{1F504} ${signal.ticker} Stopped at BE \u2014 ${dateLabel}`;
+      title = `\u{1F504} ${signal.ticker} Stopped at BE`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
       const tp1Fill = trade.tp1FillPrice ?? 0;
       const tp1Pct = entry > 0 ? fmtPct(entry, tp1Fill) : "?";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
-        { name: `\u{1F6A8} Status: Stopped at BE (after TP1) \u{1F6A8}`, value: `\u200b`, inline: false },
-        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
-        { name: `\u{1F6D1} **BE Stop**`, value: `${fmtPrice(exitPrice)}`, inline: true },
-        { name: `\u{1F4B0} **Profit**`, value: `${tp1Pct} (TP1 only)`, inline: true },
-        { name: `\u{1F7E2} Strategy Executed:`, value: `\u2705 TP1 (50%): ${fmtPrice(tp1Fill)} (${tp1Pct})\n\u{1F534} Runner stopped at BE: ${fmtPrice(exitPrice)}\nTP1 P&L (banked): ${fmtPnl(trade.tp1PnlRealized)}`, inline: false },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
       );
+
+      if (strike && expiry) {
+        fields.push(
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `${fmtPrice(entry)}`, inline: true },
+        );
+      }
+
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 Entry`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F6D1} BE Stop`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} Profit`, value: `${tp1Pct} (TP1 only)`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Stopped at BE (after TP1)__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { name: `\u{1F6E1}\uFE0F Discipline Matters: Following the plan keeps you in the game for winning trades`, value: "", inline: false },
+      );
+
+      if (trade.tp1PnlRealized != null) {
+        fields.push(
+          { name: `\u{1F4B0} TP1 P&L (banked): ${fmtPnl(trade.tp1PnlRealized)}`, value: "", inline: false },
+        );
+      }
       break;
     }
 
     case "CLOSED": {
       color = trade.pnl && trade.pnl > 0 ? GREEN : RED;
-      const emoji = trade.pnl && trade.pnl > 0 ? "\u{1F4B0}" : "\u{1F4C9}";
-      title = `${emoji} ${signal.ticker} Trade Closed \u2014 ${dateLabel}`;
+      title = trade.pnl && trade.pnl > 0 ? `\u{1F4B0} ${signal.ticker} Trade Closed` : `\u{1F4C9} ${signal.ticker} Trade Closed`;
       const entry = trade.entryPrice ?? 0;
       const exitPrice = trade.exitPrice ?? 0;
       const pnlPct = entry > 0 && exitPrice > 0 ? fmtPct(entry, exitPrice) : "\u2014";
 
       fields.push(
-        { name: `\u{1F7E2} Trade Performance:`, value: `Ticker: ${signal.ticker}`, inline: false },
-        { name: `\u{1F6A8} Status: Position Closed \u{1F6A8}`, value: `\u200b`, inline: false },
-        { name: `\u2705 **Entry**`, value: `${fmtPrice(entry)}`, inline: true },
-        { name: `\u{1F3C1} **Exit**`, value: `${fmtPrice(exitPrice)}`, inline: true },
-        { name: `\u{1F4B0} **Profit**`, value: `${pnlPct}`, inline: true },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
+      );
+
+      if (strike && expiry) {
+        fields.push(
+          { name: `\u274C Expiration`, value: `${expiry}`, inline: true },
+          { name: `\u270D\uFE0F Strike`, value: `${strike} ${right}`, inline: true },
+          { name: `\u{1F4B5} Price`, value: `${fmtPrice(entry)}`, inline: true },
+        );
+      }
+
+      fields.push(
+        { ...SPACER },
+        { name: `\u2705 Entry`, value: `${fmtPrice(entry)}`, inline: true },
+        { name: `\u{1F3C1} Exit`, value: `${fmtPrice(exitPrice)}`, inline: true },
+        { name: `\u{1F4B8} Profit`, value: `${pnlPct}`, inline: true },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Position Closed__ \u{1F6A8}`, value: "\u200b", inline: false },
       );
 
       if (trade.pnl != null) {
         fields.push(
-          { name: `Total P&L: ${fmtPnl(trade.pnl)}`, value: `R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, inline: false },
+          { name: `Total P&L: ${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, value: "", inline: false },
         );
       }
       break;
@@ -432,19 +483,20 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
 
     case "BE_STOP": {
       color = GOLD;
-      title = `\u{1F512} ${signal.ticker} Stop \u2192 Break Even \u2014 ${dateLabel}`;
+      title = `\u{1F512} ${signal.ticker} Stop \u2192 Break Even`;
       const entry = trade.entryPrice ?? 0;
 
       fields.push(
-        { name: `\u{1F7E2} Trade Update:`, value: `Ticker: ${signal.ticker}`, inline: false },
-        { name: `\u{1F7E2} Status: Stop Moved to Break Even \u{1F7E2}`, value: `\u200b`, inline: false },
-        { name: `\u{1F534} Risk Management:`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.`, inline: false },
+        { name: `Ticker: ${signal.ticker}`, value: "", inline: false },
+        { ...SPACER },
+        { name: `\u{1F6A8} __Status: Stop Moved to Break Even__ \u{1F6A8}`, value: "\u200b", inline: false },
+        { name: `\u{1F6E1}\uFE0F Risk Management`, value: `Raising stop loss to ${fmtPrice(entry)} (break even) to secure gains while allowing room to run.`, inline: false },
       );
       break;
     }
 
     default: {
-      title = `\u{1F4DD} ${signal.ticker} Trade Update \u2014 ${dateLabel}`;
+      title = `\u{1F4DD} ${signal.ticker} Trade Update`;
       fields.push(
         { name: `Event: ${event}`, value: `Instrument: ${trade.instrumentTicker || signal.ticker}`, inline: false },
       );
@@ -454,9 +506,8 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
   const embed: DiscordEmbed = {
     title,
     color,
-    description: description || undefined,
     fields: fields.length > 0 ? fields : undefined,
-    footer: { text: "Disclaimer: Not financial advice. Trade at your own risk." },
+    footer: { text: DISCLAIMER },
   };
 
   return sendWebhook(url, `@everyone`, [embed]);
