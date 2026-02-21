@@ -117,6 +117,7 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade): Promi
   const fields: DiscordField[] = [
     { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
     { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPrice.toFixed(2)}`, inline: true },
+    { name: `\u200b`, value: `\u200b`, inline: false },
     { name: `\u274C **Expiration**`, value: `${expiry}`, inline: true },
     { name: `\u270D\uFE0F **Strike**`, value: `${strike} ${right}`, inline: true },
     { name: `\u{1F4B5} **Option Price**`, value: `$ ${optionPrice.toFixed(2)}`, inline: true },
@@ -213,6 +214,7 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       fields.push(
         { name: `\u{1F7E2} **Ticker**`, value: `${signal.ticker}`, inline: true },
         { name: `\u{1F4CA} **Stock Price**`, value: `$ ${entryPx.toFixed(2)}`, inline: true },
+        { name: `\u200b`, value: `\u200b`, inline: false },
       );
 
       if (strike && expiry) {
