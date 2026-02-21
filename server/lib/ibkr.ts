@@ -7,6 +7,7 @@ let connected = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 let nextOrderId = 1;
+let connecting = false;
 
 const IBKR_CLIENT_ID = parseInt(process.env.IBKR_CLIENT_ID || "1");
 
@@ -176,9 +177,19 @@ function stopKeepAlive() {
 export async function connectIBKR(): Promise<boolean> {
   try {
     if (connected && ibApi) return true;
+    if (connecting) {
+      log("IBKR connection attempt already in progress, skipping", "ibkr");
+      return false;
+    }
+
+    connecting = true;
 
     if (ibApi) {
-      try { ibApi.disconnect(); } catch {}
+      try {
+        ibApi.removeAllListeners();
+        ibApi.disconnect();
+      } catch {}
+      ibApi = null;
     }
 
     const host = await getIbkrHost();
@@ -197,17 +208,20 @@ export async function connectIBKR(): Promise<boolean> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         log("IBKR connection timeout after 10s", "ibkr");
+        connecting = false;
         resolve(false);
       }, 10000);
 
       ibApi!.once(EventName.connected, () => {
         clearTimeout(timeout);
+        connecting = false;
         startKeepAlive();
         resolve(true);
       });
 
       ibApi!.once(EventName.error, () => {
         clearTimeout(timeout);
+        connecting = false;
         resolve(false);
       });
 
@@ -215,6 +229,7 @@ export async function connectIBKR(): Promise<boolean> {
     });
   } catch (err: any) {
     log(`IBKR connect error: ${err.message}`, "ibkr");
+    connecting = false;
     scheduleReconnect();
     return false;
   }
