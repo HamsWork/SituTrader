@@ -833,6 +833,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/setup-stats/all", async (_req, res) => {
+    try {
+      const all = await storage.getAllSetupExpectancy();
+      res.json(all);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/setup-stats/:setupType", async (req, res) => {
     try {
       const { setupType } = req.params;

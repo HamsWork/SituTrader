@@ -10,7 +10,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { DisclaimerBanner } from "@/components/disclaimer-banner";
 import Dashboard from "@/pages/dashboard";
 import SymbolDetail from "@/pages/symbol-detail";
-import BacktestPage from "@/pages/backtest";
+import OptimizationPage from "@/pages/optimization";
 import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
 import IbkrDashboard from "@/pages/ibkr-dashboard";
@@ -22,7 +22,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/symbol/:ticker" component={SymbolDetail} />
       <Route path="/guide" component={GuidePage} />
-      <Route path="/backtest" component={BacktestPage} />
+      <Route path="/optimization" component={OptimizationPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ibkr" component={IbkrDashboard} />
       <Route component={NotFound} />

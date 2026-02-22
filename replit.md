@@ -29,7 +29,7 @@ The application follows a full-stack architecture.
 - **Alert Engine:** Manages alerts for various signal lifecycle events (HIT, Approaching, New Signal, Miss, Activated) with tier-based routing and rate limiting.
 - **Activation Engine:** Scans intraday bars for entry triggers, managing trade states (ACTIVE/NOT_ACTIVE/INVALIDATED) and advanced stop management (volatility baseline, break-even protection, time stops).
 - **RTH Validation:** All trade validation and calculations are strictly confined to Regular Trading Hours (09:30-16:00 ET).
-- **Backtesting Engine:** Provides historical validation, MAE/MFE analytics, and time-to-hit histograms.
+- **Optimization Engine:** Intelligence dashboard (formerly Backtest) that identifies top-performing stocks, grades underperformers, ranks setup effectiveness, and provides time-to-hit distribution insights. Features KPI overview cards, per-ticker grading (A+ through F), setup comparison radar chart, and "Avoid Zone" highlighting for consistently poor performers. Filterable by setup type. Backed by expectancy stats (win rate, R-multiples, profit factor, tradeability grades).
 - **Signal Profiles:** Customizable filter profiles to control dashboard visibility and alert eligibility based on various signal parameters.
 - **Focus Mode:** Prioritizes setups based on expectancy (WIN_RATE, EXPECTANCY, BARBELL modes) and includes tradeability filtering.
 - **Author Mode:** Automated scheduling for market scans, re-ranking, and activation checks throughout the trading day, with holiday/weekend gating.
