@@ -1187,7 +1187,7 @@ export async function registerRoutes(
 
   app.get("/api/performance/analysis", async (req, res) => {
     try {
-      const allSignals = await storage.getSignals(undefined, 5000);
+      const allSignals = await storage.getSignals(undefined, 10000);
       const allTrades = await storage.getAllIbkrTrades();
 
       const capitalPerTrade = parseFloat(req.query.capital as string) || 1000;
@@ -1198,6 +1198,20 @@ export async function registerRoutes(
 
       const activeProfile = await storage.getActiveProfile();
 
+      let setupStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
+      try {
+        const overallStats = await storage.getOverallSetupExpectancy();
+        for (const s of overallStats) {
+          if (!s.ticker) {
+            setupStatsMap.set(s.setupType, {
+              sampleSize: s.sampleSize,
+              winRate: s.winRate,
+              expectancyR: s.expectancyR,
+            });
+          }
+        }
+      } catch {}
+
       const matchesProfile = (sig: any): boolean => {
         if (!activeProfile) return true;
 
@@ -1206,6 +1220,15 @@ export async function registerRoutes(
         const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
         if (sigTierRank > minTierRank) return false;
         if (sig.qualityScore < activeProfile.minQualityScore) return false;
+
+        const stat = setupStatsMap.get(sig.setupType);
+        if (stat) {
+          if (activeProfile.minSampleSize > 0 && stat.sampleSize < activeProfile.minSampleSize) return false;
+          if (activeProfile.minHitRate > 0 && stat.winRate < activeProfile.minHitRate) return false;
+          if (activeProfile.minExpectancyR > 0 && stat.expectancyR < activeProfile.minExpectancyR) return false;
+        } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
+          return false;
+        }
 
         return true;
       };
