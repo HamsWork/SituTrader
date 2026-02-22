@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -986,17 +986,66 @@ export default function Dashboard() {
   const [showHistory, setShowHistory] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [q80Only, setQ80Only] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<"connected" | "refreshing" | "error">("connected");
+  const autoRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastAutoRefreshRef = useRef<number>(0);
+
+  const invalidateAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/scheduler/state"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/profiles/active"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/universe/status"] });
+  }, []);
+
+  const doAutoRefresh = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastAutoRefreshRef.current < 10000) return;
+    lastAutoRefreshRef.current = now;
+    setLiveStatus("refreshing");
+    try {
+      const res = await fetch("/api/stats");
+      if (!res.ok) throw new Error("Failed");
+      invalidateAll();
+      setLiveStatus("connected");
+    } catch {
+      setLiveStatus("error");
+    }
+  }, [invalidateAll]);
+
+  useEffect(() => {
+    doAutoRefresh();
+
+    autoRefreshTimerRef.current = setInterval(doAutoRefresh, 60000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        doAutoRefresh();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (autoRefreshTimerRef.current) clearInterval(autoRefreshTimerRef.current);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [doAutoRefresh]);
 
   const { data: profiles } = useQuery<SignalProfile[]>({
     queryKey: ["/api/profiles"],
+    refetchInterval: 60000,
   });
 
   const { data: activeProfile } = useQuery<SignalProfile | null>({
     queryKey: ["/api/profiles/active"],
+    refetchInterval: 60000,
   });
 
   const { data: setupStats } = useQuery<SetupExpectancy[]>({
     queryKey: ["/api/setup-stats"],
+    refetchInterval: 60000,
   });
 
   const activateProfile = useMutation({
@@ -1008,10 +1057,15 @@ export default function Dashboard() {
     },
   });
 
-  const { data: signals, isLoading: signalsLoading } = useQuery<SignalApi[]>({
+  const { data: signals, isLoading: signalsLoading, isError: signalsError } = useQuery<SignalApi[]>({
     queryKey: ["/api/signals"],
     refetchInterval: 5000,
   });
+
+  useEffect(() => {
+    if (signalsError) setLiveStatus("error");
+    else if (signals) setLiveStatus("connected");
+  }, [signalsError, signals]);
 
   const letfPopulatedRef = useRef(false);
   useEffect(() => {
@@ -1040,6 +1094,7 @@ export default function Dashboard() {
   }>({
     queryKey: ["/api/stats", statsProfileParam],
     queryFn: () => fetch(`/api/stats?profileId=${statsProfileParam}`).then(r => r.json()),
+    refetchInterval: 60000,
   });
 
   const { data: universeStatus } = useQuery<{
@@ -1049,20 +1104,7 @@ export default function Dashboard() {
     topTickers: { ticker: string; avgDollarVol20d: number; rank: number }[];
   }>({
     queryKey: ["/api/universe/status"],
-  });
-
-  const refreshMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/scheduler/run", { job: "autoNow" }),
-    onSuccess: async (res) => {
-      const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/scheduler/state"] });
-      toast({ title: "Data refreshed", description: `${data.job} scan complete (${data.summary?.durationMs ?? 0}ms)` });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Refresh failed", description: error.message, variant: "destructive" });
-    },
+    refetchInterval: 60000,
   });
 
   const activationMutation = useMutation({
@@ -1246,7 +1288,7 @@ export default function Dashboard() {
                 ? `${tradeNowSignals.length} activated trade${tradeNowSignals.length === 1 ? "" : "s"} ready to act on`
                 : filteredPending.length > 0
                 ? `${filteredPending.length} signal${filteredPending.length === 1 ? "" : "s"} on deck, awaiting entry triggers`
-                : "Refresh data to scan for new setups"
+                : "Waiting for new setups — auto-refreshing"
               }
             </p>
           </div>
@@ -1334,15 +1376,18 @@ export default function Dashboard() {
             <Bell className={`w-4 h-4 mr-1.5 ${alertMutation.isPending ? "animate-pulse" : ""}`} />
             {alertMutation.isPending ? "Scanning..." : "Alerts"}
           </Button>
-          <Button
-            size="sm"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            data-testid="button-refresh-data"
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium"
+            data-testid="indicator-live-status"
           >
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-            {refreshMutation.isPending ? "Refreshing..." : "Refresh (Manual)"}
-          </Button>
+            <span className={`w-2 h-2 rounded-full ${
+              liveStatus === "error" ? "bg-red-500" :
+              liveStatus === "refreshing" ? "bg-emerald-500 animate-pulse" :
+              "bg-emerald-500"
+            }`} />
+            <Activity className="w-3 h-3" />
+            <span>{liveStatus === "error" ? "Disconnected" : liveStatus === "refreshing" ? "Syncing..." : "Live"}</span>
+          </div>
           {schedulerState && (
             <Sheet>
               <SheetTrigger asChild>
@@ -1528,15 +1573,18 @@ export default function Dashboard() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Last Refresh</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">Live Status</CardTitle>
+                <span className={`w-2.5 h-2.5 rounded-full ${liveStatus === "error" ? "bg-red-500" : "bg-emerald-500"}`} />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold" data-testid="text-stat-last-refresh">
-                  {stats?.lastRefresh ? new Date(stats.lastRefresh).toLocaleTimeString() : "Never"}
+                  {stats?.lastRefresh ? new Date(stats.lastRefresh).toLocaleTimeString() : "Connecting..."}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {stats?.lastRefresh ? new Date(stats.lastRefresh).toLocaleDateString() : "Click refresh to start"}
+                  {stats?.lastRefresh ? `Last sync ${new Date(stats.lastRefresh).toLocaleDateString()}` : "Auto-refresh active"}
+                </p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  Refreshes every 60s · on tab focus
                 </p>
               </CardContent>
             </Card>
@@ -1604,7 +1652,7 @@ export default function Dashboard() {
               <Crosshair className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
               <p className="text-sm font-medium" data-testid="text-no-on-deck">No pending signals</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Click "Refresh" to pull market data and detect new setups
+                Data auto-refreshes — new setups will appear here
               </p>
             </CardContent>
           </Card>
