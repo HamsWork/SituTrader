@@ -1198,49 +1198,14 @@ export async function registerRoutes(
 
       const activeProfile = await storage.getActiveProfile();
 
-      const settings = await storage.getAllSettings();
-      const focusMode = settings.focusMode || "EXPECTANCY";
-      const winRateThreshold = parseFloat(settings.focusWinRateThreshold || "0.70");
-      const expectancyThreshold = parseFloat(settings.focusExpectancyThreshold || "0.15");
+      const matchesProfile = (sig: any): boolean => {
+        if (!activeProfile) return true;
 
-      let setupStatsData: any[] = [];
-      try {
-        const overallStats = await storage.getOverallSetupExpectancy();
-        setupStatsData = overallStats.map(s => ({
-          setupType: s.setupType,
-          ticker: s.ticker,
-          sampleSize: s.sampleSize,
-          winRate: s.winRate,
-          expectancyR: s.expectancyR,
-          tradeability: s.tradeability,
-        }));
-      } catch {}
-
-      const matchesProfileAndFocus = (sig: any): boolean => {
-        if (setupStatsData.length > 0) {
-          const category = getSetupAlertCategory(
-            sig.setupType, focusMode, setupStatsData as any,
-            winRateThreshold, expectancyThreshold
-          );
-          if (category === "OFF") return false;
-        }
-
-        if (activeProfile) {
-          if (!activeProfile.allowedSetups.includes(sig.setupType)) return false;
-          const sigTierRank = TIER_RANK[sig.tier] ?? 3;
-          const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
-          if (sigTierRank > minTierRank) return false;
-          if (sig.qualityScore < activeProfile.minQualityScore) return false;
-
-          const overallStat = setupStatsData.find((s: any) => s.setupType === sig.setupType && !s.ticker);
-          if (overallStat) {
-            if (activeProfile.minSampleSize > 0 && overallStat.sampleSize < activeProfile.minSampleSize) return false;
-            if (activeProfile.minHitRate > 0 && overallStat.winRate < activeProfile.minHitRate) return false;
-            if (activeProfile.minExpectancyR > 0 && overallStat.expectancyR < activeProfile.minExpectancyR) return false;
-          } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
-            return false;
-          }
-        }
+        if (!activeProfile.allowedSetups.includes(sig.setupType)) return false;
+        const sigTierRank = TIER_RANK[sig.tier] ?? 3;
+        const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
+        if (sigTierRank > minTierRank) return false;
+        if (sig.qualityScore < activeProfile.minQualityScore) return false;
 
         return true;
       };
@@ -1255,7 +1220,7 @@ export async function registerRoutes(
         const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
         if (!isHit && !isMiss) continue;
 
-        if (!matchesProfileAndFocus(sig)) continue;
+        if (!matchesProfile(sig)) continue;
 
         const stopDist = tp.stopDistance || 0;
         const bias = tp.bias as string | undefined;
