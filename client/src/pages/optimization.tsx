@@ -62,12 +62,13 @@ export default function OptimizationPage() {
   const [setupFilter, setSetupFilter] = useState<string>("all");
 
   const { data: allStats, isLoading: statsLoading } = useQuery<SetupExpectancy[]>({
-    queryKey: ["/api/setup-stats/all"],
+    queryKey: ["/api/optimization/comprehensive"],
   });
 
-  const { data: overallStats } = useQuery<SetupExpectancy[]>({
-    queryKey: ["/api/setup-stats"],
-  });
+  const overallStats = useMemo(() => {
+    if (!allStats) return undefined;
+    return allStats.filter(s => s.ticker === null);
+  }, [allStats]);
 
   const { data: backtests } = useQuery<Backtest[]>({
     queryKey: ["/api/backtests"],

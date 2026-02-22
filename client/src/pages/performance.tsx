@@ -70,6 +70,7 @@ interface TradeResult {
   hasIbkrTrade: boolean;
   ibkrPnl: number | null;
   ibkrStatus: string | null;
+  source?: string;
 }
 
 interface PeriodSummary {
@@ -570,16 +571,21 @@ export default function PerformancePage() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] ${
-                                t.outcome === "HIT_T1"
-                                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                  : "bg-red-500/10 text-red-600 border-red-500/20"
-                              }`}
-                            >
-                              {t.outcome === "HIT_T1" ? "WIN" : "LOSS"}
-                            </Badge>
+                            <div className="flex items-center gap-1">
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] ${
+                                  t.outcome === "HIT_T1"
+                                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                    : "bg-red-500/10 text-red-600 border-red-500/20"
+                                }`}
+                              >
+                                {t.outcome === "HIT_T1" ? "WIN" : "LOSS"}
+                              </Badge>
+                              {t.source === "backtest" && (
+                                <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-500 border-blue-500/20">BT</Badge>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -844,6 +844,178 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/optimization/comprehensive", async (_req, res) => {
+    try {
+      const allSignals = await storage.getSignals(undefined, 10000);
+      const allBacktests = await storage.getBacktests();
+
+      interface StatAccum {
+        setupType: string;
+        ticker: string | null;
+        wins: number;
+        losses: number;
+        totalPnlPct: number;
+        winPnlPcts: number[];
+        lossPnlPcts: number[];
+        timesToHit: number[];
+      }
+
+      const accums = new Map<string, StatAccum>();
+
+      const getKey = (setup: string, ticker: string | null) =>
+        `${setup}:${ticker ?? "__overall__"}`;
+
+      const getOrCreate = (setup: string, ticker: string | null): StatAccum => {
+        const key = getKey(setup, ticker);
+        if (!accums.has(key)) {
+          accums.set(key, {
+            setupType: setup,
+            ticker,
+            wins: 0,
+            losses: 0,
+            totalPnlPct: 0,
+            winPnlPcts: [],
+            lossPnlPcts: [],
+            timesToHit: [],
+          });
+        }
+        return accums.get(key)!;
+      };
+
+      const seenKeys = new Set<string>();
+
+      for (const sig of allSignals) {
+        const tp = sig.tradePlanJson as any;
+        if (!tp) continue;
+
+        const isHit = sig.status === "hit";
+        const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
+        if (!isHit && !isMiss) continue;
+
+        const dateKey = `${sig.ticker}:${sig.setupType}:${sig.targetDate}`;
+        seenKeys.add(dateKey);
+
+        const stopDist = tp.stopDistance || 0;
+        const bias = tp.bias as string | undefined;
+
+        let entryPrice: number;
+        if (sig.entryPriceAtActivation && sig.entryPriceAtActivation > 0) {
+          entryPrice = sig.entryPriceAtActivation;
+        } else if (sig.stopPrice && sig.stopPrice > 0 && stopDist > 0) {
+          entryPrice = bias === "BUY" ? sig.stopPrice + stopDist : sig.stopPrice - stopDist;
+        } else {
+          continue;
+        }
+
+        if (entryPrice <= 0) continue;
+
+        const reward = tp.t1 ? Math.abs(tp.t1 - entryPrice) : 0;
+        const riskR = stopDist > 0 ? stopDist : entryPrice * 0.01;
+
+        const tickerAccum = getOrCreate(sig.setupType, sig.ticker);
+        const overallAccum = getOrCreate(sig.setupType, null);
+
+        for (const acc of [tickerAccum, overallAccum]) {
+          if (isHit && reward > 0) {
+            const winR = reward / riskR;
+            acc.wins++;
+            acc.winPnlPcts.push(winR);
+          } else {
+            acc.losses++;
+            acc.lossPnlPcts.push(-1);
+          }
+          if (sig.timeToHitMin != null && sig.timeToHitMin > 0) {
+            acc.timesToHit.push(sig.timeToHitMin);
+          }
+        }
+      }
+
+      for (const bt of allBacktests) {
+        const details = bt.details as any[] | null;
+        if (!details) continue;
+
+        for (const d of details) {
+          if (!d.triggered || !d.entryPrice || d.entryPrice <= 0 || !d.date) continue;
+
+          const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
+          if (seenKeys.has(dateKey)) continue;
+
+          const entryPrice = d.entryPrice;
+          const magnetPrice = d.magnetPrice;
+          const reward = Math.abs(magnetPrice - entryPrice);
+          const riskR = entryPrice * 0.01;
+
+          const tickerAccum = getOrCreate(bt.setupType, bt.ticker);
+          const overallAccum = getOrCreate(bt.setupType, null);
+
+          for (const acc of [tickerAccum, overallAccum]) {
+            if (d.hit) {
+              const winR = reward / riskR;
+              acc.wins++;
+              acc.winPnlPcts.push(winR);
+            } else {
+              acc.losses++;
+              acc.lossPnlPcts.push(-1);
+            }
+            if (d.timeToHitMin != null && d.timeToHitMin > 0) {
+              acc.timesToHit.push(d.timeToHitMin);
+            }
+          }
+        }
+      }
+
+      const results: any[] = [];
+
+      for (const acc of accums.values()) {
+        const sampleSize = acc.wins + acc.losses;
+        if (sampleSize === 0) continue;
+
+        const winRate = acc.wins / sampleSize;
+        const avgWinR = acc.winPnlPcts.length > 0
+          ? acc.winPnlPcts.reduce((s, v) => s + v, 0) / acc.winPnlPcts.length
+          : 0;
+        const avgLossR = acc.lossPnlPcts.length > 0
+          ? Math.abs(acc.lossPnlPcts.reduce((s, v) => s + v, 0) / acc.lossPnlPcts.length)
+          : 1;
+        const expectancyR = (winRate * avgWinR) - ((1 - winRate) * avgLossR);
+        const grossWin = acc.winPnlPcts.reduce((s, v) => s + v, 0);
+        const grossLoss = Math.abs(acc.lossPnlPcts.reduce((s, v) => s + v, 0));
+        const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 999 : 0;
+
+        const allR = [...acc.winPnlPcts, ...acc.lossPnlPcts].sort((a, b) => a - b);
+        const medianR = allR.length > 0
+          ? allR.length % 2 === 0
+            ? (allR[allR.length / 2 - 1] + allR[allR.length / 2]) / 2
+            : allR[Math.floor(allR.length / 2)]
+          : 0;
+
+        let tradeability: string = "CLEAN";
+        if (winRate < 0.3) tradeability = "AVOID";
+        else if (winRate < 0.4) tradeability = "CAUTION";
+
+        results.push({
+          setupType: acc.setupType,
+          ticker: acc.ticker,
+          sampleSize,
+          winRate: Math.round(winRate * 1000) / 1000,
+          avgWinR: Math.round(avgWinR * 100) / 100,
+          avgLossR: Math.round(avgLossR * 100) / 100,
+          medianR: Math.round(medianR * 100) / 100,
+          expectancyR: Math.round(expectancyR * 100) / 100,
+          profitFactor: Math.round(profitFactor * 100) / 100,
+          avgMaeR: 0,
+          medianMaeR: 0,
+          tradeability,
+          category: expectancyR >= 0.20 ? "PRIMARY" : expectancyR >= 0.05 ? "SECONDARY" : "OFF",
+        });
+      }
+
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/setup-stats/:setupType", async (req, res) => {
     try {
       const { setupType } = req.params;
@@ -1191,6 +1363,7 @@ export async function registerRoutes(
     try {
       const allSignals = await storage.getSignals(undefined, 10000);
       const allTrades = await storage.getAllIbkrTrades();
+      const allBacktests = await storage.getBacktests();
 
       const capitalPerTrade = parseFloat(req.query.capital as string) || 1000;
       const now = new Date();
@@ -1235,6 +1408,8 @@ export async function registerRoutes(
       };
 
       const tradeResults: any[] = [];
+
+      const signalDateKeys = new Set<string>();
 
       for (const sig of allSignals) {
         const tp = sig.tradePlanJson as any;
@@ -1297,6 +1472,8 @@ export async function registerRoutes(
 
         const ibkrTrade = allTrades.find(t => t.signalId === sig.id);
 
+        signalDateKeys.add(`${sig.ticker}:${sig.setupType}:${signalDate}`);
+
         tradeResults.push({
           signalId: sig.id,
           ticker: sig.ticker,
@@ -1318,7 +1495,77 @@ export async function registerRoutes(
           hasIbkrTrade: !!ibkrTrade,
           ibkrPnl: ibkrTrade?.pnl ?? null,
           ibkrStatus: ibkrTrade?.status ?? null,
+          source: "signal",
         });
+      }
+
+      let btIdCounter = -1;
+      for (const bt of allBacktests) {
+        const details = bt.details as any[] | null;
+        if (!details) continue;
+
+        for (const d of details) {
+          if (!d.triggered) continue;
+          if (!d.entryPrice || d.entryPrice <= 0) continue;
+          if (!d.date) continue;
+
+          const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
+          if (signalDateKeys.has(dateKey)) continue;
+
+          const entryPrice = d.entryPrice;
+          const magnetPrice = d.magnetPrice;
+          const bias = magnetPrice >= entryPrice ? "BUY" : "SELL";
+          const reward = Math.abs(magnetPrice - entryPrice);
+          const stopDist = entryPrice * 0.01;
+
+          const shares = Math.floor(capitalPerTrade / entryPrice);
+          if (shares <= 0) continue;
+
+          const actualInvested = shares * entryPrice;
+          let exitPrice: number;
+          let pnlDollar: number;
+          let pnlPct: number;
+          let outcome: string;
+
+          if (d.hit) {
+            exitPrice = magnetPrice;
+            const diff = bias === "BUY"
+              ? (exitPrice - entryPrice) * shares
+              : (entryPrice - exitPrice) * shares;
+            pnlDollar = diff;
+            pnlPct = (diff / actualInvested) * 100;
+            outcome = "HIT_T1";
+          } else {
+            exitPrice = bias === "BUY" ? entryPrice - stopDist : entryPrice + stopDist;
+            pnlDollar = -stopDist * shares;
+            pnlPct = (pnlDollar / actualInvested) * 100;
+            outcome = "STOPPED";
+          }
+
+          tradeResults.push({
+            signalId: btIdCounter--,
+            ticker: bt.ticker,
+            setupType: bt.setupType,
+            direction: bias === "BUY" ? "BULLISH" : "BEARISH",
+            bias,
+            instrumentType: "SHARES",
+            date: d.date,
+            entryPrice: Math.round(entryPrice * 100) / 100,
+            exitPrice: Math.round(exitPrice * 100) / 100,
+            shares,
+            invested: Math.round(actualInvested * 100) / 100,
+            pnlDollar: Math.round(pnlDollar * 100) / 100,
+            pnlPct: Math.round(pnlPct * 100) / 100,
+            outcome,
+            tier: "B",
+            qualityScore: Math.round((bt.hitRate ?? 0.5) * 100),
+            timeToHitMin: d.timeToHitMin ?? null,
+            hasIbkrTrade: false,
+            ibkrPnl: null,
+            ibkrStatus: null,
+            source: "backtest",
+          });
+        }
       }
 
       tradeResults.sort((a, b) => b.date.localeCompare(a.date));
