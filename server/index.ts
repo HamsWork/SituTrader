@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { connectIBKR, isConnected } from "./lib/ibkr";
+import { recomputeAllExpectancy } from "./lib/expectancy";
 
 const app = express();
 const httpServer = createServer(app);
@@ -101,6 +102,14 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
 
       setTimeout(async () => {
+        try {
+          log("Auto-refreshing optimization stats on startup...", "startup");
+          await recomputeAllExpectancy();
+          log("Optimization stats refreshed", "startup");
+        } catch (err: any) {
+          log(`Startup stats refresh failed: ${err.message}`, "startup");
+        }
+
         if (!isConnected()) {
           log("Auto-connecting to IBKR...", "ibkr");
           const ok = await connectIBKR();

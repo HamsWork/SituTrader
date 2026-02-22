@@ -1,9 +1,7 @@
 import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -36,10 +34,9 @@ import {
   PolarRadiusAxis,
   Radar,
 } from "recharts";
-import { FlaskConical, TrendingUp, TrendingDown, RefreshCw, Loader2, Trophy, AlertTriangle, Target, Clock } from "lucide-react";
+import { FlaskConical, TrendingUp, TrendingDown, Trophy, AlertTriangle, Target, Clock } from "lucide-react";
 import type { Backtest, BacktestDetail, SetupExpectancy } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
-import { useToast } from "@/hooks/use-toast";
 
 function gradeScore(winRate: number, expectancyR: number, profitFactor: number): { grade: string; color: string } {
   const score =
@@ -62,7 +59,6 @@ function gradeBadgeClass(grade: string): string {
 }
 
 export default function OptimizationPage() {
-  const { toast } = useToast();
   const [setupFilter, setSetupFilter] = useState<string>("all");
 
   const { data: allStats, isLoading: statsLoading } = useQuery<SetupExpectancy[]>({
@@ -75,18 +71,6 @@ export default function OptimizationPage() {
 
   const { data: backtests } = useQuery<Backtest[]>({
     queryKey: ["/api/backtests"],
-  });
-
-  const recompute = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/setup-stats/recompute"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/setup-stats/all"] });
-      toast({ title: "Stats refreshed", description: "Optimization data has been recalculated." });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Refresh failed", description: error.message, variant: "destructive" });
-    },
   });
 
   const tickerStats = useMemo(() => {
@@ -232,43 +216,23 @@ export default function OptimizationPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold flex items-center gap-2" data-testid="text-page-title">
-            <FlaskConical className="w-5 h-5" />
-            Optimization
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Performance intelligence — identify top stocks, grade setups, and optimize your edge
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => recompute.mutate()}
-          disabled={recompute.isPending}
-          data-testid="button-refresh-stats"
-        >
-          {recompute.isPending ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4 mr-2" />
-          )}
-          {recompute.isPending ? "Refreshing..." : "Refresh Stats"}
-        </Button>
+      <div>
+        <h1 className="text-xl font-semibold flex items-center gap-2" data-testid="text-page-title">
+          <FlaskConical className="w-5 h-5" />
+          Optimization
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Performance intelligence — identify top stocks, grade setups, and optimize your edge
+        </p>
       </div>
 
-      {(statsLoading || recompute.isPending) && (
+      {statsLoading && (
         <div className="space-y-1" data-testid="progress-bar">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              {recompute.isPending ? "Recomputing stats..." : "Loading optimization data..."}
-            </span>
-            <span className="text-xs font-mono text-muted-foreground">
-              {statsLoading ? "30%" : recompute.isPending ? "60%" : "100%"}
-            </span>
+            <span className="text-xs text-muted-foreground">Loading optimization data...</span>
+            <span className="text-xs font-mono text-muted-foreground">30%</span>
           </div>
-          <Progress value={statsLoading ? 30 : recompute.isPending ? 60 : 100} className="h-2" />
+          <Progress value={30} className="h-2" />
         </div>
       )}
 
