@@ -93,6 +93,9 @@ interface PerformanceData {
   totalSignalsAnalyzed: number;
   totalResolvedTrades: number;
   activeProfileName: string | null;
+  dataSpanDays: number;
+  earliestDate: string | null;
+  latestDate: string | null;
   periodSummaries: PeriodSummary[];
   trades: TradeResult[];
 }
@@ -263,35 +266,48 @@ export default function PerformancePage() {
         </Card>
       ) : (
         <>
+          {data.dataSpanDays > 0 && (
+            <div className="text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2">
+              Data spans {data.dataSpanDays} days ({data.earliestDate} to {data.latestDate}) — {data.totalResolvedTrades} resolved trades
+            </div>
+          )}
+
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4" data-testid="period-summaries">
-            {data.periodSummaries.map(p => (
-              <Card
-                key={p.days}
-                className={`cursor-pointer transition-all ${periodFilter === String(p.days) ? "ring-2 ring-primary" : "hover:bg-muted/30"}`}
-                onClick={() => setPeriodFilter(String(p.days))}
-                data-testid={`card-period-${p.days}`}
-              >
-                <CardContent className="pt-3 pb-3 px-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-muted-foreground">{p.days} Days</span>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] ${p.totalPnl >= 0 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}`}
-                    >
-                      {p.totalPnl >= 0 ? "+" : ""}{p.roi}% ROI
-                    </Badge>
-                  </div>
-                  <div className={`text-2xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
-                    {p.totalPnl >= 0 ? "+" : ""}${p.totalPnl.toLocaleString()}
-                  </div>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                    <span>{p.totalTrades} trades</span>
-                    <span>{p.winRate}% WR</span>
-                    <span>${p.capitalRequired.toLocaleString()} req</span>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {data.periodSummaries.map((p, idx) => {
+              const prevPeriod = idx > 0 ? data.periodSummaries[idx - 1] : null;
+              const sameAsPrev = prevPeriod && prevPeriod.totalTrades === p.totalTrades && prevPeriod.totalPnl === p.totalPnl;
+              return (
+                <Card
+                  key={p.days}
+                  className={`cursor-pointer transition-all ${periodFilter === String(p.days) ? "ring-2 ring-primary" : "hover:bg-muted/30"} ${sameAsPrev ? "opacity-60" : ""}`}
+                  onClick={() => setPeriodFilter(String(p.days))}
+                  data-testid={`card-period-${p.days}`}
+                >
+                  <CardContent className="pt-3 pb-3 px-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-muted-foreground">{p.days} Days</span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${p.totalPnl >= 0 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}`}
+                      >
+                        {p.totalPnl >= 0 ? "+" : ""}{p.roi}% ROI
+                      </Badge>
+                    </div>
+                    <div className={`text-2xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
+                      {p.totalPnl >= 0 ? "+" : ""}${p.totalPnl.toLocaleString()}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>{p.totalTrades} trades</span>
+                      <span>{p.winRate}% WR</span>
+                      <span>${p.capitalRequired.toLocaleString()} req</span>
+                    </div>
+                    {sameAsPrev && (
+                      <div className="text-[10px] text-muted-foreground/60 mt-1">Same as {prevPeriod.days}d — data only spans {data.dataSpanDays} days</div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
 
           {activePeriod && (

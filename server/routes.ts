@@ -1351,11 +1351,24 @@ export async function registerRoutes(
         };
       });
 
+      const earliestDate = tradeResults.length > 0
+        ? tradeResults.reduce((min, t) => t.date < min ? t.date : min, tradeResults[0].date)
+        : null;
+      const latestDate = tradeResults.length > 0
+        ? tradeResults.reduce((max, t) => t.date > max ? t.date : max, tradeResults[0].date)
+        : null;
+      const dataSpanDays = earliestDate && latestDate
+        ? Math.ceil((new Date(latestDate).getTime() - new Date(earliestDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
+        : 0;
+
       res.json({
         capitalPerTrade,
         totalSignalsAnalyzed: allSignals.length,
         totalResolvedTrades: tradeResults.length,
         activeProfileName: activeProfile?.name ?? null,
+        dataSpanDays,
+        earliestDate,
+        latestDate,
         periodSummaries,
         trades: tradeResults,
       });
