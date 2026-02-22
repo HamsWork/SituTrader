@@ -1,0 +1,76 @@
+Create a READ-ONLY codebase audit for this trading app and generate two files:
+
+1) SYSTEM_AUDIT.md (human-readable)
+2) SYSTEM_AUDIT.json (structured)
+
+Do NOT change runtime behavior, business logic, or UI. Only inspect and report.
+
+Audit scope:
+- App routes/pages/tabs and navigation structure
+- Feature map by tab (dashboard, setups, performance, optimization, integration tracking, active trades, guide, settings, etc.)
+- Component inventory (shared vs page-specific)
+- Services/modules inventory (strategy engine, signal detection, trade tracking, analytics, optimization, integrations, notifications, persistence)
+- Data models and schema (tables/collections, fields, relationships, indexes if present)
+- API endpoints (internal and external), request/response shapes if inferable
+- Environment variables and secrets referenced (names only, never values)
+- Background jobs / schedulers / polling loops / websockets / timers
+- State management approach (React state, context, Redux, server state, caches, etc.)
+- Trade lifecycle implementation:
+  idea -> setup detected -> trigger -> active trade -> closed trade -> performance logging
+- Upcoming setups logic (where detected, stored, updated, displayed)
+- Active trade progress/status bar logic (state source + update path)
+- Performance metrics logic (realized/unrealized P&L, fees, win rate, expectancy, drawdown, etc.)
+- Optimization logic (parameter inputs, engine, ranking metrics, persistence)
+- Integration tracking (Discord/trade platform sends, dedupe, status, retry/failure logging)
+- Settings architecture (global vs strategy-specific settings)
+- Hardcoded values that should be configuration-driven
+- Duplicated or overlapping logic that should be extracted into shared modules
+- Technical debt / fragile areas / patch patterns (if visible)
+- Missing tests and recommended test targets
+- “Rebuild order” recommendation (what modules should be built first next time)
+
+Output requirements:
+
+A) SYSTEM_AUDIT.md
+- Executive summary (1 page max)
+- App architecture overview
+- Feature-by-feature audit
+- Trade lifecycle map
+- Integration flow map
+- Standardization candidates (shared core modules)
+- Risk/technical debt findings
+- Suggested reusable app template structure for future apps
+
+B) SYSTEM_AUDIT.json (strict JSON)
+Use this top-level shape:
+{
+  "app_name": "",
+  "routes": [],
+  "tabs": [],
+  "features": [],
+  "components": [],
+  "shared_components": [],
+  "services": [],
+  "data_models": [],
+  "schema": [],
+  "api_endpoints": [],
+  "external_integrations": [],
+  "env_vars_used": [],
+  "jobs_and_polling": [],
+  "state_management": [],
+  "trade_lifecycle": {},
+  "upcoming_setups": {},
+  "active_trade_tracking": {},
+  "performance_engine": {},
+  "optimization_engine": {},
+  "integration_tracking": {},
+  "settings_architecture": {},
+  "hardcoded_values_to_externalize": [],
+  "duplication_candidates": [],
+  "technical_debt": [],
+  "test_coverage_notes": [],
+  "recommended_core_modules_for_template": [],
+  "recommended_rebuild_order": []
+}
+
+Also create a FEATURE_FILE_MAP.md that maps each major feature to exact files and functions/classes involved.

@@ -1,0 +1,86 @@
+Great — now do a READ-ONLY architecture audit of this entire app and generate 3 files in the project root:
+
+1) SYSTEM_AUDIT.md
+2) SYSTEM_AUDIT.json
+3) FEATURE_FILE_MAP.md
+
+Important constraints:
+- READ-ONLY audit only
+- Do NOT refactor or change runtime behavior
+- Do NOT rename files
+- Do NOT change UI
+- Do NOT install packages
+- Only inspect and report
+
+What to include:
+
+A) SYSTEM_AUDIT.md (human-readable)
+- Executive summary (what this app does, core workflow)
+- Routes/pages/tabs and navigation structure
+- Feature map by tab/page
+- Shared components vs page-specific components
+- Services/modules (signal logic, trade tracking, performance, optimization, integrations, settings, notifications)
+- Data models and schema (tables/collections/fields/relationships)
+- API endpoints (internal + external integrations)
+- Environment variables referenced (names only, no values)
+- Background jobs / polling / websockets / timers
+- State management approach
+- Trade lifecycle map:
+  idea -> setup detected -> trigger -> active trade -> close -> performance logging
+- Upcoming setup detection flow (where calculated/stored/displayed)
+- Active trade status/progress bar flow (source of truth + update path)
+- Performance calculation flow (realized/unrealized, fees, win rate, expectancy, drawdown if present)
+- Optimization flow (inputs, parameter search, ranking, persistence)
+- Integration tracking flow (Discord/trade platform sends, dedupe, retries/fail logging)
+- Settings architecture (global vs strategy-specific)
+- Hardcoded values that should become config
+- Duplication/overlap candidates (logic repeated in multiple places)
+- Technical debt / fragile areas / patch patterns
+- Missing test coverage and best test targets
+- “Rebuild from scratch” recommended module build order
+- Standardization candidates for a reusable trading-app framework
+
+B) SYSTEM_AUDIT.json (strict JSON)
+Use this exact top-level shape:
+{
+  "app_name": "",
+  "routes": [],
+  "tabs": [],
+  "features": [],
+  "components": [],
+  "shared_components": [],
+  "services": [],
+  "data_models": [],
+  "schema": [],
+  "api_endpoints": [],
+  "external_integrations": [],
+  "env_vars_used": [],
+  "jobs_and_polling": [],
+  "state_management": [],
+  "trade_lifecycle": {},
+  "upcoming_setups": {},
+  "active_trade_tracking": {},
+  "performance_engine": {},
+  "optimization_engine": {},
+  "integration_tracking": {},
+  "settings_architecture": {},
+  "hardcoded_values_to_externalize": [],
+  "duplication_candidates": [],
+  "technical_debt": [],
+  "test_coverage_notes": [],
+  "recommended_core_modules_for_template": [],
+  "recommended_rebuild_order": []
+}
+
+C) FEATURE_FILE_MAP.md
+For each major feature (Dashboard, Setups, Active Trades, Performance, Optimization, Integrations, Guide, Settings), list:
+- Files involved
+- Key functions/classes
+- Data dependencies
+- UI components used
+- External integrations touched
+
+Final response in chat should include:
+1) A short summary of what files were generated
+2) Top 10 standardization opportunities
+3) Top 10 risky/fragile areas
