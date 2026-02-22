@@ -1600,6 +1600,13 @@ export async function registerRoutes(
           winRate: trades.length > 0 ? trades.filter(t => t.outcome === "HIT_T1").length / trades.length : 0,
         }));
 
+        const liveCount = periodTrades.filter(t => t.source !== "backtest").length;
+        const btCount = periodTrades.filter(t => t.source === "backtest").length;
+
+        const tradeDates = periodTrades.map(t => t.date).sort();
+        const dateFrom = tradeDates.length > 0 ? tradeDates[0] : null;
+        const dateTo = tradeDates.length > 0 ? tradeDates[tradeDates.length - 1] : null;
+
         return {
           label,
           totalTrades,
@@ -1614,6 +1621,10 @@ export async function registerRoutes(
           bestTrade: bestTrade ? { ticker: bestTrade.ticker, pnl: bestTrade.pnlDollar } : null,
           worstTrade: worstTrade ? { ticker: worstTrade.ticker, pnl: worstTrade.pnlDollar } : null,
           instrumentBreakdown,
+          liveCount,
+          backtestCount: btCount,
+          dateFrom,
+          dateTo,
         };
       };
 

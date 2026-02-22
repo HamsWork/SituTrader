@@ -87,6 +87,10 @@ interface PeriodSummary {
   bestTrade: { ticker: string; pnl: number } | null;
   worstTrade: { ticker: string; pnl: number } | null;
   instrumentBreakdown: { type: string; count: number; pnl: number; winRate: number }[];
+  liveCount?: number;
+  backtestCount?: number;
+  dateFrom?: string | null;
+  dateTo?: string | null;
 }
 
 interface PerformanceData {
@@ -316,6 +320,12 @@ export default function PerformancePage() {
                       <span>{p.winRate}% WR</span>
                       <span>${p.capitalRequired.toLocaleString()} req</span>
                     </div>
+                    {p.totalTrades > 0 && (p.liveCount != null || p.backtestCount != null) && (
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/70">
+                        {(p.liveCount ?? 0) > 0 && <span>{p.liveCount} live</span>}
+                        {(p.backtestCount ?? 0) > 0 && <span>{p.backtestCount} backtest</span>}
+                      </div>
+                    )}
                     {p.totalTrades === 0 && (
                       <div className="text-[10px] text-muted-foreground/60 mt-1">No trades in this period</div>
                     )}
