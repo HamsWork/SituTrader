@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -256,6 +257,20 @@ export default function OptimizationPage() {
           {recompute.isPending ? "Refreshing..." : "Refresh Stats"}
         </Button>
       </div>
+
+      {(statsLoading || recompute.isPending) && (
+        <div className="space-y-1" data-testid="progress-bar">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              {recompute.isPending ? "Recomputing stats..." : "Loading optimization data..."}
+            </span>
+            <span className="text-xs font-mono text-muted-foreground">
+              {statsLoading ? "30%" : recompute.isPending ? "60%" : "100%"}
+            </span>
+          </div>
+          <Progress value={statsLoading ? 30 : recompute.isPending ? 60 : 100} className="h-2" />
+        </div>
+      )}
 
       {statsLoading ? (
         <div className="grid gap-4 md:grid-cols-4">

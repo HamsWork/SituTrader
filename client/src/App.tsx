@@ -11,6 +11,7 @@ import { DisclaimerBanner } from "@/components/disclaimer-banner";
 import Dashboard from "@/pages/dashboard";
 import SymbolDetail from "@/pages/symbol-detail";
 import OptimizationPage from "@/pages/optimization";
+import PerformancePage from "@/pages/performance";
 import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
 import IbkrDashboard from "@/pages/ibkr-dashboard";
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/symbol/:ticker" component={SymbolDetail} />
       <Route path="/guide" component={GuidePage} />
       <Route path="/optimization" component={OptimizationPage} />
+      <Route path="/performance" component={PerformancePage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ibkr" component={IbkrDashboard} />
       <Route component={NotFound} />

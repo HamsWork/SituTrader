@@ -1183,5 +1183,149 @@ export async function registerRoutes(
     }
   });
 
+  // ── Performance Analysis Routes ──
+
+  app.get("/api/performance/analysis", async (req, res) => {
+    try {
+      const allSignals = await storage.getSignals(undefined, 5000);
+      const allTrades = await storage.getAllIbkrTrades();
+
+      const capitalPerTrade = parseFloat(req.query.capital as string) || 1000;
+      const now = new Date();
+      const periods = [30, 60, 90, 120];
+
+      const tradeResults: any[] = [];
+
+      for (const sig of allSignals) {
+        const tp = sig.tradePlanJson as any;
+        if (!tp) continue;
+
+        const isHit = sig.status === "hit";
+        const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
+        if (!isHit && !isMiss) continue;
+
+        const entryPrice = sig.entryPriceAtActivation || sig.magnetPrice;
+        if (!entryPrice || entryPrice <= 0) continue;
+
+        const shares = Math.floor(capitalPerTrade / entryPrice);
+        if (shares <= 0) continue;
+
+        const actualInvested = shares * entryPrice;
+        let exitPrice: number | null = null;
+        let pnlDollar = 0;
+        let pnlPct = 0;
+        let outcome = "MISS";
+
+        if (isHit && tp.t1) {
+          exitPrice = tp.t1;
+          const diff = sig.direction === "BUY"
+            ? (exitPrice! - entryPrice) * shares
+            : (entryPrice - exitPrice!) * shares;
+          pnlDollar = diff;
+          pnlPct = (diff / actualInvested) * 100;
+          outcome = "HIT_T1";
+        } else if (isMiss) {
+          const stopDist = tp.stopDistance || (entryPrice * 0.02);
+          exitPrice = sig.direction === "BUY" ? entryPrice - stopDist : entryPrice + stopDist;
+          pnlDollar = -stopDist * shares;
+          pnlPct = (pnlDollar / actualInvested) * 100;
+          outcome = "STOPPED";
+        }
+
+        const signalDate = sig.hitTs
+          ? new Date(sig.hitTs).toISOString().slice(0, 10)
+          : sig.targetDate;
+
+        const ibkrTrade = allTrades.find(t => t.signalId === sig.id);
+
+        tradeResults.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          setupType: sig.setupType,
+          direction: sig.direction,
+          instrumentType: sig.instrumentType || "OPTION",
+          date: signalDate,
+          entryPrice,
+          exitPrice,
+          shares,
+          invested: actualInvested,
+          pnlDollar: Math.round(pnlDollar * 100) / 100,
+          pnlPct: Math.round(pnlPct * 100) / 100,
+          outcome,
+          tier: sig.tier,
+          qualityScore: sig.qualityScore,
+          timeToHitMin: sig.timeToHitMin,
+          hasIbkrTrade: !!ibkrTrade,
+          ibkrPnl: ibkrTrade?.pnl ?? null,
+          ibkrStatus: ibkrTrade?.status ?? null,
+        });
+      }
+
+      tradeResults.sort((a, b) => b.date.localeCompare(a.date));
+
+      const periodSummaries = periods.map(days => {
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - days);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        const periodTrades = tradeResults.filter(t => t.date >= cutoffStr);
+
+        const totalTrades = periodTrades.length;
+        const wins = periodTrades.filter(t => t.outcome === "HIT_T1").length;
+        const losses = periodTrades.filter(t => t.outcome === "STOPPED").length;
+        const totalPnl = periodTrades.reduce((s, t) => s + t.pnlDollar, 0);
+        const totalInvested = periodTrades.reduce((s, t) => s + t.invested, 0);
+        const maxConcurrent = Math.min(totalTrades, 10);
+        const capitalRequired = maxConcurrent * capitalPerTrade;
+        const winRate = totalTrades > 0 ? wins / totalTrades : 0;
+        const avgPnl = totalTrades > 0 ? totalPnl / totalTrades : 0;
+        const bestTrade = periodTrades.length > 0
+          ? periodTrades.reduce((best, t) => t.pnlDollar > best.pnlDollar ? t : best)
+          : null;
+        const worstTrade = periodTrades.length > 0
+          ? periodTrades.reduce((worst, t) => t.pnlDollar < worst.pnlDollar ? t : worst)
+          : null;
+
+        const byInstrument = {
+          OPTION: periodTrades.filter(t => t.instrumentType === "OPTION"),
+          SHARES: periodTrades.filter(t => t.instrumentType === "SHARES"),
+          LEVERAGED_ETF: periodTrades.filter(t => t.instrumentType === "LEVERAGED_ETF"),
+        };
+
+        const instrumentBreakdown = Object.entries(byInstrument).map(([type, trades]) => ({
+          type,
+          count: trades.length,
+          pnl: Math.round(trades.reduce((s, t) => s + t.pnlDollar, 0) * 100) / 100,
+          winRate: trades.length > 0 ? trades.filter(t => t.outcome === "HIT_T1").length / trades.length : 0,
+        }));
+
+        return {
+          days,
+          totalTrades,
+          wins,
+          losses,
+          winRate: Math.round(winRate * 1000) / 10,
+          totalPnl: Math.round(totalPnl * 100) / 100,
+          totalInvested: Math.round(totalInvested * 100) / 100,
+          capitalRequired: Math.round(capitalRequired),
+          avgPnlPerTrade: Math.round(avgPnl * 100) / 100,
+          roi: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
+          bestTrade: bestTrade ? { ticker: bestTrade.ticker, pnl: bestTrade.pnlDollar } : null,
+          worstTrade: worstTrade ? { ticker: worstTrade.ticker, pnl: worstTrade.pnlDollar } : null,
+          instrumentBreakdown,
+        };
+      });
+
+      res.json({
+        capitalPerTrade,
+        totalSignalsAnalyzed: allSignals.length,
+        totalResolvedTrades: tradeResults.length,
+        periodSummaries,
+        trades: tradeResults,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }
