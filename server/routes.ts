@@ -1194,6 +1194,57 @@ export async function registerRoutes(
       const now = new Date();
       const periods = [30, 60, 90, 120];
 
+      const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
+
+      const activeProfile = await storage.getActiveProfile();
+
+      const settings = await storage.getAllSettings();
+      const focusMode = settings.focusMode || "EXPECTANCY";
+      const winRateThreshold = parseFloat(settings.focusWinRateThreshold || "0.70");
+      const expectancyThreshold = parseFloat(settings.focusExpectancyThreshold || "0.15");
+
+      let setupStatsData: any[] = [];
+      try {
+        const overallStats = await storage.getOverallSetupExpectancy();
+        setupStatsData = overallStats.map(s => ({
+          setupType: s.setupType,
+          ticker: s.ticker,
+          sampleSize: s.sampleSize,
+          winRate: s.winRate,
+          expectancyR: s.expectancyR,
+          tradeability: s.tradeability,
+        }));
+      } catch {}
+
+      const matchesProfileAndFocus = (sig: any): boolean => {
+        if (setupStatsData.length > 0) {
+          const category = getSetupAlertCategory(
+            sig.setupType, focusMode, setupStatsData as any,
+            winRateThreshold, expectancyThreshold
+          );
+          if (category === "OFF") return false;
+        }
+
+        if (activeProfile) {
+          if (!activeProfile.allowedSetups.includes(sig.setupType)) return false;
+          const sigTierRank = TIER_RANK[sig.tier] ?? 3;
+          const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
+          if (sigTierRank > minTierRank) return false;
+          if (sig.qualityScore < activeProfile.minQualityScore) return false;
+
+          const overallStat = setupStatsData.find((s: any) => s.setupType === sig.setupType && !s.ticker);
+          if (overallStat) {
+            if (activeProfile.minSampleSize > 0 && overallStat.sampleSize < activeProfile.minSampleSize) return false;
+            if (activeProfile.minHitRate > 0 && overallStat.winRate < activeProfile.minHitRate) return false;
+            if (activeProfile.minExpectancyR > 0 && overallStat.expectancyR < activeProfile.minExpectancyR) return false;
+          } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
+            return false;
+          }
+        }
+
+        return true;
+      };
+
       const tradeResults: any[] = [];
 
       for (const sig of allSignals) {
@@ -1204,8 +1255,27 @@ export async function registerRoutes(
         const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
         if (!isHit && !isMiss) continue;
 
-        const entryPrice = sig.entryPriceAtActivation || sig.magnetPrice;
-        if (!entryPrice || entryPrice <= 0) continue;
+        if (!matchesProfileAndFocus(sig)) continue;
+
+        const stopDist = tp.stopDistance || 0;
+        const bias = tp.bias as string | undefined;
+
+        let entryPrice: number;
+        if (sig.entryPriceAtActivation && sig.entryPriceAtActivation > 0) {
+          entryPrice = sig.entryPriceAtActivation;
+        } else if (sig.stopPrice && sig.stopPrice > 0 && stopDist > 0) {
+          entryPrice = bias === "BUY"
+            ? sig.stopPrice + stopDist
+            : sig.stopPrice - stopDist;
+        } else if (tp.riskReward && stopDist > 0 && sig.magnetPrice > 0) {
+          entryPrice = bias === "BUY"
+            ? sig.magnetPrice - (tp.riskReward * stopDist)
+            : sig.magnetPrice + (tp.riskReward * stopDist);
+        } else {
+          continue;
+        }
+
+        if (entryPrice <= 0) continue;
 
         const shares = Math.floor(capitalPerTrade / entryPrice);
         if (shares <= 0) continue;
@@ -1218,16 +1288,16 @@ export async function registerRoutes(
 
         if (isHit && tp.t1) {
           exitPrice = tp.t1;
-          const diff = sig.direction === "BUY"
+          const diff = bias === "BUY"
             ? (exitPrice! - entryPrice) * shares
             : (entryPrice - exitPrice!) * shares;
           pnlDollar = diff;
           pnlPct = (diff / actualInvested) * 100;
           outcome = "HIT_T1";
         } else if (isMiss) {
-          const stopDist = tp.stopDistance || (entryPrice * 0.02);
-          exitPrice = sig.direction === "BUY" ? entryPrice - stopDist : entryPrice + stopDist;
-          pnlDollar = -stopDist * shares;
+          const sd = stopDist || (entryPrice * 0.02);
+          exitPrice = bias === "BUY" ? entryPrice - sd : entryPrice + sd;
+          pnlDollar = -sd * shares;
           pnlPct = (pnlDollar / actualInvested) * 100;
           outcome = "STOPPED";
         }
@@ -1243,12 +1313,13 @@ export async function registerRoutes(
           ticker: sig.ticker,
           setupType: sig.setupType,
           direction: sig.direction,
+          bias: bias || sig.direction,
           instrumentType: sig.instrumentType || "OPTION",
           date: signalDate,
-          entryPrice,
-          exitPrice,
+          entryPrice: Math.round(entryPrice * 100) / 100,
+          exitPrice: exitPrice ? Math.round(exitPrice * 100) / 100 : null,
           shares,
-          invested: actualInvested,
+          invested: Math.round(actualInvested * 100) / 100,
           pnlDollar: Math.round(pnlDollar * 100) / 100,
           pnlPct: Math.round(pnlPct * 100) / 100,
           outcome,
@@ -1319,6 +1390,7 @@ export async function registerRoutes(
         capitalPerTrade,
         totalSignalsAnalyzed: allSignals.length,
         totalResolvedTrades: tradeResults.length,
+        activeProfileName: activeProfile?.name ?? null,
         periodSummaries,
         trades: tradeResults,
       });

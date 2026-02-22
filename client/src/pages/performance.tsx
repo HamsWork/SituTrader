@@ -54,6 +54,7 @@ interface TradeResult {
   ticker: string;
   setupType: string;
   direction: string;
+  bias: string;
   instrumentType: string;
   date: string;
   entryPrice: number;
@@ -91,6 +92,7 @@ interface PerformanceData {
   capitalPerTrade: number;
   totalSignalsAnalyzed: number;
   totalResolvedTrades: number;
+  activeProfileName: string | null;
   periodSummaries: PeriodSummary[];
   trades: TradeResult[];
 }
@@ -180,7 +182,12 @@ export default function PerformancePage() {
           Performance
         </h1>
         <p className="text-sm text-muted-foreground">
-          Trade results, P&L history, and capital risk analysis
+          Simulated P&L for trades matching your active dashboard priorities
+          {data?.activeProfileName && (
+            <span className="ml-2 inline-flex items-center">
+              <Badge variant="outline" className="text-xs font-normal">{data.activeProfileName}</Badge>
+            </span>
+          )}
         </p>
       </div>
 
@@ -514,8 +521,8 @@ export default function PerformancePage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <span className={`text-xs font-medium ${t.direction === "BUY" ? "text-emerald-500" : "text-red-500"}`}>
-                              {t.direction}
+                            <span className={`text-xs font-medium ${t.bias === "BUY" ? "text-emerald-500" : "text-red-500"}`}>
+                              {t.bias}
                             </span>
                           </TableCell>
                           <TableCell className="text-right font-mono text-sm">${t.entryPrice.toFixed(2)}</TableCell>
