@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { storage } from "./storage";
 import { fetchDailyBars, fetchIntradayBars, fetchSnapshot, fetchOptionSnapshot } from "./lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, prevTradingDay } from "./lib/calendar";
@@ -1410,6 +1412,37 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Audit File Routes ──
+
+  const auditDir = join(process.cwd());
+
+  app.get("/api/audit/system", (_req, res) => {
+    try {
+      const content = readFileSync(join(auditDir, "SYSTEM_AUDIT.md"), "utf-8");
+      res.type("text/plain").send(content);
+    } catch {
+      res.status(404).send("SYSTEM_AUDIT.md not found");
+    }
+  });
+
+  app.get("/api/audit/feature-map", (_req, res) => {
+    try {
+      const content = readFileSync(join(auditDir, "FEATURE_FILE_MAP.md"), "utf-8");
+      res.type("text/plain").send(content);
+    } catch {
+      res.status(404).send("FEATURE_FILE_MAP.md not found");
+    }
+  });
+
+  app.get("/api/audit/json", (_req, res) => {
+    try {
+      const content = readFileSync(join(auditDir, "SYSTEM_AUDIT.json"), "utf-8");
+      res.type("text/plain").send(content);
+    } catch {
+      res.status(404).send("SYSTEM_AUDIT.json not found");
     }
   });
 

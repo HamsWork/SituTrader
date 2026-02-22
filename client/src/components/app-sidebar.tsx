@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, Wallet, FlaskConical, Activity } from "lucide-react";
+import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, Wallet, FlaskConical, Activity, FileSearch } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -20,6 +20,7 @@ const navItems = [
   { title: "IBKR", url: "/ibkr", icon: Wallet },
   { title: "Guide", url: "/guide", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
+  { title: "System Audit", url: "/audit", icon: FileSearch },
 ];
 
 export function AppSidebar() {

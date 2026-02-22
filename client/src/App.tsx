@@ -15,6 +15,7 @@ import PerformancePage from "@/pages/performance";
 import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
 import IbkrDashboard from "@/pages/ibkr-dashboard";
+import SystemAuditPage from "@/pages/system-audit";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/performance" component={PerformancePage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ibkr" component={IbkrDashboard} />
+      <Route path="/audit" component={SystemAuditPage} />
       <Route component={NotFound} />
     </Switch>
   );
