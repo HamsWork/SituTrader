@@ -1,0 +1,467 @@
+{
+  "audit_metadata": {
+    "audit_date": "2026-02-22",
+    "codebase_lines": 19554,
+    "source_files": 68,
+    "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
+  },
+  "database": {
+    "orm": "drizzle-orm",
+    "provider": "PostgreSQL (Neon-backed)",
+    "table_count": 14,
+    "tables": {
+      "signals": {
+        "columns": 40,
+        "pk": "id (serial)",
+        "purpose": "Core signal records with full lifecycle tracking",
+        "key_columns": ["ticker", "setup_type", "asof_date", "target_date", "magnet_price", "direction", "quality_score", "tier", "status", "activation_status", "instrument_type"]
+      },
+      "backtests": {
+        "columns": 17,
+        "pk": "id (serial)",
+        "purpose": "Historical backtest results per ticker/setup combination",
+        "key_columns": ["ticker", "setup_type", "occurrences", "hits", "hit_rate", "avg_time_to_hit_min", "details"]
+      },
+      "ibkr_trades": {
+        "columns": 30,
+        "pk": "id (serial)",
+        "purpose": "IBKR trade execution records with multi-TP progression",
+        "key_columns": ["signal_id", "ticker", "instrument_type", "side", "quantity", "entry_price", "exit_price", "status", "pnl", "tp_hit_level"]
+      },
+      "daily_bars": {
+        "columns": 9,
+        "pk": "id (serial)",
+        "purpose": "Cached daily OHLCV+VWAP data from Polygon.io",
+        "key_columns": ["ticker", "date", "open", "high", "low", "close", "volume"]
+      },
+      "intraday_bars": {
+        "columns": 10,
+        "pk": "id (serial)",
+        "purpose": "Cached intraday bars for activation monitoring",
+        "key_columns": ["ticker", "ts", "open", "high", "low", "close", "timeframe"]
+      },
+      "scheduler_state": {
+        "columns": 11,
+        "pk": "key (text)",
+        "purpose": "Single-row Author Mode configuration and run tracking",
+        "key_columns": ["auto_enabled", "author_mode_enabled", "after_close_enabled", "pre_open_enabled", "live_monitor_enabled"]
+      },
+      "universe_members": {
+        "columns": 6,
+        "pk": "id (serial)",
+        "purpose": "Ranked universe snapshots by date",
+        "key_columns": ["universe_date", "ticker", "avg_dollar_vol_20d", "rank", "included"]
+      },
+      "ticker_stats": {
+        "columns": 7,
+        "pk": "id (serial)",
+        "purpose": "Per-ticker technical statistics",
+        "key_columns": ["ticker", "avg_dollar_vol_20d", "atr_14", "last_price"]
+      },
+      "setup_expectancy": {
+        "columns": 14,
+        "pk": "id (serial)",
+        "purpose": "Expectancy statistics per setup_type and optional ticker",
+        "key_columns": ["setup_type", "ticker", "win_rate", "expectancy_r", "profit_factor", "tradeability", "category"]
+      },
+      "signal_profiles": {
+        "columns": 13,
+        "pk": "id (serial)",
+        "purpose": "Customizable filter profiles for dashboard and alerts",
+        "key_columns": ["name", "allowed_setups", "min_tier", "min_quality_score", "is_active"]
+      },
+      "symbols": {
+        "columns": 4,
+        "pk": "id (serial)",
+        "purpose": "Watchlist symbols with enabled flag",
+        "key_columns": ["ticker", "enabled", "is_watchlist"]
+      },
+      "app_settings": {
+        "columns": 3,
+        "pk": "id (serial)",
+        "purpose": "Key-value store for application-wide settings",
+        "key_columns": ["key", "value"]
+      },
+      "ibkr_state": {
+        "columns": 13,
+        "pk": "key (text)",
+        "purpose": "Single-row IBKR connection state and account data",
+        "key_columns": ["connected", "account_id", "net_liquidation", "buying_power", "positions_json", "orders_json"]
+      },
+      "time_to_hit_stats": {
+        "columns": 12,
+        "pk": "id (serial)",
+        "purpose": "Time-to-hit probability distributions per ticker/setup",
+        "key_columns": ["ticker", "setup_type", "p15", "p30", "p60", "p120", "p240", "p390"]
+      }
+    }
+  },
+  "backend": {
+    "framework": "Express 5",
+    "entry_point": "server/index.ts",
+    "routes_file": "server/routes.ts",
+    "routes_lines": 1417,
+    "storage_file": "server/storage.ts",
+    "storage_lines": 870,
+    "api_endpoints": [
+      { "method": "GET", "path": "/api/profiles", "purpose": "List all signal profiles" },
+      { "method": "GET", "path": "/api/profiles/active", "purpose": "Get active profile" },
+      { "method": "POST", "path": "/api/profiles", "purpose": "Create profile" },
+      { "method": "PUT", "path": "/api/profiles/:id", "purpose": "Update profile" },
+      { "method": "DELETE", "path": "/api/profiles/:id", "purpose": "Delete profile" },
+      { "method": "POST", "path": "/api/profiles/:id/activate", "purpose": "Set active profile" },
+      { "method": "GET", "path": "/api/symbols", "purpose": "List symbols" },
+      { "method": "POST", "path": "/api/symbols", "purpose": "Add symbol" },
+      { "method": "PATCH", "path": "/api/symbols/:ticker", "purpose": "Update symbol" },
+      { "method": "DELETE", "path": "/api/symbols/:ticker", "purpose": "Remove symbol" },
+      { "method": "GET", "path": "/api/signals", "purpose": "List signals with filtering" },
+      { "method": "GET", "path": "/api/stats", "purpose": "Aggregate statistics" },
+      { "method": "GET", "path": "/api/symbol/:ticker", "purpose": "Symbol detail data" },
+      { "method": "POST", "path": "/api/refresh", "purpose": "Full market scan/refresh" },
+      { "method": "GET", "path": "/api/settings", "purpose": "Get app settings" },
+      { "method": "POST", "path": "/api/settings", "purpose": "Update settings" },
+      { "method": "POST", "path": "/api/backtest/run", "purpose": "Run backtest" },
+      { "method": "GET", "path": "/api/time-to-hit-stats/:ticker/:setup", "purpose": "Time-to-hit per ticker/setup" },
+      { "method": "GET", "path": "/api/time-to-hit-stats", "purpose": "All time-to-hit stats" },
+      { "method": "GET", "path": "/api/backtests", "purpose": "Get all backtests" },
+      { "method": "POST", "path": "/api/activation/scan", "purpose": "Run activation scan" },
+      { "method": "POST", "path": "/api/alerts/run", "purpose": "Run alert processing" },
+      { "method": "GET", "path": "/api/alerts/events", "purpose": "Get alert events" },
+      { "method": "POST", "path": "/api/universe/rebuild", "purpose": "Rebuild universe" },
+      { "method": "GET", "path": "/api/universe/status", "purpose": "Universe status" },
+      { "method": "GET", "path": "/api/setup-stats", "purpose": "Overall setup stats" },
+      { "method": "GET", "path": "/api/setup-stats/all", "purpose": "All setup stats" },
+      { "method": "GET", "path": "/api/setup-stats/:setupType", "purpose": "Per-setup stats" },
+      { "method": "POST", "path": "/api/setup-stats/recompute", "purpose": "Recompute all expectancy" },
+      { "method": "POST", "path": "/api/signals/enrich-options", "purpose": "Enrich signals with options" },
+      { "method": "GET", "path": "/api/dev/option-quote", "purpose": "Dev option quote lookup" },
+      { "method": "POST", "path": "/api/options/refresh", "purpose": "Refresh option quotes" },
+      { "method": "POST", "path": "/api/signals/:id/instrument", "purpose": "Set signal instrument type" },
+      { "method": "POST", "path": "/api/signals/batch-letf", "purpose": "Batch LETF assignment" },
+      { "method": "POST", "path": "/api/signals/:id/suggest-letf", "purpose": "Suggest LETF for signal" },
+      { "method": "GET", "path": "/api/scheduler/state", "purpose": "Scheduler state" },
+      { "method": "POST", "path": "/api/scheduler/toggle", "purpose": "Toggle scheduler settings" },
+      { "method": "POST", "path": "/api/scheduler/run", "purpose": "Manually run scheduled job" },
+      { "method": "POST", "path": "/api/ibkr/connect", "purpose": "Connect to IBKR" },
+      { "method": "POST", "path": "/api/ibkr/disconnect", "purpose": "Disconnect from IBKR" },
+      { "method": "GET", "path": "/api/ibkr/status", "purpose": "Connection status" },
+      { "method": "GET", "path": "/api/ibkr/dashboard", "purpose": "IBKR dashboard data" },
+      { "method": "POST", "path": "/api/ibkr/execute", "purpose": "Execute trade" },
+      { "method": "POST", "path": "/api/ibkr/close/:tradeId", "purpose": "Close trade" },
+      { "method": "GET", "path": "/api/ibkr/trades", "purpose": "Trade records" },
+      { "method": "POST", "path": "/api/ibkr/monitor", "purpose": "Run trade monitor" },
+      { "method": "POST", "path": "/api/discord/test-options", "purpose": "Test options webhook" },
+      { "method": "POST", "path": "/api/discord/test-letf", "purpose": "Test LETF webhook" },
+      { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" }
+    ]
+  },
+  "service_layer": {
+    "directory": "server/lib/",
+    "modules": [
+      {
+        "file": "rules.ts",
+        "lines": 179,
+        "purpose": "Setup detection algorithms (A-F)",
+        "exports": ["detectAllSetups", "detectSetupA", "detectSetupB", "detectSetupC", "detectSetupD", "detectSetupE", "detectSetupF"]
+      },
+      {
+        "file": "quality.ts",
+        "lines": 124,
+        "purpose": "Quality scoring system (0-100) with 6 components",
+        "exports": ["computeQualityScore", "qualityScoreToTier", "computeAvgDollarVolume"]
+      },
+      {
+        "file": "expectancy.ts",
+        "lines": 312,
+        "purpose": "R-multiple expectancy calculations and grading",
+        "exports": ["computeRMultiples", "aggregateExpectancy", "computeAndStoreExpectancy", "recomputeAllExpectancy", "getSetupAlertCategory"]
+      },
+      {
+        "file": "activation.ts",
+        "lines": 382,
+        "purpose": "Signal activation engine with stop management",
+        "exports": ["runActivationScan"]
+      },
+      {
+        "file": "alerts.ts",
+        "lines": 281,
+        "purpose": "Alert lifecycle management with tier-based routing",
+        "exports": ["runAlerts"]
+      },
+      {
+        "file": "discord.ts",
+        "lines": 536,
+        "purpose": "Dual-channel Discord webhook integration",
+        "exports": ["postOptionsAlert", "postLetfAlert", "postTradeUpdate", "sendTestLetfAlert"]
+      },
+      {
+        "file": "ibkr.ts",
+        "lines": 434,
+        "purpose": "IBKR TWS/Gateway connection and account management",
+        "exports": ["connectIBKR", "disconnectIBKR", "isConnected", "getPositions", "getAccountSummary", "getOrderStatus", "getNextOrderId", "makeContract", "placeMarketOrder", "placeLimitOrder", "placeStopOrder", "cancelOrder", "modifyStopPrice", "getIBApi"]
+      },
+      {
+        "file": "ibkrOrders.ts",
+        "lines": 392,
+        "purpose": "IBKR bracket order creation and management",
+        "exports": ["executeTradeForSignal", "monitorActiveTrades", "closeTradeManually", "getIbkrDashboardData"]
+      },
+      {
+        "file": "polygon.ts",
+        "lines": 442,
+        "purpose": "Polygon.io API client with caching and options data",
+        "exports": ["fetchDailyBars", "fetchIntradayBars", "fetchGroupedDaily", "fetchOptionsChain", "fetchOptionContractDetails", "fetchOptionQuote", "fetchOptionSnapshot", "fetchSnapshot", "fetchOptionNbbo", "fetchOptionLastTrade", "fetchOptionMarkAtTime", "fetchStockPriceAtTime", "fetchOptionMark"]
+      },
+      {
+        "file": "options.ts",
+        "lines": 320,
+        "purpose": "Options contract selection and enrichment",
+        "exports": ["enrichPendingSignalsWithOptions"]
+      },
+      {
+        "file": "leveragedEtf.ts",
+        "lines": 379,
+        "purpose": "Leveraged ETF selection and price adjustment",
+        "exports": ["selectBestLeveragedEtf", "fetchStockNbbo", "hasLeveragedEtfMapping"]
+      },
+      {
+        "file": "universe.ts",
+        "lines": 169,
+        "purpose": "Universe auto-discovery and ranking",
+        "exports": ["rebuildUniverse", "getUniverseStatus"]
+      },
+      {
+        "file": "backtest.ts",
+        "lines": 221,
+        "purpose": "Historical backtesting engine",
+        "exports": ["runBacktest", "computeProbabilities", "computeAndStoreTimeToHitStats"]
+      },
+      {
+        "file": "calendar.ts",
+        "lines": 81,
+        "purpose": "Market calendar, trading day utilities",
+        "exports": ["isTradingDay", "nextTradingDay", "prevTradingDay", "formatDate", "getDayOfWeek", "addDays", "getTradingDaysBack"]
+      },
+      {
+        "file": "confidence.ts",
+        "lines": 68,
+        "purpose": "Raw confidence scoring and ATR/volume calculations",
+        "exports": ["computeConfidence", "computeATR", "computeAvgVolume"]
+      },
+      {
+        "file": "tradeplan.ts",
+        "lines": 51,
+        "purpose": "Trade plan generation",
+        "exports": ["generateTradePlan"]
+      },
+      {
+        "file": "validate.ts",
+        "lines": 85,
+        "purpose": "RTH validation, price sanity checks, MAE/MFE",
+        "exports": ["filterRTHBars", "timestampToET", "validateMagnetTouch", "computeMAEMFE"]
+      },
+      {
+        "file": "optionMonitor.ts",
+        "lines": 130,
+        "purpose": "Real-time option position monitoring",
+        "exports": ["refreshOptionQuotesForActiveSignals", "getOptionLiveData", "startOptionMonitor", "stopOptionMonitor"]
+      },
+      {
+        "file": "letfMonitor.ts",
+        "lines": 160,
+        "purpose": "Leveraged ETF position monitoring",
+        "exports": ["refreshLetfQuotesForActiveSignals", "getLetfLiveData", "startLetfMonitor", "stopLetfMonitor"]
+      }
+    ]
+  },
+  "scheduler": {
+    "directory": "server/jobs/",
+    "files": {
+      "scheduler.ts": {
+        "lines": 241,
+        "purpose": "Cron scheduling and Author Mode orchestration",
+        "exports": ["initScheduler", "reconfigureJobs", "runAutoNow"]
+      },
+      "jobFunctions.ts": {
+        "lines": 307,
+        "purpose": "Job implementation (scan, rescore, monitor)",
+        "exports": ["runAfterCloseScan", "runPreOpenScan", "runLiveMonitorTick"]
+      }
+    },
+    "jobs": [
+      {
+        "name": "after_close_scan",
+        "function": "runAfterCloseScan",
+        "schedule": "15:10 CT (20:10 UTC)",
+        "purpose": "Full market scan: detect setups, backtest, score, compute expectancy"
+      },
+      {
+        "name": "pre_open_rescore",
+        "function": "runPreOpenScan",
+        "schedule": "08:20 CT (14:20 UTC)",
+        "purpose": "Re-score pending signals with fresh overnight data"
+      },
+      {
+        "name": "live_monitor",
+        "function": "runLiveMonitorTick",
+        "schedule": "Every minute during RTH (09:30-16:00 ET)",
+        "purpose": "Activation checks, stop management, position monitoring"
+      }
+    ]
+  },
+  "frontend": {
+    "framework": "React 18",
+    "bundler": "Vite",
+    "routing": "wouter",
+    "state_management": "@tanstack/react-query v5",
+    "ui_library": "Shadcn UI + Tailwind CSS",
+    "charting": "Recharts",
+    "animations": "Framer Motion",
+    "pages": [
+      {
+        "route": "/",
+        "file": "client/src/pages/dashboard.tsx",
+        "lines": 1870,
+        "purpose": "Primary signal dashboard with auto-refresh"
+      },
+      {
+        "route": "/performance",
+        "file": "client/src/pages/performance.tsx",
+        "lines": 596,
+        "purpose": "P&L analytics with exclusive time windows"
+      },
+      {
+        "route": "/optimization",
+        "file": "client/src/pages/optimization.tsx",
+        "lines": 686,
+        "purpose": "Setup grading and expectancy intelligence"
+      },
+      {
+        "route": "/settings",
+        "file": "client/src/pages/settings.tsx",
+        "lines": 861,
+        "purpose": "Configuration management"
+      },
+      {
+        "route": "/symbol/:ticker",
+        "file": "client/src/pages/symbol-detail.tsx",
+        "lines": 560,
+        "purpose": "Per-ticker deep dive"
+      },
+      {
+        "route": "/backtest",
+        "file": "client/src/pages/backtest.tsx",
+        "lines": 509,
+        "purpose": "Backtest results and analysis"
+      },
+      {
+        "route": "/ibkr",
+        "file": "client/src/pages/ibkr-dashboard.tsx",
+        "lines": 401,
+        "purpose": "IBKR trade management"
+      },
+      {
+        "route": "/guide",
+        "file": "client/src/pages/guide.tsx",
+        "lines": 314,
+        "purpose": "Setup documentation and trading guide"
+      }
+    ],
+    "shared_components": {
+      "app_sidebar": "client/src/components/app-sidebar.tsx",
+      "disclaimer_banner": "client/src/components/disclaimer-banner.tsx",
+      "theme_provider": "client/src/components/theme-provider.tsx",
+      "theme_toggle": "client/src/components/theme-toggle.tsx",
+      "ui_components_count": 37
+    }
+  },
+  "setup_types": [
+    {
+      "code": "A",
+      "name": "Thu-Fri-Mon Magnet",
+      "pattern": "Thursday close → Friday range → Monday target"
+    },
+    {
+      "code": "B",
+      "name": "Mon-Wed-Thu Magnet",
+      "pattern": "Monday open → Wednesday range → Thursday target"
+    },
+    {
+      "code": "C",
+      "name": "Gap Fill",
+      "pattern": "Overnight gap → fill probability → same-day target"
+    },
+    {
+      "code": "D",
+      "name": "Inside Day",
+      "pattern": "Narrow-range day → breakout → next-day target"
+    },
+    {
+      "code": "E",
+      "name": "PDH/PDL Sweep",
+      "pattern": "Previous day H/L sweep → reversal target"
+    },
+    {
+      "code": "F",
+      "name": "Weak Extreme",
+      "pattern": "Weak high/low → mean reversion target"
+    }
+  ],
+  "quality_scoring": {
+    "max_score": 100,
+    "components": [
+      { "name": "Edge Strength", "max_points": 20, "source": "Backtest hit rate vs baseline" },
+      { "name": "Magnet Distance", "max_points": 15, "source": "Target distance relative to ATR" },
+      { "name": "Liquidity", "max_points": 15, "source": "Dollar volume universe ranking" },
+      { "name": "Movement Environment", "max_points": 15, "source": "Volatility and trend alignment" },
+      { "name": "Historical Hit Rate", "max_points": 10, "source": "Raw backtest hit rate" },
+      { "name": "TimeScore", "max_points": 25, "source": "Time-to-hit probability (p60/p390)" }
+    ],
+    "tiers": {
+      "A+": "≥85",
+      "A": "≥70",
+      "B": "≥55",
+      "C": "<55"
+    }
+  },
+  "integrations": {
+    "polygon_io": {
+      "purpose": "Market data (daily/intraday bars, grouped daily, quotes, options chain)",
+      "secret": "POLYGON_API_KEY"
+    },
+    "ibkr": {
+      "purpose": "Trade execution (bracket orders, position monitoring)",
+      "library": "@stoqey/ib",
+      "connection": "TWS/Gateway API on port 4003"
+    },
+    "discord": {
+      "purpose": "Trade alerts via webhooks",
+      "channels": {
+        "GOAT Alerts": { "secret": "DISCORD_GOAT_ALERTS_WEBHOOK", "content": "Options trades" },
+        "GOAT Swings": { "secret": "DISCORD_GOAT_SWINGS_WEBHOOK", "content": "Leveraged ETF swing trades" }
+      }
+    }
+  },
+  "known_issues": [
+    {
+      "severity": "low",
+      "location": "client/src/pages/performance.tsx",
+      "description": "Invalid DOM nesting: <Badge> renders <div> inside <p> tag"
+    },
+    {
+      "severity": "medium",
+      "location": "client/src/pages/settings.tsx",
+      "description": "11 TypeScript LSP errors (type-related)"
+    },
+    {
+      "severity": "info",
+      "location": "server/lib/ibkr.ts",
+      "description": "Continuous IBKR reconnection loop when TWS/Gateway not running (expected behavior)"
+    },
+    {
+      "severity": "low",
+      "location": "environment",
+      "description": "DISCORD_GOAT_ALERTS_WEBHOOK secret not configured"
+    }
+  ]
+}
