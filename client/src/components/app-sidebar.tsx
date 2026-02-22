@@ -15,10 +15,10 @@ import {
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: Home },
-  { title: "Guide", url: "/guide", icon: BookOpen },
-  { title: "Optimization", url: "/optimization", icon: FlaskConical },
   { title: "Performance", url: "/performance", icon: Activity },
+  { title: "Optimization", url: "/optimization", icon: FlaskConical },
   { title: "IBKR", url: "/ibkr", icon: Wallet },
+  { title: "Guide", url: "/guide", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
