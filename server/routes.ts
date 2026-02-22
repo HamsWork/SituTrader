@@ -1192,7 +1192,6 @@ export async function registerRoutes(
 
       const capitalPerTrade = parseFloat(req.query.capital as string) || 1000;
       const now = new Date();
-      const periods = [30, 60, 90, 120];
 
       const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
 
@@ -1322,12 +1321,7 @@ export async function registerRoutes(
 
       tradeResults.sort((a, b) => b.date.localeCompare(a.date));
 
-      const periodSummaries = periods.map(days => {
-        const cutoff = new Date(now);
-        cutoff.setDate(cutoff.getDate() - days);
-        const cutoffStr = cutoff.toISOString().slice(0, 10);
-        const periodTrades = tradeResults.filter(t => t.date >= cutoffStr);
-
+      const buildSummary = (label: string, periodTrades: any[]) => {
         const totalTrades = periodTrades.length;
         const wins = periodTrades.filter(t => t.outcome === "HIT_T1").length;
         const losses = periodTrades.filter(t => t.outcome === "STOPPED").length;
@@ -1358,7 +1352,7 @@ export async function registerRoutes(
         }));
 
         return {
-          days,
+          label,
           totalTrades,
           wins,
           losses,
@@ -1372,7 +1366,26 @@ export async function registerRoutes(
           worstTrade: worstTrade ? { ticker: worstTrade.ticker, pnl: worstTrade.pnlDollar } : null,
           instrumentBreakdown,
         };
-      });
+      };
+
+      const todayStr = now.toISOString().slice(0, 10);
+      const cutoff30 = new Date(now); cutoff30.setDate(cutoff30.getDate() - 30);
+      const cutoff60 = new Date(now); cutoff60.setDate(cutoff60.getDate() - 60);
+      const cutoff90 = new Date(now); cutoff90.setDate(cutoff90.getDate() - 90);
+      const c30 = cutoff30.toISOString().slice(0, 10);
+      const c60 = cutoff60.toISOString().slice(0, 10);
+      const c90 = cutoff90.toISOString().slice(0, 10);
+
+      const trades30 = tradeResults.filter(t => t.date >= c30);
+      const trades60 = tradeResults.filter(t => t.date >= c60 && t.date < c30);
+      const trades90 = tradeResults.filter(t => t.date >= c90 && t.date < c60);
+
+      const periodSummaries = [
+        buildSummary("30 Days", trades30),
+        buildSummary("31-60 Days", trades60),
+        buildSummary("61-90 Days", trades90),
+        buildSummary("Total", tradeResults),
+      ];
 
       const earliestDate = tradeResults.length > 0
         ? tradeResults.reduce((min, t) => t.date < min ? t.date : min, tradeResults[0].date)

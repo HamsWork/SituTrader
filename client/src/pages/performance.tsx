@@ -73,7 +73,7 @@ interface TradeResult {
 }
 
 interface PeriodSummary {
-  days: number;
+  label: string;
   totalTrades: number;
   wins: number;
   losses: number;
@@ -102,7 +102,7 @@ interface PerformanceData {
 
 export default function PerformancePage() {
   const [capital, setCapital] = useState(1000);
-  const [periodFilter, setPeriodFilter] = useState<string>("120");
+  const [periodFilter, setPeriodFilter] = useState<number>(3);
   const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
 
   const { data, isLoading, isFetching } = useQuery<PerformanceData>({
@@ -116,16 +116,32 @@ export default function PerformancePage() {
 
   const activePeriod = useMemo(() => {
     if (!data) return null;
-    return data.periodSummaries.find(p => p.days === parseInt(periodFilter)) ?? data.periodSummaries[3];
+    return data.periodSummaries[periodFilter] ?? data.periodSummaries[3];
   }, [data, periodFilter]);
 
   const filteredTrades = useMemo(() => {
     if (!data) return [];
-    const days = parseInt(periodFilter);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
-    let trades = data.trades.filter(t => t.date >= cutoffStr);
+    const now = new Date();
+    let trades: TradeResult[];
+
+    if (periodFilter === 3) {
+      trades = data.trades;
+    } else {
+      const windowDefs = [
+        { start: 0, end: 30 },
+        { start: 30, end: 60 },
+        { start: 60, end: 90 },
+      ];
+      const w = windowDefs[periodFilter];
+      const startCutoff = new Date(now);
+      startCutoff.setDate(startCutoff.getDate() - w.end);
+      const endCutoff = new Date(now);
+      endCutoff.setDate(endCutoff.getDate() - w.start);
+      const startStr = startCutoff.toISOString().slice(0, 10);
+      const endStr = endCutoff.toISOString().slice(0, 10);
+      trades = data.trades.filter(t => t.date >= startStr && (w.start === 0 ? true : t.date < endStr));
+    }
+
     if (instrumentFilter !== "all") {
       trades = trades.filter(t => t.instrumentType === instrumentFilter);
     }
@@ -221,16 +237,16 @@ export default function PerformancePage() {
           </div>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Lookback Period</Label>
-          <Select value={periodFilter} onValueChange={setPeriodFilter}>
+          <Label className="text-xs">Period</Label>
+          <Select value={String(periodFilter)} onValueChange={(v) => setPeriodFilter(parseInt(v))}>
             <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-period">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="30">Last 30 Days</SelectItem>
-              <SelectItem value="60">Last 60 Days</SelectItem>
-              <SelectItem value="90">Last 90 Days</SelectItem>
-              <SelectItem value="120">Last 120 Days</SelectItem>
+              <SelectItem value="0">Last 30 Days</SelectItem>
+              <SelectItem value="1">31-60 Days</SelectItem>
+              <SelectItem value="2">61-90 Days</SelectItem>
+              <SelectItem value="3">Total</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -274,18 +290,16 @@ export default function PerformancePage() {
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4" data-testid="period-summaries">
             {data.periodSummaries.map((p, idx) => {
-              const prevPeriod = idx > 0 ? data.periodSummaries[idx - 1] : null;
-              const sameAsPrev = prevPeriod && prevPeriod.totalTrades === p.totalTrades && prevPeriod.totalPnl === p.totalPnl;
               return (
                 <Card
-                  key={p.days}
-                  className={`cursor-pointer transition-all ${periodFilter === String(p.days) ? "ring-2 ring-primary" : "hover:bg-muted/30"} ${sameAsPrev ? "opacity-60" : ""}`}
-                  onClick={() => setPeriodFilter(String(p.days))}
-                  data-testid={`card-period-${p.days}`}
+                  key={p.label}
+                  className={`cursor-pointer transition-all ${periodFilter === idx ? "ring-2 ring-primary" : "hover:bg-muted/30"}`}
+                  onClick={() => setPeriodFilter(idx)}
+                  data-testid={`card-period-${idx}`}
                 >
                   <CardContent className="pt-3 pb-3 px-4">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium text-muted-foreground">{p.days} Days</span>
+                      <span className="text-xs font-medium text-muted-foreground">{p.label}</span>
                       <Badge
                         variant="outline"
                         className={`text-[10px] ${p.totalPnl >= 0 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}`}
@@ -301,8 +315,8 @@ export default function PerformancePage() {
                       <span>{p.winRate}% WR</span>
                       <span>${p.capitalRequired.toLocaleString()} req</span>
                     </div>
-                    {sameAsPrev && (
-                      <div className="text-[10px] text-muted-foreground/60 mt-1">Same as {prevPeriod.days}d — data only spans {data.dataSpanDays} days</div>
+                    {p.totalTrades === 0 && (
+                      <div className="text-[10px] text-muted-foreground/60 mt-1">No trades in this period</div>
                     )}
                   </CardContent>
                 </Card>
@@ -382,7 +396,7 @@ export default function PerformancePage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Equity Curve</CardTitle>
-                <p className="text-xs text-muted-foreground">Cumulative P&L progression over {periodFilter} days</p>
+                <p className="text-xs text-muted-foreground">Cumulative P&L progression — {activePeriod?.label ?? "Total"}</p>
               </CardHeader>
               <CardContent className="p-2">
                 {equityCurve.length === 0 ? (
