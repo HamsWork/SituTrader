@@ -107,7 +107,7 @@ interface PerformanceData {
 
 export default function PerformancePage() {
   const [capital, setCapital] = useState(1000);
-  const [periodFilter, setPeriodFilter] = useState<number>(3);
+  const [periodFilter, setPeriodFilter] = useState<number>(4);
   const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
 
   const { data, isLoading, isFetching } = useQuery<PerformanceData>({
@@ -121,7 +121,7 @@ export default function PerformancePage() {
 
   const activePeriod = useMemo(() => {
     if (!data) return null;
-    return data.periodSummaries[periodFilter] ?? data.periodSummaries[3];
+    return data.periodSummaries[periodFilter] ?? data.periodSummaries[4];
   }, [data, periodFilter]);
 
   const filteredTrades = useMemo(() => {
@@ -129,8 +129,13 @@ export default function PerformancePage() {
     const now = new Date();
     let trades: TradeResult[];
 
-    if (periodFilter === 3) {
+    if (periodFilter === 4) {
       trades = data.trades;
+    } else if (periodFilter === 3) {
+      const cutoff90 = new Date(now);
+      cutoff90.setDate(cutoff90.getDate() - 90);
+      const c90 = cutoff90.toISOString().slice(0, 10);
+      trades = data.trades.filter(t => t.date < c90);
     } else {
       const windowDefs = [
         { start: 0, end: 30 },
@@ -251,7 +256,8 @@ export default function PerformancePage() {
               <SelectItem value="0">Last 30 Days</SelectItem>
               <SelectItem value="1">31-60 Days</SelectItem>
               <SelectItem value="2">61-90 Days</SelectItem>
-              <SelectItem value="3">Total</SelectItem>
+              <SelectItem value="3">91+ Days</SelectItem>
+              <SelectItem value="4">Total</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -293,7 +299,7 @@ export default function PerformancePage() {
             </div>
           )}
 
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4" data-testid="period-summaries">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5" data-testid="period-summaries">
             {data.periodSummaries.map((p, idx) => {
               return (
                 <Card

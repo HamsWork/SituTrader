@@ -1746,11 +1746,13 @@ export async function registerRoutes(
       const trades30 = tradeResults.filter(t => t.date >= c30);
       const trades60 = tradeResults.filter(t => t.date >= c60 && t.date < c30);
       const trades90 = tradeResults.filter(t => t.date >= c90 && t.date < c60);
+      const tradesOlder = tradeResults.filter(t => t.date < c90);
 
       const periodSummaries = [
         buildSummary("30 Days", trades30),
         buildSummary("31-60 Days", trades60),
         buildSummary("61-90 Days", trades90),
+        buildSummary("91+ Days", tradesOlder),
         buildSummary("Total", tradeResults),
       ];
 
