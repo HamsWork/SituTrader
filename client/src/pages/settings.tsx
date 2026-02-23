@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer, Database, RefreshCw, Crosshair } from "lucide-react";
+import { Plus, X, Search, Loader2, Bell, Star, Globe, Timer, Database, RefreshCw, Crosshair, Shield } from "lucide-react";
 import type { Symbol } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -75,6 +75,28 @@ export default function SettingsPage() {
     },
   });
 
+  const startForwardValidation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/settings/forward-validation/start"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Forward validation started" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to start forward validation", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const stopForwardValidation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/settings/forward-validation/stop"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Forward validation stopped" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to stop forward validation", description: error.message, variant: "destructive" });
+    },
+  });
+
   const rebuildUniverse = useMutation({
     mutationFn: () => apiRequest("POST", "/api/universe/rebuild", { force: true }),
     onSuccess: async (res) => {
@@ -114,6 +136,9 @@ export default function SettingsPage() {
     focusMinSampleSize: settings?.focusMinSampleSize ?? "50",
     stopAtrMultiplier: settings?.stopAtrMultiplier ?? "0.25",
     stopManagementMode: settings?.stopManagementMode ?? "VOLATILITY_ONLY",
+    feesPerTrade: settings?.fees_per_trade ?? "",
+    slippageBps: settings?.slippage_bps ?? "",
+    forwardValidationStart: settings?.forward_validation_start ?? "",
     beProgressThreshold: settings?.beProgressThreshold ?? "0.25",
     beRThreshold: settings?.beRThreshold ?? "0.5",
     timeStopMinutes: settings?.timeStopMinutes ?? "120",
@@ -854,6 +879,105 @@ export default function SettingsPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">Falls back to IBKR_HOST / IBKR_PORT environment variables if blank</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Cost Assumptions</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Applied to robustness testing. Does not affect live backtest results.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="text-xs">Commission per Trade</Label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                defaultValue={currentSettings.feesPerTrade}
+                onBlur={(e) => {
+                  if (e.target.value !== currentSettings.feesPerTrade) {
+                    saveSetting.mutate({ key: "fees_per_trade", value: e.target.value });
+                  }
+                }}
+                className="text-xs"
+                data-testid="input-fees-per-trade"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Slippage (bps)</Label>
+              <Input
+                type="number"
+                step="1"
+                placeholder="0"
+                defaultValue={currentSettings.slippageBps}
+                onBlur={(e) => {
+                  if (e.target.value !== currentSettings.slippageBps) {
+                    saveSetting.mutate({ key: "slippage_bps", value: e.target.value });
+                  }
+                }}
+                className="text-xs"
+                data-testid="input-slippage-bps"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Forward Validation</CardTitle>
+          </div>
+          {currentSettings.forwardValidationStart && (
+            <Badge variant="outline" data-testid="badge-forward-validation-status">
+              Running for {Math.floor((Date.now() - new Date(currentSettings.forwardValidationStart).getTime()) / (1000 * 60 * 60 * 24))} days
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Forward validation tracks new signals in real-time without acting on them, building an out-of-sample record to confirm backtest edge holds on unseen data.
+          </p>
+          {currentSettings.forwardValidationStart ? (
+            <div className="flex items-center gap-3">
+              <p className="text-xs" data-testid="text-forward-validation-start">
+                Started: {new Date(currentSettings.forwardValidationStart).toLocaleDateString()}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => stopForwardValidation.mutate()}
+                disabled={stopForwardValidation.isPending}
+                data-testid="button-stop-forward-validation"
+              >
+                {stopForwardValidation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                ) : null}
+                Stop Forward Validation
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => startForwardValidation.mutate()}
+              disabled={startForwardValidation.isPending}
+              data-testid="button-start-forward-validation"
+            >
+              {startForwardValidation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              ) : null}
+              Start Forward Validation
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>

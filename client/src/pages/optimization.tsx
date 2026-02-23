@@ -35,8 +35,8 @@ import {
   PolarRadiusAxis,
   Radar,
 } from "recharts";
-import { FlaskConical, TrendingUp, TrendingDown, Trophy, AlertTriangle, Target, Clock, Play, Pause, Square, Loader2 } from "lucide-react";
-import type { Backtest, BacktestDetail, SetupExpectancy, BacktestJob } from "@shared/schema";
+import { FlaskConical, TrendingUp, TrendingDown, Trophy, AlertTriangle, Target, Clock, Play, Pause, Square, Loader2, Shield, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import type { Backtest, BacktestDetail, SetupExpectancy, BacktestJob, ReliabilitySummary, ReliabilityGate, RegimeBreakdown, RobustnessRun } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -66,6 +66,181 @@ interface BacktestJobStatus {
   activeJob: BacktestJob | null;
   latestJob: BacktestJob | null;
   totalJobs: number;
+}
+
+function ReliabilitySummaryCard() {
+  const { data: reliability, isLoading } = useQuery<ReliabilitySummary>({
+    queryKey: ["/api/analysis/reliability"],
+  });
+
+  const runAllMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/analysis/robustness/run-all"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/analysis/reliability"] });
+    },
+  });
+
+  const gradeColor = (grade: string) => {
+    if (grade === "A+" || grade === "A") return "text-emerald-500";
+    if (grade === "B") return "text-amber-500";
+    if (grade === "C") return "text-orange-500";
+    return "text-red-500 dark:text-red-400";
+  };
+
+  const gateIcon = (status: ReliabilityGate["status"]) => {
+    if (status === "pass") return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
+    if (status === "fail") return <XCircle className="w-4 h-4 text-red-500" />;
+    if (status === "warn") return <AlertCircle className="w-4 h-4 text-amber-500" />;
+    return <AlertCircle className="w-4 h-4 text-muted-foreground" />;
+  };
+
+  if (isLoading) return <Skeleton className="h-48" />;
+
+  return (
+    <Card data-testid="reliability-summary-card">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Reliability Summary</CardTitle>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => runAllMutation.mutate()}
+            disabled={runAllMutation.isPending}
+            data-testid="btn-run-all-robustness"
+          >
+            {runAllMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+            Run All Robustness Tests
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">System-wide reliability gates and robustness checks</p>
+      </CardHeader>
+      <CardContent>
+        {!reliability ? (
+          <div className="p-8 text-center">
+            <Shield className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+            <p className="text-xs text-muted-foreground">No reliability data available</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <span className={`text-3xl font-bold font-mono ${gradeColor(reliability.overallGrade)}`} data-testid="text-reliability-grade">
+                {reliability.overallGrade}
+              </span>
+              <div>
+                <div className="text-sm font-medium" data-testid="text-reliability-score">
+                  {reliability.overallScore}%
+                </div>
+                <div className="text-xs text-muted-foreground">Overall Score</div>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {reliability.gates.map((gate: ReliabilityGate) => (
+                <div key={gate.id} className="flex items-center gap-2 text-sm" data-testid={`row-gate-${gate.id}`}>
+                  {gateIcon(gate.status)}
+                  <span className="flex-1 truncate">{gate.name}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {gate.score}/{gate.maxScore}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] ${
+                      gate.status === "pass" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                        : gate.status === "fail" ? "bg-red-500/10 text-red-600 border-red-500/20"
+                        : gate.status === "warn" ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                        : ""
+                    }`}
+                  >
+                    {gate.status === "not_run" ? "Not Run" : gate.status === "insufficient_data" ? "No Data" : gate.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+            {reliability.warnings.length > 0 && (
+              <div className="space-y-1 pt-2 border-t" data-testid="reliability-warnings">
+                {reliability.warnings.map((w, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-xs text-amber-600">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RegimeSummaryCard() {
+  const { data: runs, isLoading } = useQuery<RobustnessRun[]>({
+    queryKey: ["/api/analysis/robustness-runs", "regime_analysis"],
+    queryFn: () => fetch("/api/analysis/robustness-runs?testType=regime_analysis").then(r => r.json()),
+  });
+
+  if (isLoading) return <Skeleton className="h-48" />;
+
+  const latestRun = runs?.[0];
+  const breakdowns: RegimeBreakdown[] =
+    (latestRun?.summaryMetrics as any)?.breakdowns ?? [];
+
+  return (
+    <Card data-testid="regime-summary-card">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Target className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm">Regime Analysis</CardTitle>
+        </div>
+        <p className="text-xs text-muted-foreground">Performance breakdown by market regime</p>
+      </CardHeader>
+      <CardContent className="p-0">
+        {breakdowns.length === 0 ? (
+          <div className="p-8 text-center">
+            <Target className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+            <p className="text-xs text-muted-foreground" data-testid="text-no-regime-data">No regime analysis available</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Regime</TableHead>
+                  <TableHead className="text-right">Sample Size</TableHead>
+                  <TableHead className="text-right">Win Rate</TableHead>
+                  <TableHead className="text-right">Expectancy R</TableHead>
+                  <TableHead className="text-right">Hit Rate</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {breakdowns.map((b: RegimeBreakdown) => (
+                  <TableRow key={b.regime} data-testid={`row-regime-${b.regime}`}>
+                    <TableCell className="font-medium">{b.label || b.regime}</TableCell>
+                    <TableCell className="text-right font-mono">{b.sampleSize}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      <span className={b.winRate >= 0.5 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
+                        {(b.winRate * 100).toFixed(1)}%
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-medium">
+                      <span className={b.expectancyR >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
+                        {b.expectancyR >= 0 ? "+" : ""}{b.expectancyR.toFixed(3)}R
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {(b.hitRate * 100).toFixed(1)}%
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function OptimizationPage() {
@@ -816,6 +991,10 @@ export default function OptimizationPage() {
               </CardContent>
             </Card>
           )}
+
+          <ReliabilitySummaryCard />
+
+          <RegimeSummaryCard />
         </>
       )}
     </div>

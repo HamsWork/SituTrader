@@ -182,6 +182,79 @@ const concepts = [
   },
 ];
 
+const reliabilityGates = [
+  {
+    id: "fees_slippage",
+    title: "Fees & Slippage",
+    icon: BarChart3,
+    description:
+      "Tests whether your edge survives real-world trading costs including commissions, spread, and slippage. A strategy that only works in a zero-cost simulation is not tradeable.",
+  },
+  {
+    id: "out_of_sample",
+    title: "Out-of-Sample Validation",
+    icon: Target,
+    description:
+      "Splits historical data into training and testing periods. The strategy is optimized on the training set and then evaluated on unseen test data to detect overfitting.",
+  },
+  {
+    id: "walk_forward",
+    title: "Walk-Forward Test",
+    icon: Timer,
+    description:
+      "Uses a sliding window to repeatedly train and test the strategy across multiple time periods, simulating how it would adapt to changing market conditions over time.",
+  },
+  {
+    id: "stress_test",
+    title: "Stress Testing",
+    icon: AlertTriangle,
+    description:
+      "Evaluates strategy performance under adverse market scenarios such as flash crashes, high-volatility spikes, and liquidity dry-ups to ensure it doesn't blow up in extreme conditions.",
+  },
+  {
+    id: "monte_carlo",
+    title: "Monte Carlo Simulation",
+    icon: Zap,
+    description:
+      "Randomizes the sequence of trades thousands of times to assess the range of possible outcomes. Helps determine if results are statistically significant or just luck.",
+  },
+  {
+    id: "parameter_sweep",
+    title: "Parameter Sensitivity",
+    icon: BarChart3,
+    description:
+      "Varies key parameters like stop distance, target multiples, and entry thresholds to check if performance is stable across a range of values or fragile to small changes.",
+  },
+  {
+    id: "stop_sensitivity",
+    title: "Stop Distance Sensitivity",
+    icon: Shield,
+    description:
+      "Specifically tests what happens when stops are tightened or widened. A robust strategy should degrade gracefully rather than collapse when stop placement shifts slightly.",
+  },
+  {
+    id: "regime_analysis",
+    title: "Regime-Aware Reporting",
+    icon: TrendingUp,
+    description:
+      "Breaks down performance by market volatility regime (low, normal, high). Reveals whether the strategy only works in one regime or maintains its edge across different environments.",
+  },
+  {
+    id: "forward_validation",
+    title: "Forward Validation",
+    icon: Clock,
+    description:
+      "Tracks strategy performance in a paper or live forward-testing period after backtesting is complete. Confirms that historical results translate to real-time market behavior.",
+  },
+  {
+    id: "data_quality",
+    title: "Data Quality & Coverage",
+    icon: Target,
+    description:
+      "Checks whether the backtest data has sufficient history, adequate sample size, and minimal gaps. Ensures results are not based on thin or unreliable data.",
+  },
+];
+
 export default function GuidePage() {
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
@@ -308,6 +381,51 @@ export default function GuidePage() {
             </Card>
           ))}
         </div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold mb-3" data-testid="text-reliability-title">
+          Reliability & Robustness
+        </h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          The system runs 10 validation gates to measure how robust your trading strategy is. Here's what each test means.
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {reliabilityGates.map((gate) => (
+            <Card key={gate.title} data-testid={`card-gate-${gate.id}`}>
+              <CardContent className="pt-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-md bg-muted shrink-0">
+                    <gate.icon className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold mb-1">{gate.title}</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{gate.description}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card className="mt-3" data-testid="card-grading-scale">
+          <CardContent className="pt-4">
+            <h3 className="text-sm font-semibold mb-1">Grading Scale</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed mb-2">
+              Each gate produces a pass/fail result. The overall reliability grade is based on the percentage of gates passed:
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <Badge variant="default">A+ (85%+)</Badge>
+              <Badge variant="default">A (75%+)</Badge>
+              <Badge variant="secondary">B (60%+)</Badge>
+              <Badge variant="secondary">C (40%+)</Badge>
+              <Badge variant="secondary">D (20%+)</Badge>
+              <Badge variant="destructive">F (&lt;20%)</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Higher scores indicate a more thoroughly validated and robust strategy.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

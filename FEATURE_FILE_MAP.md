@@ -283,7 +283,25 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
-## 22. Theme & UI Framework
+## 22. Testing & Robustness
+
+| File | Key Exports | Role |
+|---|---|---|
+| `server/lib/reliability.ts` | `computeReliabilitySummary()`, `runFeesSlippageTest()`, `runOutOfSampleTest()`, `runWalkForwardTest()`, `runMonteCarloTest()`, `runStressTest()`, `runParameterSweep()`, `runStopSensitivityTest()`, `runRegimeAnalysis()` | 8 robustness test implementations + 10-gate reliability summary computation |
+| `shared/schema.ts` | `robustness_runs` table, `ReliabilitySummary`, `ReliabilityGate`, `RegimeBreakdown` types | Schema for robustness run tracking and reliability types |
+| `server/storage.ts` | Robustness runs CRUD methods | Persistence for robustness test executions |
+| `server/routes.ts` | `GET /api/analysis/reliability`, `GET /api/analysis/robustness-runs`, `POST /api/analysis/robustness/run`, `POST /api/analysis/robustness/run-all`, `POST /api/settings/assumptions`, `POST /api/settings/forward-validation/start`, `POST /api/settings/forward-validation/stop` | API endpoints for reliability analysis, robustness testing, cost assumptions, and forward validation |
+| `client/src/pages/optimization.tsx` | ReliabilitySummaryCard, RegimeSummaryCard | Reliability summary and regime breakdown display |
+| `client/src/pages/backtest.tsx` | Test Coverage Checklist, Assumption Badges | Robustness validation checklist and active assumption indicators |
+| `client/src/pages/settings.tsx` | Cost Assumptions card, Forward Validation card | Configuration for fees/slippage and forward validation controls |
+| `client/src/pages/guide.tsx` | Reliability interpretation section | User-facing documentation for reliability scoring |
+
+**8 Robustness Tests:** Fees & Slippage, Out-of-Sample, Walk-Forward, Monte Carlo, Stress Test, Parameter Sweep, Stop Sensitivity, Regime Analysis
+**Reliability Summary:** 10-gate scoring system aggregating all robustness test results
+
+---
+
+## 23. Theme & UI Framework
 
 | File | Role |
 |---|---|
@@ -326,6 +344,7 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/tradeplan.ts` | Trade Plan Generation |
 | `server/lib/optionMonitor.ts` | Options Live Monitoring |
 | `server/lib/letfMonitor.ts` | LETF Live Monitoring |
+| `server/lib/reliability.ts` | Testing & Robustness (8 tests + reliability summary) |
 | `server/jobs/scheduler.ts` | Author Mode |
 | `server/jobs/jobFunctions.ts` | Author Mode, Setup Detection, Activation |
 | `server/jobs/backtestWorker.ts` | Backtesting (bulk worker) |
@@ -333,9 +352,9 @@ This document maps every major feature to the specific files and key functions/e
 | `client/src/pages/performance.tsx` | Performance Analytics |
 | `client/src/pages/profit-windows.tsx` | Multi-Instrument Profit Windows |
 | `server/lib/profitWindows.ts` | Profit Windows (computation engine) |
-| `client/src/pages/optimization.tsx` | Optimization, Expectancy |
-| `client/src/pages/settings.tsx` | Settings, Profiles, Universe, Author Mode |
+| `client/src/pages/optimization.tsx` | Optimization, Expectancy, Testing & Robustness |
+| `client/src/pages/settings.tsx` | Settings, Profiles, Universe, Author Mode, Testing & Robustness |
 | `client/src/pages/symbol-detail.tsx` | Symbol Detail, Backtesting |
-| `client/src/pages/backtest.tsx` | Backtesting |
+| `client/src/pages/backtest.tsx` | Backtesting, Testing & Robustness |
 | `client/src/pages/ibkr-dashboard.tsx` | IBKR Integration |
-| `client/src/pages/guide.tsx` | Setup Documentation |
+| `client/src/pages/guide.tsx` | Setup Documentation, Testing & Robustness |

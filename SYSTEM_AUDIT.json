@@ -1,14 +1,14 @@
 {
   "audit_metadata": {
     "audit_date": "2026-02-23",
-    "codebase_lines": 21200,
-    "source_files": 71,
+    "codebase_lines": 22400,
+    "source_files": 72,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
   },
   "database": {
     "orm": "drizzle-orm",
     "provider": "PostgreSQL (Neon-backed)",
-    "table_count": 15,
+    "table_count": 16,
     "tables": {
       "signals": {
         "columns": 40,
@@ -99,6 +99,12 @@
         "pk": "id (serial)",
         "purpose": "Background backtest worker job state with checkpoint-based resumption",
         "key_columns": ["status", "totalCombos", "completedCombos", "failedCombos", "setupTypes", "completedPairs", "currentTicker", "currentSetup", "lastError"]
+      },
+      "robustness_runs": {
+        "columns": 9,
+        "pk": "id (serial)",
+        "purpose": "Track all robustness test executions with parameters, status, and summary metrics",
+        "key_columns": ["testType", "scope", "parameters", "status", "summaryMetrics", "startedAt", "completedAt", "createdAt"]
       }
     }
   },
@@ -106,9 +112,9 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 1968,
+    "routes_lines": 2096,
     "storage_file": "server/storage.ts",
-    "storage_lines": 904,
+    "storage_lines": 950,
     "api_endpoints": [
       { "method": "GET", "path": "/api/profiles", "purpose": "List all signal profiles" },
       { "method": "GET", "path": "/api/profiles/active", "purpose": "Get active profile" },
@@ -164,7 +170,14 @@
       { "method": "POST", "path": "/api/backtest/jobs/resume", "purpose": "Resume backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/cancel", "purpose": "Cancel active backtest job" },
       { "method": "GET", "path": "/api/backtest/jobs/status", "purpose": "Worker status and job progress" },
-      { "method": "GET", "path": "/api/performance/profit-windows", "purpose": "Multi-instrument profit windows analysis" }
+      { "method": "GET", "path": "/api/performance/profit-windows", "purpose": "Multi-instrument profit windows analysis" },
+      { "method": "GET", "path": "/api/analysis/reliability", "purpose": "Compute and return reliability summary with 10-gate scoring" },
+      { "method": "GET", "path": "/api/analysis/robustness-runs", "purpose": "List robustness test runs, optional testType filter" },
+      { "method": "POST", "path": "/api/analysis/robustness/run", "purpose": "Execute a single robustness test by type" },
+      { "method": "POST", "path": "/api/analysis/robustness/run-all", "purpose": "Execute all 8 robustness tests sequentially" },
+      { "method": "POST", "path": "/api/settings/assumptions", "purpose": "Save fees/slippage cost assumptions" },
+      { "method": "POST", "path": "/api/settings/forward-validation/start", "purpose": "Start forward validation tracking" },
+      { "method": "POST", "path": "/api/settings/forward-validation/stop", "purpose": "Stop forward validation tracking" }
     ]
   },
   "service_layer": {
@@ -289,6 +302,12 @@
         "lines": 160,
         "purpose": "Leveraged ETF position monitoring",
         "exports": ["refreshLetfQuotesForActiveSignals", "getLetfLiveData", "startLetfMonitor", "stopLetfMonitor"]
+      },
+      {
+        "file": "reliability.ts",
+        "lines": 994,
+        "purpose": "Reliability service with 8 robustness test implementations and 10-gate summary computation",
+        "exports": ["computeReliabilitySummary", "runFeesSlippageTest", "runOutOfSampleTest", "runWalkForwardTest", "runMonteCarloTest", "runStressTest", "runParameterSweep", "runStopSensitivityTest", "runRegimeAnalysis"]
       }
     ]
   },
@@ -356,14 +375,14 @@
       {
         "route": "/optimization",
         "file": "client/src/pages/optimization.tsx",
-        "lines": 823,
-        "purpose": "Setup grading, expectancy intelligence, and backtest worker control"
+        "lines": 1002,
+        "purpose": "Setup grading, expectancy intelligence, backtest worker control, reliability summary, regime breakdown"
       },
       {
         "route": "/settings",
         "file": "client/src/pages/settings.tsx",
-        "lines": 861,
-        "purpose": "Configuration management"
+        "lines": 985,
+        "purpose": "Configuration management, cost assumptions, forward validation"
       },
       {
         "route": "/symbol/:ticker",
@@ -374,8 +393,8 @@
       {
         "route": "/backtest",
         "file": "client/src/pages/backtest.tsx",
-        "lines": 509,
-        "purpose": "Backtest results and analysis"
+        "lines": 647,
+        "purpose": "Backtest results and analysis, test coverage checklist, assumption badges"
       },
       {
         "route": "/ibkr",
@@ -392,8 +411,8 @@
       {
         "route": "/guide",
         "file": "client/src/pages/guide.tsx",
-        "lines": 314,
-        "purpose": "Setup documentation and trading guide"
+        "lines": 432,
+        "purpose": "Setup documentation, trading guide, and reliability interpretation"
       }
     ],
     "shared_components": {

@@ -27,6 +27,17 @@ import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSumma
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
 import { postOptionsAlert, postLetfAlert } from "./lib/discord";
 import { computeAllProfitWindows, type TradeInput } from "./lib/profitWindows";
+import {
+  computeReliabilitySummary,
+  runFeesSlippageTest,
+  runOutOfSampleTest,
+  runWalkForwardTest,
+  runMonteCarloTest,
+  runStressTest,
+  runParameterSweep,
+  runStopSensitivityTest,
+  runRegimeAnalysis,
+} from "./lib/reliability";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -1961,6 +1972,123 @@ export async function registerRoutes(
       res.type("text/plain").send(content);
     } catch {
       res.status(404).send("SYSTEM_AUDIT.json not found");
+    }
+  });
+
+  app.get("/api/analysis/reliability", async (_req, res) => {
+    try {
+      const summary = await computeReliabilitySummary();
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/analysis/robustness-runs", async (req, res) => {
+    try {
+      const testType = req.query.testType as string | undefined;
+      const runs = await storage.getRobustnessRuns(testType);
+      res.json(runs);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/analysis/robustness/run", async (req, res) => {
+    try {
+      const { testType, parameters } = req.body;
+      if (!testType) return res.status(400).json({ error: "testType required" });
+
+      let result;
+      switch (testType) {
+        case "fees_slippage": {
+          const settings = await storage.getAllSettings();
+          const fees = parameters?.feesPerTrade ?? parseFloat(settings["fees_per_trade"] ?? "0");
+          const slippage = parameters?.slippageBps ?? parseFloat(settings["slippage_bps"] ?? "0");
+          result = await runFeesSlippageTest(fees, slippage);
+          break;
+        }
+        case "out_of_sample":
+          result = await runOutOfSampleTest(parameters?.splitRatio ?? 0.7);
+          break;
+        case "walk_forward":
+          result = await runWalkForwardTest(parameters?.windowCount ?? 3);
+          break;
+        case "monte_carlo":
+          result = await runMonteCarloTest(parameters?.simulations ?? 1000);
+          break;
+        case "stress_test":
+          result = await runStressTest();
+          break;
+        case "parameter_sweep":
+          result = await runParameterSweep();
+          break;
+        case "stop_sensitivity":
+          result = await runStopSensitivityTest();
+          break;
+        case "regime_analysis":
+          result = await runRegimeAnalysis();
+          break;
+        default:
+          return res.status(400).json({ error: `Unknown test type: ${testType}` });
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/analysis/robustness/run-all", async (_req, res) => {
+    try {
+      const settings = await storage.getAllSettings();
+      const fees = parseFloat(settings["fees_per_trade"] ?? "0");
+      const slippage = parseFloat(settings["slippage_bps"] ?? "0");
+
+      const results = [];
+      results.push(await runFeesSlippageTest(fees, slippage));
+      results.push(await runOutOfSampleTest());
+      results.push(await runWalkForwardTest());
+      results.push(await runMonteCarloTest());
+      results.push(await runStressTest());
+      results.push(await runParameterSweep());
+      results.push(await runStopSensitivityTest());
+      results.push(await runRegimeAnalysis());
+
+      const summary = await computeReliabilitySummary();
+      res.json({ runs: results, summary });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/settings/assumptions", async (req, res) => {
+    try {
+      const { feesPerTrade, slippageBps } = req.body;
+      if (feesPerTrade !== undefined) await storage.setSetting("fees_per_trade", String(feesPerTrade));
+      if (slippageBps !== undefined) await storage.setSetting("slippage_bps", String(slippageBps));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/settings/forward-validation/start", async (_req, res) => {
+    try {
+      await storage.setSetting("forward_validation_start", new Date().toISOString());
+      await storage.setSetting("forward_validation_last_check", new Date().toISOString());
+      res.json({ success: true, startedAt: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/settings/forward-validation/stop", async (_req, res) => {
+    try {
+      await storage.setSetting("forward_validation_start", "");
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

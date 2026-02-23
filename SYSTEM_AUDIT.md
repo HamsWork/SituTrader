@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
 **Audit Date:** 2026-02-23  
-**Codebase Size:** ~21,200 lines of TypeScript/TSX across 71 source files  
+**Codebase Size:** ~22,400 lines of TypeScript/TSX across 72 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -17,7 +17,7 @@
 │           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
-│  1,417-line routes.ts · 870-line storage.ts · Drizzle ORM          │
+│  2,096-line routes.ts · 950-line storage.ts · Drizzle ORM          │
 │  Session management · CORS · JSON body parsing                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER (server/lib/)                   │
@@ -26,17 +26,18 @@
 │  polygon.ts · universe.ts · options.ts · leveragedEtf.ts           │
 │  optionMonitor.ts · letfMonitor.ts · backtest.ts · calendar.ts     │
 │  confidence.ts · tradeplan.ts · validate.ts · profitWindows.ts     │
+│  reliability.ts                                                    │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SCHEDULER & WORKERS (server/jobs/)            │
 │  scheduler.ts (241 lines) · jobFunctions.ts (307 lines)           │
 │  backtestWorker.ts (174 lines) · node-cron · Author Mode          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      DATABASE (PostgreSQL)                         │
-│  15 tables · Drizzle ORM · Neon-backed                             │
+│  16 tables · Drizzle ORM · Neon-backed                             │
 │  signals · backtests · ibkr_trades · daily_bars · intraday_bars    │
 │  scheduler_state · universe_members · ticker_stats                  │
 │  setup_expectancy · signal_profiles · symbols · app_settings       │
-│  ibkr_state · time_to_hit_stats · backtest_jobs                    │
+│  ibkr_state · time_to_hit_stats · backtest_jobs · robustness_runs  │
 ├─────────────────────────────────────────────────────────────────────┤
 │                    EXTERNAL INTEGRATIONS                           │
 │  Polygon.io (market data) · IBKR TWS/Gateway (trade execution)    │
@@ -46,7 +47,7 @@
 
 ---
 
-## 2. Database Schema (15 Tables)
+## 2. Database Schema (16 Tables)
 
 ### 2.1 `signals` (Core — 40 columns)
 The central table. Stores every detected setup with full lifecycle tracking.
@@ -106,6 +107,19 @@ Time-to-hit probability distributions per ticker/setup: cumulative probabilities
 
 ### 2.14 `backtest_jobs` (13 columns)
 Background backtest worker job state. Tracks job lifecycle (pending/running/paused/completed/failed/cancelled), progress (completedCombos/totalCombos), setup types being processed, completed pairs array for checkpoint-based resumption, current ticker/setup, and error tracking.
+
+### 2.15 `robustness_runs` (9 columns)
+Tracks all robustness test executions with parameters, status, and summary metrics.
+
+| Key Columns | Purpose |
+|---|---|
+| `id` (serial PK) | Unique run identifier |
+| `testType`, `scope` | Type of robustness test and scope of execution |
+| `parameters` (JSONB) | Input parameters for the test run |
+| `status` | Run lifecycle: pending/running/completed/failed |
+| `summaryMetrics` (JSONB) | Computed results and metrics from the test |
+| `startedAt`, `completedAt` | Execution timing |
+| `createdAt` | Record creation timestamp |
 
 ---
 
@@ -220,7 +234,23 @@ Automatic ticker discovery and ranking:
 
 **Exports:** `rebuildUniverse()`, `getUniverseStatus()`
 
-### 3.12 Additional Modules
+### 3.12 Reliability & Robustness (`server/lib/reliability.ts` — 994 lines)
+Comprehensive robustness testing framework with 8 test implementations and a 10-gate reliability summary:
+
+| Test | Function | Purpose |
+|---|---|---|
+| Fees & Slippage | `runFeesSlippageTest()` | Tests strategy edge survival after realistic execution costs |
+| Out-of-Sample | `runOutOfSampleTest()` | Train/test split validation to detect overfitting |
+| Walk-Forward | `runWalkForwardTest()` | Rolling window optimization with out-of-sample validation |
+| Monte Carlo | `runMonteCarloTest()` | Randomized trade sequence simulation for drawdown distributions |
+| Stress Test | `runStressTest()` | Performance under extreme market conditions |
+| Parameter Sweep | `runParameterSweep()` | Sensitivity analysis across parameter variations |
+| Stop Sensitivity | `runStopSensitivityTest()` | Stop-loss placement robustness analysis |
+| Regime Analysis | `runRegimeAnalysis()` | Performance breakdown by market regime (bull/bear/sideways) |
+
+**Exports:** `computeReliabilitySummary()`, `runFeesSlippageTest()`, `runOutOfSampleTest()`, `runWalkForwardTest()`, `runMonteCarloTest()`, `runStressTest()`, `runParameterSweep()`, `runStopSensitivityTest()`, `runRegimeAnalysis()`
+
+### 3.13 Additional Modules
 - **`backtest.ts`** (221 lines): `runBacktest()`, `computeProbabilities()`, `computeAndStoreTimeToHitStats()`
 - **`calendar.ts`** (81 lines): `isTradingDay()`, `nextTradingDay()`, `prevTradingDay()`, `formatDate()`, `getDayOfWeek()`, `addDays()`, `getTradingDaysBack()`
 - **`confidence.ts`** (68 lines): `computeConfidence()`, `computeATR()`, `computeAvgVolume()`
@@ -267,13 +297,13 @@ Wouter-based routing with sidebar navigation:
 | Route | Page | Lines |
 |---|---|---|
 | `/` | Dashboard | 1,870 |
-| `/settings` | Settings | 861 |
-| `/optimization` | Optimization | 686 |
+| `/settings` | Settings | 985 |
+| `/optimization` | Optimization | 1,002 |
 | `/performance` | Performance | 596 |
 | `/symbol/:ticker` | Symbol Detail | 560 |
-| `/backtest` | Backtest | 509 |
+| `/backtest` | Backtest | 647 |
 | `/ibkr` | IBKR Dashboard | 401 |
-| `/guide` | Guide | 314 |
+| `/guide` | Guide | 432 |
 
 ### 5.2 Dashboard (`client/src/pages/dashboard.tsx` — 1,870 lines)
 The primary interface. Features:
@@ -294,7 +324,7 @@ P&L analytics with exclusive time windows:
 - Full trade history table with sorting
 - KPI cards: capital required, ROI, win rate, best/worst trades
 
-### 5.4 Optimization (`client/src/pages/optimization.tsx` — 823 lines)
+### 5.4 Optimization (`client/src/pages/optimization.tsx` — 1,002 lines)
 Intelligence dashboard for setup grading:
 - Backtest worker progress card with start/pause/resume/cancel controls
 - Per-ticker grading: A+ through F based on expectancy
@@ -303,8 +333,10 @@ Intelligence dashboard for setup grading:
 - Filterable by setup type
 - "Avoid Zone" highlighting for poor performers
 - Tradeability grades with visual indicators
+- ReliabilitySummaryCard with 10-gate scoring
+- RegimeSummaryCard with market regime breakdown
 
-### 5.5 Settings (`client/src/pages/settings.tsx` — 861 lines)
+### 5.5 Settings (`client/src/pages/settings.tsx` — 985 lines)
 Configuration management:
 - Universe builder: top-N, minimum dollar volume, manual additions
 - Watchlist management
@@ -312,6 +344,8 @@ Configuration management:
 - Trading parameters: position size, stop modes, entry modes
 - Author Mode scheduler controls
 - IBKR connection settings
+- Cost Assumptions (fees/slippage configuration)
+- Forward Validation start/stop controls
 
 ### 5.6 Symbol Detail (`client/src/pages/symbol-detail.tsx` — 560 lines)
 Per-ticker deep dive:
@@ -329,12 +363,14 @@ Trade management interface:
 - Trade history with multi-TP progression tracking
 - Manual trade close functionality
 
-### 5.8 Backtest (`client/src/pages/backtest.tsx` — 509 lines)
+### 5.8 Backtest (`client/src/pages/backtest.tsx` — 647 lines)
 Backtest results and analysis interface.
+- Test Coverage Checklist for robustness validation
+- Assumption Badges showing active cost/slippage parameters
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 1,790 lines)
+## 6. API Routes Summary (`server/routes.ts` — 2,096 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -423,6 +459,17 @@ Backtest results and analysis interface.
 
 ### Performance
 - `GET /api/performance/analysis` — P&L analytics with time window params
+
+### Reliability & Robustness
+- `GET /api/analysis/reliability` — Compute and return reliability summary with 10-gate scoring
+- `GET /api/analysis/robustness-runs` — List robustness test runs, optional testType filter
+- `POST /api/analysis/robustness/run` — Execute a single robustness test by type
+- `POST /api/analysis/robustness/run-all` — Execute all 8 robustness tests sequentially
+
+### Cost Assumptions & Forward Validation
+- `POST /api/settings/assumptions` — Save fees/slippage cost assumptions
+- `POST /api/settings/forward-validation/start` — Start forward validation tracking
+- `POST /api/settings/forward-validation/stop` — Stop forward validation tracking
 
 ---
 
@@ -536,14 +583,15 @@ Polygon.io API
 
 | Metric | Value |
 |---|---|
-| Total source files | 68 |
-| Total lines of code | 19,554 |
-| Backend lib modules | 19 |
-| Frontend pages | 8 (including not-found) |
+| Total source files | 72 |
+| Total lines of code | ~22,400 |
+| Backend lib modules | 20 |
+| Frontend pages | 9 (including not-found) |
 | UI components | 37 (Shadcn) |
-| Database tables | 14 |
-| API endpoints | ~50 |
+| Database tables | 16 |
+| API endpoints | ~57 |
 | Setup types | 6 (A–F) |
 | Quality score components | 6 |
-| Largest file | `dashboard.tsx` (1,870 lines) |
-| Second largest | `routes.ts` (1,417 lines) |
+| Robustness tests | 8 |
+| Largest file | `routes.ts` (2,096 lines) |
+| Second largest | `dashboard.tsx` (1,870 lines) |

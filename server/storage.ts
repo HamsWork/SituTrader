@@ -4,11 +4,12 @@ import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
-  ibkrTrades, ibkrState,
+  ibkrTrades, ibkrState, robustnessRuns,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
   type IbkrTrade, type IbkrState,
+  type RobustnessRun, type InsertRobustnessRun,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -111,6 +112,12 @@ export interface IStorage {
   getAllIbkrTrades(): Promise<IbkrTrade[]>;
   getIbkrState(): Promise<IbkrState | null>;
   updateIbkrState(updates: Partial<IbkrState>): Promise<void>;
+
+  createRobustnessRun(run: InsertRobustnessRun): Promise<RobustnessRun>;
+  updateRobustnessRun(id: number, updates: Partial<RobustnessRun>): Promise<RobustnessRun | null>;
+  getRobustnessRuns(testType?: string): Promise<RobustnessRun[]>;
+  getLatestRobustnessRun(testType: string): Promise<RobustnessRun | null>;
+  getAllLatestRobustnessRuns(): Promise<RobustnessRun[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -898,6 +905,45 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.insert(ibkrState).values({ key: "default", ...updates } as any);
     }
+  }
+
+  async createRobustnessRun(run: InsertRobustnessRun): Promise<RobustnessRun> {
+    const [result] = await db.insert(robustnessRuns).values(run).returning();
+    return result;
+  }
+
+  async updateRobustnessRun(id: number, updates: Partial<RobustnessRun>): Promise<RobustnessRun | null> {
+    const { id: _id, createdAt: _ca, ...rest } = updates as any;
+    const rows = await db.update(robustnessRuns).set(rest).where(eq(robustnessRuns.id, id)).returning();
+    return rows[0] ?? null;
+  }
+
+  async getRobustnessRuns(testType?: string): Promise<RobustnessRun[]> {
+    if (testType) {
+      return db.select().from(robustnessRuns)
+        .where(eq(robustnessRuns.testType, testType))
+        .orderBy(desc(robustnessRuns.createdAt));
+    }
+    return db.select().from(robustnessRuns).orderBy(desc(robustnessRuns.createdAt));
+  }
+
+  async getLatestRobustnessRun(testType: string): Promise<RobustnessRun | null> {
+    const rows = await db.select().from(robustnessRuns)
+      .where(eq(robustnessRuns.testType, testType))
+      .orderBy(desc(robustnessRuns.createdAt))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async getAllLatestRobustnessRuns(): Promise<RobustnessRun[]> {
+    const allRuns = await db.select().from(robustnessRuns).orderBy(desc(robustnessRuns.createdAt));
+    const latestByType = new Map<string, RobustnessRun>();
+    for (const run of allRuns) {
+      if (!latestByType.has(run.testType)) {
+        latestByType.set(run.testType, run);
+      }
+    }
+    return Array.from(latestByType.values());
   }
 }
 

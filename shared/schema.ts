@@ -420,6 +420,69 @@ export interface InstrumentLive {
   wideSpread: boolean;
 }
 
+export const robustnessRuns = pgTable("robustness_runs", {
+  id: serial("id").primaryKey(),
+  testType: text("test_type").notNull(),
+  scope: text("scope").notNull().default("global"),
+  ticker: text("ticker"),
+  setupType: text("setup_type"),
+  parameters: jsonb("parameters"),
+  status: text("status").notNull().default("pending"),
+  summaryMetrics: jsonb("summary_metrics"),
+  warnings: text("warnings").array(),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertRobustnessRunSchema = createInsertSchema(robustnessRuns).omit({ id: true, createdAt: true });
+export type InsertRobustnessRun = z.infer<typeof insertRobustnessRunSchema>;
+export type RobustnessRun = typeof robustnessRuns.$inferSelect;
+
+export const ROBUSTNESS_TEST_TYPES = [
+  "fees_slippage",
+  "out_of_sample",
+  "walk_forward",
+  "stress_test",
+  "monte_carlo",
+  "parameter_sweep",
+  "stop_sensitivity",
+  "regime_analysis",
+] as const;
+export type RobustnessTestType = typeof ROBUSTNESS_TEST_TYPES[number];
+
+export const ROBUSTNESS_STATUSES = ["pending", "running", "completed", "failed", "insufficient_data"] as const;
+export type RobustnessStatus = typeof ROBUSTNESS_STATUSES[number];
+
+export interface ReliabilitySummary {
+  overallGrade: string;
+  overallScore: number;
+  gates: ReliabilityGate[];
+  warnings: string[];
+  lastUpdated: string;
+}
+
+export interface ReliabilityGate {
+  id: string;
+  name: string;
+  status: "pass" | "fail" | "warn" | "not_run" | "insufficient_data";
+  score: number;
+  maxScore: number;
+  details: string;
+  lastRunAt: string | null;
+}
+
+export interface RegimeBreakdown {
+  regime: string;
+  label: string;
+  sampleSize: number;
+  winRate: number;
+  expectancyR: number;
+  avgMaeR: number;
+  hitRate: number;
+}
+
 export type SignalApi = Signal & { live?: SignalLive; instrumentLive?: InstrumentLive };
 
 export interface ConfidenceBreakdown {

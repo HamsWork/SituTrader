@@ -33,8 +33,8 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { BarChart3, Play, Download, Loader2, Crosshair } from "lucide-react";
-import type { Symbol, Backtest, BacktestDetail } from "@shared/schema";
+import { BarChart3, Play, Download, Loader2, Crosshair, Shield, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import type { Symbol, Backtest, BacktestDetail, ReliabilitySummary, ReliabilityGate } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -72,6 +72,28 @@ export default function BacktestPage() {
   const { data: setupStats } = useQuery<SetupStats[]>({
     queryKey: ["/api/setup-stats"],
   });
+
+  const { data: reliability, isLoading: reliabilityLoading } = useQuery<ReliabilitySummary>({
+    queryKey: ["/api/analysis/reliability"],
+  });
+
+  const { data: appSettings } = useQuery<Record<string, string>>({
+    queryKey: ["/api/settings"],
+  });
+
+  const runAllTests = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/analysis/robustness/run-all"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/analysis/reliability"] });
+      toast({ title: "Tests complete", description: "All robustness tests have been run." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Tests failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const feesPerTrade = appSettings?.["fees_per_trade"] ? parseFloat(appSettings["fees_per_trade"]) : 0;
+  const slippageBps = appSettings?.["slippage_bps"] ? parseFloat(appSettings["slippage_bps"]) : 0;
 
   const runBacktest = useMutation({
     mutationFn: () =>
@@ -502,6 +524,122 @@ export default function BacktestPage() {
               </Table>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-test-coverage">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Test Coverage & Assumptions</CardTitle>
+          </div>
+          <div className="flex items-center gap-2">
+            {reliability && (
+              <Badge
+                variant="outline"
+                className={`text-xs ${
+                  reliability.overallGrade === "A" || reliability.overallGrade === "B"
+                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                    : reliability.overallGrade === "C"
+                    ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                    : "bg-red-500/10 text-red-600 border-red-500/20"
+                }`}
+                data-testid="badge-overall-grade"
+              >
+                Grade: {reliability.overallGrade} ({reliability.overallScore}%)
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              onClick={() => runAllTests.mutate()}
+              disabled={runAllTests.isPending}
+              data-testid="button-run-all-tests"
+            >
+              {runAllTests.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4 mr-2" />
+              )}
+              {runAllTests.isPending ? "Running..." : "Run All Tests"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {reliabilityLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : !reliability ? (
+            <div className="p-6 text-center">
+              <Shield className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No reliability data available</p>
+              <p className="text-xs text-muted-foreground mt-1">Run all tests to generate coverage report</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {reliability.gates.map((gate) => (
+                <div
+                  key={gate.id}
+                  className="flex items-center justify-between gap-2 p-2 rounded-md border"
+                  data-testid={`row-gate-${gate.id}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {gate.status === "pass" ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    ) : gate.status === "fail" ? (
+                      <XCircle className="w-4 h-4 text-red-500" />
+                    ) : gate.status === "warn" ? (
+                      <AlertCircle className="w-4 h-4 text-amber-500" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                    )}
+                    <span className="text-sm">{gate.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {gate.score}/{gate.maxScore}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        gate.status === "pass"
+                          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                          : gate.status === "fail"
+                          ? "bg-red-500/10 text-red-600 border-red-500/20"
+                          : gate.status === "warn"
+                          ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          : "bg-muted text-muted-foreground border-border"
+                      }`}
+                      data-testid={`badge-gate-status-${gate.id}`}
+                    >
+                      {gate.status.replace("_", " ")}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 pt-2 border-t" data-testid="section-assumption-badges">
+            {feesPerTrade > 0 ? (
+              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20" data-testid="badge-fees">
+                Fees: ${feesPerTrade}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20" data-testid="badge-fees">
+                No Fees Set
+              </Badge>
+            )}
+            {slippageBps > 0 ? (
+              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20" data-testid="badge-slippage">
+                Slippage: {slippageBps}bps
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20" data-testid="badge-slippage">
+                No Slippage Set
+              </Badge>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
