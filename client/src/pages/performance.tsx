@@ -299,9 +299,9 @@ export default function PerformancePage() {
             </div>
           )}
 
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5" data-testid="period-summaries">
-            {data.periodSummaries.map((p, idx) => {
-              return (
+          <div data-testid="period-summaries" className="space-y-3">
+            <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              {data.periodSummaries.slice(0, 4).map((p, idx) => (
                 <Card
                   key={p.label}
                   className={`cursor-pointer transition-all ${periodFilter === idx ? "ring-2 ring-primary" : "hover:bg-muted/30"}`}
@@ -318,7 +318,7 @@ export default function PerformancePage() {
                         {p.totalPnl >= 0 ? "+" : ""}{p.roi}% ROI
                       </Badge>
                     </div>
-                    <div className={`text-2xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
+                    <div className={`text-xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
                       {p.totalPnl >= 0 ? "+" : ""}${p.totalPnl.toLocaleString()}
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
@@ -337,8 +337,46 @@ export default function PerformancePage() {
                     )}
                   </CardContent>
                 </Card>
+              ))}
+            </div>
+            {data.periodSummaries[4] && (() => {
+              const p = data.periodSummaries[4];
+              return (
+                <Card
+                  className={`cursor-pointer transition-all ${periodFilter === 4 ? "ring-2 ring-primary" : "hover:bg-muted/30"}`}
+                  onClick={() => setPeriodFilter(4)}
+                  data-testid="card-period-4"
+                >
+                  <CardContent className="pt-3 pb-3 px-4">
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-medium text-muted-foreground">{p.label}</span>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${p.totalPnl >= 0 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}`}
+                        >
+                          {p.totalPnl >= 0 ? "+" : ""}{p.roi}% ROI
+                        </Badge>
+                      </div>
+                      <div className={`text-xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
+                        {p.totalPnl >= 0 ? "+" : ""}${p.totalPnl.toLocaleString()}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{p.totalTrades} trades</span>
+                        <span>{p.winRate}% WR</span>
+                        <span>${p.capitalRequired.toLocaleString()} req</span>
+                      </div>
+                      {p.totalTrades > 0 && (
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
+                          {(p.liveCount ?? 0) > 0 && <span>{p.liveCount} live</span>}
+                          {(p.backtestCount ?? 0) > 0 && <span>{p.backtestCount} backtest</span>}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               );
-            })}
+            })()}
           </div>
 
           {activePeriod && (
