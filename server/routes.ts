@@ -18,6 +18,7 @@ import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy"
 import { log } from "./index";
 import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
 import { enrichPendingSignalsWithOptions } from "./lib/options";
+import { startBacktestWorker, pauseBacktestWorker, resumeBacktestWorker, isBacktestWorkerRunning, isBacktestWorkerPaused, autoStartBacktestWorker } from "./jobs/backtestWorker";
 import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSignals } from "./lib/optionMonitor";
 import { fetchOptionMark } from "./lib/polygon";
 import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./lib/leveragedEtf";
@@ -49,6 +50,7 @@ export async function registerRoutes(
   await initScheduler();
   startOptionMonitor();
   startLetfMonitor();
+  autoStartBacktestWorker();
 
   app.get("/api/profiles", async (_req, res) => {
     try {
@@ -778,6 +780,86 @@ export async function registerRoutes(
     try {
       const bts = await storage.getBacktests();
       res.json(bts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/backtest/jobs/start", async (req, res) => {
+    try {
+      if (isBacktestWorkerRunning() && !isBacktestWorkerPaused()) {
+        return res.status(409).json({ message: "Backtest worker is already running" });
+      }
+
+      const existingJob = await storage.getActiveBacktestJob();
+      if (existingJob && !isBacktestWorkerRunning()) {
+        startBacktestWorker(existingJob.id);
+        return res.json({ message: "Resumed existing job", jobId: existingJob.id });
+      }
+
+      startBacktestWorker();
+      res.json({ message: "Backtest worker started" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/backtest/jobs/pause", async (_req, res) => {
+    try {
+      pauseBacktestWorker();
+      res.json({ message: "Backtest worker pausing..." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/backtest/jobs/resume", async (_req, res) => {
+    try {
+      if (isBacktestWorkerRunning()) {
+        resumeBacktestWorker();
+        res.json({ message: "Backtest worker resumed" });
+      } else {
+        const job = await storage.getActiveBacktestJob();
+        if (job) {
+          startBacktestWorker(job.id);
+          res.json({ message: "Backtest worker restarted from last checkpoint" });
+        } else {
+          res.status(404).json({ message: "No active backtest job found" });
+        }
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/backtest/jobs/cancel", async (_req, res) => {
+    try {
+      const job = await storage.getActiveBacktestJob();
+      if (job) {
+        await storage.updateBacktestJob(job.id, { status: "cancelled" });
+        pauseBacktestWorker();
+        res.json({ message: "Backtest job cancelled" });
+      } else {
+        res.status(404).json({ message: "No active backtest job" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/backtest/jobs/status", async (_req, res) => {
+    try {
+      const job = await storage.getActiveBacktestJob();
+      const allJobs = await storage.getAllBacktestJobs();
+      const latestJob = allJobs[0] ?? null;
+
+      res.json({
+        workerRunning: isBacktestWorkerRunning(),
+        workerPaused: isBacktestWorkerPaused(),
+        activeJob: job,
+        latestJob: latestJob,
+        totalJobs: allJobs.length,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

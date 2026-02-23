@@ -2,10 +2,10 @@ import { eq, and, desc, gte, sql, asc, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  symbols, dailyBars, intradayBars, signals, backtests, timeToHitStats, appSettings,
+  symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
   ibkrTrades, ibkrState,
-  type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type TimeToHitStat,
+  type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
   type IbkrTrade, type IbkrState,
@@ -51,6 +51,12 @@ export interface IStorage {
 
   upsertBacktest(bt: Omit<Backtest, "id" | "createdAt">): Promise<Backtest>;
   getBacktests(): Promise<Backtest[]>;
+
+  createBacktestJob(job: Omit<BacktestJob, "id" | "createdAt" | "updatedAt">): Promise<BacktestJob>;
+  getActiveBacktestJob(): Promise<BacktestJob | null>;
+  getBacktestJob(id: number): Promise<BacktestJob | null>;
+  updateBacktestJob(id: number, updates: Partial<BacktestJob>): Promise<void>;
+  getAllBacktestJobs(): Promise<BacktestJob[]>;
 
   upsertTimeToHitStats(stat: Omit<TimeToHitStat, "id" | "updatedAt">): Promise<TimeToHitStat>;
   getTimeToHitStats(ticker: string, setupType: string, timeframe?: string): Promise<TimeToHitStat | null>;
@@ -423,6 +429,34 @@ export class DatabaseStorage implements IStorage {
 
   async getBacktests(): Promise<Backtest[]> {
     return db.select().from(backtests).orderBy(desc(backtests.createdAt));
+  }
+
+  async createBacktestJob(job: Omit<BacktestJob, "id" | "createdAt" | "updatedAt">): Promise<BacktestJob> {
+    const [result] = await db.insert(backtestJobs).values(job).returning();
+    return result;
+  }
+
+  async getActiveBacktestJob(): Promise<BacktestJob | null> {
+    const results = await db.select().from(backtestJobs)
+      .where(sql`${backtestJobs.status} IN ('running', 'pending', 'paused')`)
+      .orderBy(desc(backtestJobs.createdAt))
+      .limit(1);
+    return results[0] ?? null;
+  }
+
+  async getBacktestJob(id: number): Promise<BacktestJob | null> {
+    const results = await db.select().from(backtestJobs).where(eq(backtestJobs.id, id));
+    return results[0] ?? null;
+  }
+
+  async updateBacktestJob(id: number, updates: Partial<BacktestJob>): Promise<void> {
+    await db.update(backtestJobs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(backtestJobs.id, id));
+  }
+
+  async getAllBacktestJobs(): Promise<BacktestJob[]> {
+    return db.select().from(backtestJobs).orderBy(desc(backtestJobs.createdAt));
   }
 
   async upsertTimeToHitStats(stat: Omit<TimeToHitStat, "id" | "updatedAt">): Promise<TimeToHitStat> {

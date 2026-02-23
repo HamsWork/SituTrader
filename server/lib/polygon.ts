@@ -7,6 +7,19 @@ const requestCache = new Map<string, { data: any; ts: number }>();
 const CACHE_TTL = 5 * 60 * 1000;
 const LIVE_CACHE_TTL = 15 * 1000;
 
+let lastRequestTs = 0;
+const MIN_REQUEST_INTERVAL_MS = 250;
+const MAX_RETRIES = 3;
+
+async function rateLimitWait(): Promise<void> {
+  const now = Date.now();
+  const elapsed = now - lastRequestTs;
+  if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+    await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
+  }
+  lastRequestTs = Date.now();
+}
+
 async function polygonGet(path: string, params: Record<string, string> = {}, cacheTtl: number = CACHE_TTL): Promise<any> {
   if (!API_KEY) throw new Error("POLYGON_API_KEY not set");
 
@@ -22,15 +35,35 @@ async function polygonGet(path: string, params: Record<string, string> = {}, cac
     return cached.data;
   }
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Polygon API ${res.status}: ${text}`);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    await rateLimitWait();
+    const res = await fetch(url.toString());
+
+    if (res.status === 429) {
+      const backoff = Math.min(1000 * Math.pow(2, attempt + 1), 30000);
+      log(`Polygon rate limited, backing off ${backoff}ms (attempt ${attempt + 1})`, "polygon");
+      await new Promise(r => setTimeout(r, backoff));
+      continue;
+    }
+
+    if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
+      const backoff = 2000 * (attempt + 1);
+      log(`Polygon server error ${res.status}, retrying in ${backoff}ms`, "polygon");
+      await new Promise(r => setTimeout(r, backoff));
+      continue;
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Polygon API ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    requestCache.set(cacheKey, { data, ts: Date.now() });
+    return data;
   }
 
-  const data = await res.json();
-  requestCache.set(cacheKey, { data, ts: Date.now() });
-  return data;
+  throw new Error(`Polygon API failed after ${MAX_RETRIES} retries`);
 }
 
 export interface PolygonBar {

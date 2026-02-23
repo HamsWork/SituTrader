@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -34,9 +35,10 @@ import {
   PolarRadiusAxis,
   Radar,
 } from "recharts";
-import { FlaskConical, TrendingUp, TrendingDown, Trophy, AlertTriangle, Target, Clock } from "lucide-react";
-import type { Backtest, BacktestDetail, SetupExpectancy } from "@shared/schema";
+import { FlaskConical, TrendingUp, TrendingDown, Trophy, AlertTriangle, Target, Clock, Play, Pause, Square, Loader2 } from "lucide-react";
+import type { Backtest, BacktestDetail, SetupExpectancy, BacktestJob } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 function gradeScore(winRate: number, expectancyR: number, profitFactor: number): { grade: string; color: string } {
   const score =
@@ -58,6 +60,14 @@ function gradeBadgeClass(grade: string): string {
   return "bg-red-500/10 text-red-600 border-red-500/20";
 }
 
+interface BacktestJobStatus {
+  workerRunning: boolean;
+  workerPaused: boolean;
+  activeJob: BacktestJob | null;
+  latestJob: BacktestJob | null;
+  totalJobs: number;
+}
+
 export default function OptimizationPage() {
   const [setupFilter, setSetupFilter] = useState<string>("all");
 
@@ -72,6 +82,28 @@ export default function OptimizationPage() {
 
   const { data: backtests } = useQuery<Backtest[]>({
     queryKey: ["/api/backtests"],
+  });
+
+  const { data: jobStatus } = useQuery<BacktestJobStatus>({
+    queryKey: ["/api/backtest/jobs/status"],
+    refetchInterval: 3000,
+  });
+
+  const startMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/backtest/jobs/start"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/backtest/jobs/status"] }),
+  });
+  const pauseMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/backtest/jobs/pause"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/backtest/jobs/status"] }),
+  });
+  const resumeMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/backtest/jobs/resume"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/backtest/jobs/status"] }),
+  });
+  const cancelMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/backtest/jobs/cancel"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/backtest/jobs/status"] }),
   });
 
   const tickerStats = useMemo(() => {
@@ -226,6 +258,110 @@ export default function OptimizationPage() {
           Performance intelligence — identify top stocks, grade setups, and optimize your edge
         </p>
       </div>
+
+      {jobStatus && (
+        <Card data-testid="backtest-worker-card">
+          <CardContent className="pt-4 pb-3 px-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <FlaskConical className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Backtest Worker</span>
+                {jobStatus.workerRunning && !jobStatus.workerPaused && (
+                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />Running
+                  </Badge>
+                )}
+                {jobStatus.workerPaused && (
+                  <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px]">Paused</Badge>
+                )}
+                {!jobStatus.workerRunning && !jobStatus.activeJob && jobStatus.latestJob?.status === "completed" && (
+                  <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">Completed</Badge>
+                )}
+                {!jobStatus.workerRunning && !jobStatus.activeJob && !jobStatus.latestJob && (
+                  <Badge variant="outline" className="text-[10px]">Not Started</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                {!jobStatus.workerRunning && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => startMutation.mutate()}
+                    disabled={startMutation.isPending}
+                    data-testid="btn-start-backtest"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {jobStatus.activeJob ? "Resume" : "Start All"}
+                  </Button>
+                )}
+                {jobStatus.workerRunning && !jobStatus.workerPaused && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => pauseMutation.mutate()}
+                    disabled={pauseMutation.isPending}
+                    data-testid="btn-pause-backtest"
+                  >
+                    <Pause className="w-3 h-3 mr-1" />Pause
+                  </Button>
+                )}
+                {jobStatus.workerPaused && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => resumeMutation.mutate()}
+                    disabled={resumeMutation.isPending}
+                    data-testid="btn-resume-backtest"
+                  >
+                    <Play className="w-3 h-3 mr-1" />Resume
+                  </Button>
+                )}
+                {(jobStatus.workerRunning || jobStatus.activeJob) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs text-red-500"
+                    onClick={() => cancelMutation.mutate()}
+                    disabled={cancelMutation.isPending}
+                    data-testid="btn-cancel-backtest"
+                  >
+                    <Square className="w-3 h-3 mr-1" />Cancel
+                  </Button>
+                )}
+              </div>
+            </div>
+            {(() => {
+              const job = jobStatus.activeJob || jobStatus.latestJob;
+              if (!job) return (
+                <p className="text-xs text-muted-foreground">
+                  Run backtests across all tickers and setup types to populate optimization data.
+                </p>
+              );
+              const pct = job.totalCombos > 0 ? Math.round((job.completedCombos / job.totalCombos) * 100) : 0;
+              return (
+                <div className="space-y-2">
+                  <Progress value={pct} className="h-2" />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{job.completedCombos} / {job.totalCombos} combos ({pct}%)</span>
+                    {job.failedCombos > 0 && (
+                      <span className="text-red-500">{job.failedCombos} failed</span>
+                    )}
+                    {job.currentTicker && job.currentSetup && jobStatus.workerRunning && (
+                      <span className="font-mono">{job.currentTicker} · {SETUP_LABELS[job.currentSetup as SetupType] || job.currentSetup}</span>
+                    )}
+                  </div>
+                  {job.lastError && (
+                    <p className="text-[10px] text-red-500/80 truncate">Last error: {job.lastError}</p>
+                  )}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
 
       {statsLoading && (
         <div className="space-y-1" data-testid="progress-bar">

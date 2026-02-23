@@ -106,6 +106,24 @@ export const backtests = pgTable("backtests", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const backtestJobs = pgTable("backtest_jobs", {
+  id: serial("id").primaryKey(),
+  status: text("status").notNull().default("pending"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  timeframe: text("timeframe").notNull().default("5"),
+  setupTypes: text("setup_types").array().notNull(),
+  totalCombos: integer("total_combos").notNull().default(0),
+  completedCombos: integer("completed_combos").notNull().default(0),
+  failedCombos: integer("failed_combos").notNull().default(0),
+  currentTicker: text("current_ticker"),
+  currentSetup: text("current_setup"),
+  lastError: text("last_error"),
+  completedPairs: jsonb("completed_pairs").default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const timeToHitStats = pgTable("time_to_hit_stats", {
   id: serial("id").primaryKey(),
   ticker: text("ticker").notNull(),
@@ -286,6 +304,7 @@ export type DailyBar = typeof dailyBars.$inferSelect;
 export type IntradayBar = typeof intradayBars.$inferSelect;
 export type Signal = typeof signals.$inferSelect;
 export type Backtest = typeof backtests.$inferSelect;
+export type BacktestJob = typeof backtestJobs.$inferSelect;
 export type TimeToHitStat = typeof timeToHitStats.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
 export type UniverseMember = typeof universeMembers.$inferSelect;
