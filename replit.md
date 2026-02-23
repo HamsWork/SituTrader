@@ -38,6 +38,49 @@ The application follows a full-stack architecture.
 - **IBKR Integration:** Facilitates full bracket order execution (Entry, Stop, TP1, TP2) via Interactive Brokers TWS/Gateway, including fill detection, stop management, and position monitoring.
 - **Discord Alerts:** Dual-channel webhook system with lifecycle embeds. GOAT Alerts channel for Options trades, GOAT Swings channel for Leveraged ETF swing trades. Color-coded: GREEN (entry fill, TP1/TP2/TP3 hits, trade closed with profit), RED (stop loss, trade closed with loss), GOLD (stopped at BE after TP1). Trade Closed embeds only fire on manual closes via dashboard. BE stop move communicated in TP1 embed Risk Management section. Leveraged ETF alerts display underlying stock prices for Entry/TP/Stop fields (not ETF prices), with separate Leveraged ETF ticker, leverage, and entry price fields. Options alerts show strike/expiry/option price. Full P&L and R-multiple in closing embeds.
 
+- **Backtest Worker:** Background job system that processes all universe tickers × 6 setups (A–F) incrementally. Features checkpoint-based resumption, rate-limited Polygon API access, pause/resume/cancel controls, and auto-resume on app restart. Progress tracked in `backtest_jobs` table.
+
+## Standard Operating Procedure (SOP)
+
+### Mandatory: System Audit Update on Every Change
+**After completing ANY code changes**, the following audit files MUST be updated before marking the task as complete:
+
+1. **`SYSTEM_AUDIT.md`** — Human-readable system architecture document
+   - Update affected sections: line counts, table counts, new modules/exports, new API routes, architecture diagram if structural changes
+   - Update the audit date to current date
+
+2. **`SYSTEM_AUDIT.json`** — Machine-readable audit data
+   - Update metadata (date, line counts, file counts)
+   - Add/update table definitions, API endpoints, module entries, scheduler/worker entries
+   - Keep all numeric values accurate (line counts, column counts)
+
+3. **`FEATURE_FILE_MAP.md`** — Feature-to-file mapping
+   - Update affected feature sections with new/changed files and exports
+   - Update the Quick Reference table at the bottom if new files are added
+
+4. **`replit.md`** — Project memory and preferences
+   - Update feature descriptions if new capabilities are added
+   - Add new external dependencies if introduced
+
+### What Triggers an Audit Update
+- New database tables or columns added
+- New API endpoints created
+- New files or modules added
+- Significant line count changes (>50 lines) in existing files
+- New features or sub-features implemented
+- New external dependencies added
+- Architecture changes (new workers, schedulers, integrations)
+
+### Audit Update Checklist
+- [ ] Date updated in SYSTEM_AUDIT.md and SYSTEM_AUDIT.json
+- [ ] Line counts verified with `wc -l` for changed files
+- [ ] New tables documented with column count, PK, purpose, key columns
+- [ ] New API endpoints listed with method, path, and purpose
+- [ ] New module exports documented
+- [ ] Feature file map updated for affected features
+- [ ] Quick Reference table updated if new files added
+- [ ] replit.md updated if new features or dependencies added
+
 ## External Dependencies
 - **Polygon.io:** Primary source for historical and real-time market data (daily and intraday bars, grouped daily endpoint).
 - **PostgreSQL:** Relational database for storing application data.

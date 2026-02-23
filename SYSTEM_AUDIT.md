@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
 **Audit Date:** 2026-02-23  
-**Codebase Size:** ~20,200 lines of TypeScript/TSX across 69 source files  
+**Codebase Size:** ~21,200 lines of TypeScript/TSX across 71 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -13,8 +13,8 @@
 │                         FRONTEND (React)                           │
 │  React 18 · TypeScript · Tailwind CSS · Shadcn UI · Recharts       │
 │  Wouter routing · TanStack Query v5 · Framer Motion                │
-│  8 Pages: Dashboard, Performance, Optimization, Settings,          │
-│           Symbol Detail, Backtest, IBKR Dashboard, Guide           │
+│  9 Pages: Dashboard, Performance, Profit Windows, Optimization,    │
+│           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
 │  1,417-line routes.ts · 870-line storage.ts · Drizzle ORM          │
@@ -25,7 +25,7 @@
 │  alerts.ts · ibkrOrders.ts · ibkr.ts · discord.ts                  │
 │  polygon.ts · universe.ts · options.ts · leveragedEtf.ts           │
 │  optionMonitor.ts · letfMonitor.ts · backtest.ts · calendar.ts     │
-│  confidence.ts · tradeplan.ts · validate.ts                        │
+│  confidence.ts · tradeplan.ts · validate.ts · profitWindows.ts     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SCHEDULER & WORKERS (server/jobs/)            │
 │  scheduler.ts (241 lines) · jobFunctions.ts (307 lines)           │

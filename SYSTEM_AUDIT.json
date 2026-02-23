@@ -1,8 +1,8 @@
 {
   "audit_metadata": {
     "audit_date": "2026-02-23",
-    "codebase_lines": 20200,
-    "source_files": 69,
+    "codebase_lines": 21200,
+    "source_files": 71,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
   },
   "database": {
@@ -106,7 +106,7 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 1790,
+    "routes_lines": 1919,
     "storage_file": "server/storage.ts",
     "storage_lines": 904,
     "api_endpoints": [
@@ -163,7 +163,8 @@
       { "method": "POST", "path": "/api/backtest/jobs/pause", "purpose": "Pause backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/resume", "purpose": "Resume backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/cancel", "purpose": "Cancel active backtest job" },
-      { "method": "GET", "path": "/api/backtest/jobs/status", "purpose": "Worker status and job progress" }
+      { "method": "GET", "path": "/api/backtest/jobs/status", "purpose": "Worker status and job progress" },
+      { "method": "GET", "path": "/api/performance/profit-windows", "purpose": "Multi-instrument profit windows analysis" }
     ]
   },
   "service_layer": {
@@ -264,6 +265,12 @@
         "lines": 51,
         "purpose": "Trade plan generation",
         "exports": ["generateTradePlan"]
+      },
+      {
+        "file": "profitWindows.ts",
+        "lines": 399,
+        "purpose": "Multi-instrument profit windows with execution cost modeling",
+        "exports": ["computeAllProfitWindows", "computeInstrumentWindows", "computeExecutionCosts", "getTimingRecommendations", "TradeInput"]
       },
       {
         "file": "validate.ts",
@@ -375,6 +382,12 @@
         "file": "client/src/pages/ibkr-dashboard.tsx",
         "lines": 401,
         "purpose": "IBKR trade management"
+      },
+      {
+        "route": "/profit-windows",
+        "file": "client/src/pages/profit-windows.tsx",
+        "lines": 601,
+        "purpose": "Multi-instrument profit windows with execution cost analysis"
       },
       {
         "route": "/guide",

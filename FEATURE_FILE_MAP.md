@@ -266,7 +266,22 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
-## 21. Theme & UI Framework
+## 21. Multi-Instrument Profit Windows
+
+| File | Key Exports | Role |
+|---|---|---|
+| `server/lib/profitWindows.ts` | `computeAllProfitWindows()`, `computeInstrumentWindows()`, `computeExecutionCosts()`, `getTimingRecommendations()` | Core engine: 4 instrument profiles (SHARES/LETF/OPTIONS/LETF_OPTIONS), R-multiple windowed stats, equity curves, execution cost modeling with liquidity tiers, timing recommendations |
+| `server/routes.ts` | `GET /api/performance/profit-windows` | API endpoint merging signals + backtests into TradeInputs |
+| `client/src/pages/profit-windows.tsx` | Profit Windows page component | Instrument comparison cards, side-by-side table, per-instrument tabs with charts, execution analysis, timing recs |
+| `client/src/components/app-sidebar.tsx` | Nav item for Profit Windows | Sidebar navigation entry |
+
+**Instrument Profiles:** SHARES (1x), LETF (3x, RTH-only, -100% cap), OPTIONS (5x, RTH-only, -100% cap), LETF_OPTIONS (15x, RTH-only, -100% cap)  
+**Liquidity Tiers:** ULTRA / HIGH / MEDIUM / LOW with different spread factors  
+**Timing Windows:** 7 intraday windows with cost multipliers (optimal at 10:00-11:30 ET, avoid pre-open)
+
+---
+
+## 22. Theme & UI Framework
 
 | File | Role |
 |---|---|
@@ -314,6 +329,8 @@ This document maps every major feature to the specific files and key functions/e
 | `server/jobs/backtestWorker.ts` | Backtesting (bulk worker) |
 | `client/src/pages/dashboard.tsx` | Dashboard, Signals, Profiles, Activation |
 | `client/src/pages/performance.tsx` | Performance Analytics |
+| `client/src/pages/profit-windows.tsx` | Multi-Instrument Profit Windows |
+| `server/lib/profitWindows.ts` | Profit Windows (computation engine) |
 | `client/src/pages/optimization.tsx` | Optimization, Expectancy |
 | `client/src/pages/settings.tsx` | Settings, Profiles, Universe, Author Mode |
 | `client/src/pages/symbol-detail.tsx` | Symbol Detail, Backtesting |

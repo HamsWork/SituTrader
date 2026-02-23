@@ -26,6 +26,7 @@ import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } 
 import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
 import { postOptionsAlert, postLetfAlert } from "./lib/discord";
+import { computeAllProfitWindows, type TradeInput } from "./lib/profitWindows";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -1750,6 +1751,134 @@ export async function registerRoutes(
         periodSummaries,
         trades: tradeResults,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Profit Windows (Multi-Instrument Performance) ──
+
+  app.get("/api/performance/profit-windows", async (req, res) => {
+    try {
+      const riskPerTrade = parseFloat(req.query.risk as string) || 1000;
+      const allSignals = await storage.getSignals(undefined, 10000);
+      const allBacktests = await storage.getBacktests();
+
+      const activeProfile = await storage.getActiveProfile();
+      const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
+
+      let setupStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
+      try {
+        const overallStats = await storage.getOverallSetupExpectancy();
+        for (const s of overallStats) {
+          if (!s.ticker) setupStatsMap.set(s.setupType, { sampleSize: s.sampleSize, winRate: s.winRate, expectancyR: s.expectancyR });
+        }
+      } catch {}
+
+      const matchesProfile = (sig: any): boolean => {
+        if (!activeProfile) return true;
+        if (!activeProfile.allowedSetups.includes(sig.setupType)) return false;
+        const sigTierRank = TIER_RANK[sig.tier] ?? 3;
+        const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
+        if (sigTierRank > minTierRank) return false;
+        if (sig.qualityScore < activeProfile.minQualityScore) return false;
+        const stat = setupStatsMap.get(sig.setupType);
+        if (stat) {
+          if (activeProfile.minSampleSize > 0 && stat.sampleSize < activeProfile.minSampleSize) return false;
+          if (activeProfile.minHitRate > 0 && stat.winRate < activeProfile.minHitRate) return false;
+          if (activeProfile.minExpectancyR > 0 && stat.expectancyR < activeProfile.minExpectancyR) return false;
+        } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
+          return false;
+        }
+        return true;
+      };
+
+      const tradeInputs: TradeInput[] = [];
+      const signalDateKeys = new Set<string>();
+
+      for (const sig of allSignals) {
+        const tp = sig.tradePlanJson as any;
+        if (!tp) continue;
+        const isHit = sig.status === "hit";
+        const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
+        if (!isHit && !isMiss) continue;
+        if (!matchesProfile(sig)) continue;
+
+        const stopDist = tp.stopDistance || 0;
+        const bias = tp.bias as string | undefined;
+
+        let entryPrice: number;
+        if (sig.entryPriceAtActivation && sig.entryPriceAtActivation > 0) {
+          entryPrice = sig.entryPriceAtActivation;
+        } else if (sig.stopPrice && sig.stopPrice > 0 && stopDist > 0) {
+          entryPrice = bias === "BUY" ? sig.stopPrice + stopDist : sig.stopPrice - stopDist;
+        } else if (tp.riskReward && stopDist > 0 && sig.magnetPrice > 0) {
+          entryPrice = bias === "BUY" ? sig.magnetPrice - (tp.riskReward * stopDist) : sig.magnetPrice + (tp.riskReward * stopDist);
+        } else continue;
+
+        if (entryPrice <= 0 || stopDist <= 0) continue;
+
+        let rMultiple: number;
+        if (isHit && tp.t1) {
+          const reward = Math.abs(tp.t1 - entryPrice);
+          rMultiple = reward / stopDist;
+        } else {
+          rMultiple = -1;
+        }
+
+        const signalDate = sig.hitTs ? new Date(sig.hitTs).toISOString().slice(0, 10) : sig.targetDate;
+        const exitDate = signalDate || sig.asofDate;
+        const entryDate = sig.asofDate;
+
+        signalDateKeys.add(`${sig.ticker}:${sig.setupType}:${exitDate}`);
+
+        const entryTs = Math.floor(new Date(entryDate + "T10:00:00-05:00").getTime() / 1000);
+        const exitTs = Math.floor(new Date(exitDate + "T14:00:00-05:00").getTime() / 1000);
+
+        tradeInputs.push({
+          r_multiple: Math.round(rMultiple * 10000) / 10000,
+          entry_ts: entryTs,
+          exit_ts: exitTs,
+          symbol: sig.ticker,
+          entry_price: entryPrice,
+          timeframe: "1d",
+        });
+      }
+
+      for (const bt of allBacktests) {
+        const details = bt.details as any[] | null;
+        if (!details) continue;
+
+        for (const d of details) {
+          if (!d.triggered) continue;
+          if (!d.entryPrice || d.entryPrice <= 0) continue;
+          if (!d.date) continue;
+
+          const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
+          if (signalDateKeys.has(dateKey)) continue;
+
+          const entryPrice = d.entryPrice;
+          const magnetPrice = d.magnetPrice;
+          const stopDist = entryPrice * 0.01;
+          const reward = Math.abs(magnetPrice - entryPrice);
+          const rMultiple = d.hit ? reward / stopDist : -1;
+
+          const exitTs = Math.floor(new Date(d.date + "T14:00:00-05:00").getTime() / 1000);
+          const entryTs = exitTs - 86400;
+
+          tradeInputs.push({
+            r_multiple: Math.round(rMultiple * 10000) / 10000,
+            entry_ts: entryTs,
+            exit_ts: exitTs,
+            symbol: bt.ticker,
+            entry_price: entryPrice,
+            timeframe: "1d",
+          });
+        }
+      }
+
+      const result = computeAllProfitWindows(tradeInputs, riskPerTrade, [30, 60, 90]);
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

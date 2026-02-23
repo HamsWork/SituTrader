@@ -1,0 +1,41 @@
+
+Build a multi-instrument profit performance window system for my trading app. This system computes 30, 60, and 90-day performance windows across 4 instrument types: SHARES (1x leverage), LETF (3x leveraged ETFs), OPTIONS (5x delta-adjusted leverage, RTH-only, loss capped at -1R, $1.30 fee/trade), and LETF_OPTIONS (15x combined leverage = 3x LETF × 5x options delta, RTH-only, loss capped at -1R, $1.30 fee/trade).
+
+Core requirements:
+
+Trade data input: Each trade has: r_multiple (float), entry_ts (epoch seconds), exit_ts (epoch seconds), symbol (string), entry_price (float), timeframe (string like "1d", "15min").
+
+For each instrument type and each window (30/60/90 days), compute:
+
+Filter trades where exit_ts falls within the window
+For RTH-only instruments (OPTIONS, LETF_OPTIONS), filter out trades whose entry or exit falls outside Regular Trading Hours (9:30 AM - 4:00 PM Eastern). Exception: daily/weekly timeframe trades always pass RTH filter.
+Adjusted R = base_r × leverage. For losses with a loss_cap, clamp: adjusted_r = max(base_r × leverage, loss_cap). Subtract fee_r = fee_per_trade / risk_per_trade from each adjusted R.
+Compute: total trades, wins, losses, win rate %, total R, avg R, total P&L (R × $1000 risk), avg P&L, trades per trading day, daily avg P&L, profit factor (gross wins / abs gross losses), best/worst trade R and $, max drawdown R and $, equity curve (last 50 points).
+Count actual trading days in each window (exclude weekends + US market holidays).
+Realistic execution cost modeling (OPTIONS and LETF_OPTIONS only):
+
+Classify each symbol into liquidity tiers: ULTRA_LIQUID (SPY, QQQ, AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AMD — spread 3bps, slippage 2bps, 99% fill), HIGH_LIQUID (JPM, BAC, V, NFLX, etc — 8bps spread, 5bps slip, 97% fill), MEDIUM_LIQUID (CRWD, DDOG, NET, etc — 15bps spread, 10bps slip, 93% fill), LOW_LIQUID (everything else — 30bps spread, 20bps slip, 85% fill).
+Options spread multipliers by tier: ULTRA 1.5x, HIGH 2.5x, MEDIUM 4x, LOW 7x. LETF_OPTIONS multipliers: ULTRA 2x, HIGH 3.5x, MEDIUM 6x, LOW 10x.
+Per trade: cost_as_r = (total_cost_bps / 10000) × leverage × 2 (roundtrip). Realistic R = (theoretical R - cost_as_r) × fill_rate.
+Aggregate into realistic windows showing: retention % (realistic/theoretical × 100), realistic P&L, execution cost $, realistic win rate, realistic profit factor, realistic max drawdown, avg cost per trade, liquidity tier breakdown.
+Execution timing recommendations (OPTIONS and LETF_OPTIONS):
+
+Optimal windows: 10:00-11:30 and 14:00-15:30 (spread factor 1.0x)
+Avoid windows: 9:30-9:45 (2.5x spreads) and 15:45-16:00 (1.8x spreads)
+Acceptable: 9:45-10:00 (1.5x), 11:30-14:00 (1.3x), 15:30-15:45 (1.4x)
+LETF_OPTIONS gets additional 1.3x penalty on all spread factors
+Show estimated savings % from trading optimal vs avoid windows
+Output structure:
+
+{
+  "comparison": {
+    "SHARES": { "profile": {...}, "windows": [...] },
+    "LETF": { "profile": {...}, "windows": [...] },
+    "OPTIONS": { "profile": {...}, "windows": [...], "execution": { "windows": [...], "timing": {...} } },
+    "LETF_OPTIONS": { "profile": {...}, "windows": [...], "execution": { "windows": [...], "timing": {...} } }
+  },
+  "risk_per_trade": 1000
+}
+US Market holidays (2024-2026): New Year's, MLK Day, Presidents Day, Good Friday, Memorial Day, Juneteenth, July 4th, Labor Day, Thanksgiving, Christmas. Weekend = non-trading.
+Build this as a single self-contained module with a main entry function compute_all_profit_windows(trades, risk_per_trade=1000, windows=[30,60,90]) that returns the full comparison dict. Include a runnable example at the bottom with 10 sample trades across ultra-liquid symbols.
+

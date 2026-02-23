@@ -16,6 +16,7 @@ import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
 import IbkrDashboard from "@/pages/ibkr-dashboard";
 import SystemAuditPage from "@/pages/system-audit";
+import ProfitWindowsPage from "@/pages/profit-windows";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/guide" component={GuidePage} />
       <Route path="/optimization" component={OptimizationPage} />
       <Route path="/performance" component={PerformancePage} />
+      <Route path="/profit-windows" component={ProfitWindowsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ibkr" component={IbkrDashboard} />
       <Route path="/audit" component={SystemAuditPage} />
