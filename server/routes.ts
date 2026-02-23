@@ -1593,8 +1593,19 @@ export async function registerRoutes(
         });
       }
 
-      let btIdCounter = -1;
+      const seenBacktestKeys = new Set<string>();
+
+      const latestBacktests = new Map<string, typeof allBacktests[0]>();
       for (const bt of allBacktests) {
+        const key = `${bt.ticker}:${bt.setupType}`;
+        const existing = latestBacktests.get(key);
+        if (!existing || bt.id > existing.id) {
+          latestBacktests.set(key, bt);
+        }
+      }
+
+      let btIdCounter = -1;
+      for (const bt of latestBacktests.values()) {
         const details = bt.details as any[] | null;
         if (!details) continue;
 
@@ -1605,6 +1616,8 @@ export async function registerRoutes(
 
           const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
           if (signalDateKeys.has(dateKey)) continue;
+          if (seenBacktestKeys.has(dateKey)) continue;
+          seenBacktestKeys.add(dateKey);
 
           const entryPrice = d.entryPrice;
           const magnetPrice = d.magnetPrice;
@@ -1886,7 +1899,16 @@ export async function registerRoutes(
       let backtestsIncluded = 0;
       if (includeBacktests) {
         const allBacktests = await storage.getBacktests();
+        const latestBt = new Map<string, typeof allBacktests[0]>();
         for (const bt of allBacktests) {
+          const key = `${bt.ticker}:${bt.setupType}`;
+          const existing = latestBt.get(key);
+          if (!existing || bt.id > existing.id) {
+            latestBt.set(key, bt);
+          }
+        }
+        const seenBtKeys = new Set<string>();
+        for (const bt of latestBt.values()) {
           if (!passesOptimization(bt.ticker, bt.setupType)) continue;
           const details = bt.details as any[] | null;
           if (!details) continue;
@@ -1898,6 +1920,8 @@ export async function registerRoutes(
 
             const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
             if (signalDateKeys.has(dateKey)) continue;
+            if (seenBtKeys.has(dateKey)) continue;
+            seenBtKeys.add(dateKey);
 
             const entryPrice = d.entryPrice;
             const magnetPrice = d.magnetPrice;
