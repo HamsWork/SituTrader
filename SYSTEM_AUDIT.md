@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
-**Audit Date:** 2026-02-22  
-**Codebase Size:** ~19,554 lines of TypeScript/TSX across 68 source files  
+**Audit Date:** 2026-02-23  
+**Codebase Size:** ~20,200 lines of TypeScript/TSX across 69 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -27,16 +27,16 @@
 │  optionMonitor.ts · letfMonitor.ts · backtest.ts · calendar.ts     │
 │  confidence.ts · tradeplan.ts · validate.ts                        │
 ├─────────────────────────────────────────────────────────────────────┤
-│                      SCHEDULER (server/jobs/)                      │
+│                      SCHEDULER & WORKERS (server/jobs/)            │
 │  scheduler.ts (241 lines) · jobFunctions.ts (307 lines)           │
-│  node-cron · Author Mode · 3 job types                             │
+│  backtestWorker.ts (174 lines) · node-cron · Author Mode          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      DATABASE (PostgreSQL)                         │
-│  14 tables · Drizzle ORM · Neon-backed                             │
+│  15 tables · Drizzle ORM · Neon-backed                             │
 │  signals · backtests · ibkr_trades · daily_bars · intraday_bars    │
 │  scheduler_state · universe_members · ticker_stats                  │
 │  setup_expectancy · signal_profiles · symbols · app_settings       │
-│  ibkr_state · time_to_hit_stats                                    │
+│  ibkr_state · time_to_hit_stats · backtest_jobs                    │
 ├─────────────────────────────────────────────────────────────────────┤
 │                    EXTERNAL INTEGRATIONS                           │
 │  Polygon.io (market data) · IBKR TWS/Gateway (trade execution)    │
@@ -46,7 +46,7 @@
 
 ---
 
-## 2. Database Schema (14 Tables)
+## 2. Database Schema (15 Tables)
 
 ### 2.1 `signals` (Core — 40 columns)
 The central table. Stores every detected setup with full lifecycle tracking.
@@ -103,6 +103,9 @@ IBKR connection state: connected flag, timestamps, account info (net liquidation
 
 ### 2.13 `time_to_hit_stats` (12 columns)
 Time-to-hit probability distributions per ticker/setup: cumulative probabilities at 15/30/60/120/240/390 minutes, with median time.
+
+### 2.14 `backtest_jobs` (13 columns)
+Background backtest worker job state. Tracks job lifecycle (pending/running/paused/completed/failed/cancelled), progress (completedCombos/totalCombos), setup types being processed, completed pairs array for checkpoint-based resumption, current ticker/setup, and error tracking.
 
 ---
 
@@ -185,7 +188,7 @@ Full Interactive Brokers TWS/Gateway integration:
 
 **`ibkrOrders.ts` exports:** `executeTradeForSignal()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()`
 
-### 3.8 Polygon.io Integration (`server/lib/polygon.ts` — 442 lines)
+### 3.8 Polygon.io Integration (`server/lib/polygon.ts` — 475 lines)
 Market data provider with extensive API surface:
 
 **Exports:** `fetchDailyBars()`, `fetchIntradayBars()`, `fetchGroupedDaily()`, `fetchOptionsChain()`, `fetchOptionContractDetails()`, `fetchOptionQuote()`, `fetchOptionSnapshot()`, `fetchSnapshot()`, `fetchOptionNbbo()`, `fetchOptionLastTrade()`, `fetchOptionMarkAtTime()`, `fetchStockPriceAtTime()`, `fetchOptionMark()`
@@ -230,9 +233,9 @@ Automatic ticker discovery and ranking:
 
 ## 4. Scheduler / Author Mode
 
-### Architecture (`server/jobs/scheduler.ts` — 241 lines, `jobFunctions.ts` — 307 lines)
+### Architecture (`server/jobs/scheduler.ts` — 241 lines, `jobFunctions.ts` — 307 lines, `backtestWorker.ts` — 174 lines)
 
-Three distinct job types orchestrated by node-cron:
+Three distinct scheduled job types orchestrated by node-cron, plus a background backtest worker:
 
 | Job | Schedule | Function |
 |---|---|---|
@@ -242,11 +245,17 @@ Three distinct job types orchestrated by node-cron:
 
 **Scheduler exports:** `initScheduler()`, `reconfigureJobs()`, `runAutoNow()`
 
+**Backtest Worker exports:** `startBacktestWorker()`, `autoStartBacktestWorker()`, `pauseBacktestWorker()`, `resumeBacktestWorker()`, `isBacktestWorkerRunning()`, `isBacktestWorkerPaused()`
+
 Features:
 - Per-job enable/disable toggles
 - Holiday and weekend gating via `calendar.ts`
 - Run summary logging to `scheduler_state`
 - Master `author_mode_enabled` toggle
+- Background backtest worker processes all tickers × 6 setups incrementally
+- Checkpoint-based resumption: saves completedPairs array for restart recovery
+- Rate-limited Polygon API access (250ms min spacing, exponential backoff on 429s)
+- Auto-resumes incomplete jobs on app boot
 
 ---
 
@@ -285,8 +294,9 @@ P&L analytics with exclusive time windows:
 - Full trade history table with sorting
 - KPI cards: capital required, ROI, win rate, best/worst trades
 
-### 5.4 Optimization (`client/src/pages/optimization.tsx` — 686 lines)
+### 5.4 Optimization (`client/src/pages/optimization.tsx` — 823 lines)
 Intelligence dashboard for setup grading:
+- Backtest worker progress card with start/pause/resume/cancel controls
 - Per-ticker grading: A+ through F based on expectancy
 - Setup comparison radar chart
 - PRIMARY/SECONDARY/OFF category management
@@ -324,7 +334,7 @@ Backtest results and analysis interface.
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 1,417 lines)
+## 6. API Routes Summary (`server/routes.ts` — 1,790 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -359,6 +369,13 @@ Backtest results and analysis interface.
 - `GET /api/time-to-hit-stats/:ticker/:setup` — Time-to-hit for specific ticker/setup
 - `GET /api/time-to-hit-stats` — All time-to-hit stats
 - `GET /api/backtests` — Get all backtests
+
+### Backtest Worker
+- `POST /api/backtest/jobs/start` — Start backtest worker (all tickers × 6 setups)
+- `POST /api/backtest/jobs/pause` — Pause worker
+- `POST /api/backtest/jobs/resume` — Resume worker
+- `POST /api/backtest/jobs/cancel` — Cancel active job
+- `GET /api/backtest/jobs/status` — Worker status and job progress
 
 ### Activation & Alerts
 - `POST /api/activation/scan` — Run activation scan

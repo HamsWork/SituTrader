@@ -1,14 +1,14 @@
 {
   "audit_metadata": {
-    "audit_date": "2026-02-22",
-    "codebase_lines": 19554,
-    "source_files": 68,
+    "audit_date": "2026-02-23",
+    "codebase_lines": 20200,
+    "source_files": 69,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
   },
   "database": {
     "orm": "drizzle-orm",
     "provider": "PostgreSQL (Neon-backed)",
-    "table_count": 14,
+    "table_count": 15,
     "tables": {
       "signals": {
         "columns": 40,
@@ -93,6 +93,12 @@
         "pk": "id (serial)",
         "purpose": "Time-to-hit probability distributions per ticker/setup",
         "key_columns": ["ticker", "setup_type", "p15", "p30", "p60", "p120", "p240", "p390"]
+      },
+      "backtest_jobs": {
+        "columns": 13,
+        "pk": "id (serial)",
+        "purpose": "Background backtest worker job state with checkpoint-based resumption",
+        "key_columns": ["status", "totalCombos", "completedCombos", "failedCombos", "setupTypes", "completedPairs", "currentTicker", "currentSetup", "lastError"]
       }
     }
   },
@@ -100,9 +106,9 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 1417,
+    "routes_lines": 1790,
     "storage_file": "server/storage.ts",
-    "storage_lines": 870,
+    "storage_lines": 904,
     "api_endpoints": [
       { "method": "GET", "path": "/api/profiles", "purpose": "List all signal profiles" },
       { "method": "GET", "path": "/api/profiles/active", "purpose": "Get active profile" },
@@ -152,7 +158,12 @@
       { "method": "POST", "path": "/api/ibkr/monitor", "purpose": "Run trade monitor" },
       { "method": "POST", "path": "/api/discord/test-options", "purpose": "Test options webhook" },
       { "method": "POST", "path": "/api/discord/test-letf", "purpose": "Test LETF webhook" },
-      { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" }
+      { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" },
+      { "method": "POST", "path": "/api/backtest/jobs/start", "purpose": "Start backtest worker" },
+      { "method": "POST", "path": "/api/backtest/jobs/pause", "purpose": "Pause backtest worker" },
+      { "method": "POST", "path": "/api/backtest/jobs/resume", "purpose": "Resume backtest worker" },
+      { "method": "POST", "path": "/api/backtest/jobs/cancel", "purpose": "Cancel active backtest job" },
+      { "method": "GET", "path": "/api/backtest/jobs/status", "purpose": "Worker status and job progress" }
     ]
   },
   "service_layer": {
@@ -208,8 +219,8 @@
       },
       {
         "file": "polygon.ts",
-        "lines": 442,
-        "purpose": "Polygon.io API client with caching and options data",
+        "lines": 475,
+        "purpose": "Polygon.io API client with rate limiting, caching, and options data",
         "exports": ["fetchDailyBars", "fetchIntradayBars", "fetchGroupedDaily", "fetchOptionsChain", "fetchOptionContractDetails", "fetchOptionQuote", "fetchOptionSnapshot", "fetchSnapshot", "fetchOptionNbbo", "fetchOptionLastTrade", "fetchOptionMarkAtTime", "fetchStockPriceAtTime", "fetchOptionMark"]
       },
       {
@@ -286,6 +297,11 @@
         "lines": 307,
         "purpose": "Job implementation (scan, rescore, monitor)",
         "exports": ["runAfterCloseScan", "runPreOpenScan", "runLiveMonitorTick"]
+      },
+      "backtestWorker.ts": {
+        "lines": 174,
+        "purpose": "Background backtest worker with pause/resume/cancel and checkpoint resumption",
+        "exports": ["startBacktestWorker", "autoStartBacktestWorker", "pauseBacktestWorker", "resumeBacktestWorker", "isBacktestWorkerRunning", "isBacktestWorkerPaused"]
       }
     },
     "jobs": [
@@ -333,8 +349,8 @@
       {
         "route": "/optimization",
         "file": "client/src/pages/optimization.tsx",
-        "lines": 686,
-        "purpose": "Setup grading and expectancy intelligence"
+        "lines": 823,
+        "purpose": "Setup grading, expectancy intelligence, and backtest worker control"
       },
       {
         "route": "/settings",

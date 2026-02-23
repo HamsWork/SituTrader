@@ -229,11 +229,20 @@ This document maps every major feature to the specific files and key functions/e
 | File | Key Exports | Role |
 |---|---|---|
 | `server/lib/backtest.ts` | `runBacktest()`, `computeProbabilities()`, `computeAndStoreTimeToHitStats()` | Historical testing and probability engine |
-| `shared/schema.ts` | `backtests` table | Results schema |
-| `server/storage.ts` | Backtest CRUD | Persistence |
-| `server/routes.ts` | `POST /api/backtest/run`, `GET /api/backtests` | API endpoints |
+| `server/jobs/backtestWorker.ts` | `startBacktestWorker()`, `autoStartBacktestWorker()`, `pauseBacktestWorker()`, `resumeBacktestWorker()`, `isBacktestWorkerRunning()`, `isBacktestWorkerPaused()` | Background worker for bulk backtesting all tickers × 6 setups |
+| `shared/schema.ts` | `backtests` table, `backtest_jobs` table | Results schema and job state schema |
+| `server/storage.ts` | Backtest CRUD, BacktestJob CRUD | Persistence |
+| `server/routes.ts` | `POST /api/backtest/run`, `GET /api/backtests`, `POST /api/backtest/jobs/start`, `POST /api/backtest/jobs/pause`, `POST /api/backtest/jobs/resume`, `POST /api/backtest/jobs/cancel`, `GET /api/backtest/jobs/status` | API endpoints |
 | `client/src/pages/backtest.tsx` | Backtest results display | Results UI |
+| `client/src/pages/optimization.tsx` | Backtest worker progress card | Worker control UI with progress tracking |
 | `client/src/pages/symbol-detail.tsx` | Per-ticker backtest section | Symbol-level backtest view |
+
+**Backtest Worker features:**
+- Processes all universe tickers × 6 setups (A–F) incrementally
+- Checkpoint-based resumption via completedPairs array
+- Rate-limited Polygon API access (250ms spacing, exponential backoff)
+- Pause/resume/cancel controls from UI
+- Auto-resumes incomplete jobs on app restart
 
 ---
 
@@ -302,6 +311,7 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/letfMonitor.ts` | LETF Live Monitoring |
 | `server/jobs/scheduler.ts` | Author Mode |
 | `server/jobs/jobFunctions.ts` | Author Mode, Setup Detection, Activation |
+| `server/jobs/backtestWorker.ts` | Backtesting (bulk worker) |
 | `client/src/pages/dashboard.tsx` | Dashboard, Signals, Profiles, Activation |
 | `client/src/pages/performance.tsx` | Performance Analytics |
 | `client/src/pages/optimization.tsx` | Optimization, Expectancy |
