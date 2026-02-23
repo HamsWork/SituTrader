@@ -9,3 +9,4 @@ vite.config.ts.*
 .local/state/replit/
 .local/state/replit/*.db
 .cache/
+.evn
