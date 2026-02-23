@@ -4,4 +4,8 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
-.local
+.local/
+.local/state/
+.local/state/replit/
+.local/state/replit/*.db
+.cache/
