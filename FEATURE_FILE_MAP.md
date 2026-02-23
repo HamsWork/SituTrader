@@ -277,7 +277,9 @@ This document maps every major feature to the specific files and key functions/e
 
 **Instrument Profiles:** SHARES (1x), LETF (3x, RTH-only, -100% cap), OPTIONS (5x, RTH-only, -100% cap), LETF_OPTIONS (15x, RTH-only, -100% cap)  
 **Liquidity Tiers:** ULTRA / HIGH / MEDIUM / LOW with different spread factors  
-**Timing Windows:** 7 intraday windows with cost multipliers (optimal at 10:00-11:30 ET, avoid pre-open)
+**Timing Windows:** 7 intraday windows with cost multipliers (optimal at 10:00-11:30 ET, avoid pre-open)  
+**Data Source:** Live signals only by default (backtests opt-in via toggle)  
+**Optimization Filters:** Min Win Rate, Min Expectancy R, Min Sample Size (per-ticker/setup level); data summary shows filtering breakdown
 
 ---
 

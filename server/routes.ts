@@ -1761,19 +1761,46 @@ export async function registerRoutes(
   app.get("/api/performance/profit-windows", async (req, res) => {
     try {
       const riskPerTrade = parseFloat(req.query.risk as string) || 1000;
+      const minWinRate = parseFloat(req.query.minWinRate as string) || 0;
+      const minExpectancyR = parseFloat(req.query.minExpectancyR as string) || 0;
+      const minSampleSize = parseInt(req.query.minSampleSize as string) || 0;
+      const includeBacktests = req.query.includeBacktests === "true";
+
       const allSignals = await storage.getSignals(undefined, 10000);
-      const allBacktests = await storage.getBacktests();
 
       const activeProfile = await storage.getActiveProfile();
       const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
 
-      let setupStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
+      let allExpectancy: any[] = [];
       try {
-        const overallStats = await storage.getOverallSetupExpectancy();
-        for (const s of overallStats) {
-          if (!s.ticker) setupStatsMap.set(s.setupType, { sampleSize: s.sampleSize, winRate: s.winRate, expectancyR: s.expectancyR });
-        }
+        allExpectancy = await storage.getOverallSetupExpectancy();
       } catch {}
+
+      const perTickerStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
+      const overallStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
+      for (const s of allExpectancy) {
+        if (s.ticker) {
+          perTickerStatsMap.set(`${s.ticker}:${s.setupType}`, { sampleSize: s.sampleSize, winRate: s.winRate, expectancyR: s.expectancyR });
+        } else {
+          overallStatsMap.set(s.setupType, { sampleSize: s.sampleSize, winRate: s.winRate, expectancyR: s.expectancyR });
+        }
+      }
+
+      const passesOptimization = (ticker: string, setupType: string): boolean => {
+        const stat = perTickerStatsMap.get(`${ticker}:${setupType}`);
+        if (!stat) {
+          const overall = overallStatsMap.get(setupType);
+          if (!overall) return minWinRate <= 0 && minExpectancyR <= 0 && minSampleSize <= 0;
+          if (minSampleSize > 0 && overall.sampleSize < minSampleSize) return false;
+          if (minWinRate > 0 && overall.winRate < minWinRate) return false;
+          if (minExpectancyR > 0 && overall.expectancyR < minExpectancyR) return false;
+          return true;
+        }
+        if (minSampleSize > 0 && stat.sampleSize < minSampleSize) return false;
+        if (minWinRate > 0 && stat.winRate < minWinRate) return false;
+        if (minExpectancyR > 0 && stat.expectancyR < minExpectancyR) return false;
+        return true;
+      };
 
       const matchesProfile = (sig: any): boolean => {
         if (!activeProfile) return true;
@@ -1782,19 +1809,15 @@ export async function registerRoutes(
         const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
         if (sigTierRank > minTierRank) return false;
         if (sig.qualityScore < activeProfile.minQualityScore) return false;
-        const stat = setupStatsMap.get(sig.setupType);
-        if (stat) {
-          if (activeProfile.minSampleSize > 0 && stat.sampleSize < activeProfile.minSampleSize) return false;
-          if (activeProfile.minHitRate > 0 && stat.winRate < activeProfile.minHitRate) return false;
-          if (activeProfile.minExpectancyR > 0 && stat.expectancyR < activeProfile.minExpectancyR) return false;
-        } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
-          return false;
-        }
         return true;
       };
 
       const tradeInputs: TradeInput[] = [];
       const signalDateKeys = new Set<string>();
+      let totalSignalsConsidered = 0;
+      let signalsFilteredByProfile = 0;
+      let signalsFilteredByOptimization = 0;
+      let signalsIncluded = 0;
 
       for (const sig of allSignals) {
         const tp = sig.tradePlanJson as any;
@@ -1802,7 +1825,10 @@ export async function registerRoutes(
         const isHit = sig.status === "hit";
         const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
         if (!isHit && !isMiss) continue;
-        if (!matchesProfile(sig)) continue;
+        totalSignalsConsidered++;
+
+        if (!matchesProfile(sig)) { signalsFilteredByProfile++; continue; }
+        if (!passesOptimization(sig.ticker, sig.setupType)) { signalsFilteredByOptimization++; continue; }
 
         const stopDist = tp.stopDistance || 0;
         const bias = tp.bias as string | undefined;
@@ -1843,42 +1869,65 @@ export async function registerRoutes(
           entry_price: entryPrice,
           timeframe: "1d",
         });
+        signalsIncluded++;
       }
 
-      for (const bt of allBacktests) {
-        const details = bt.details as any[] | null;
-        if (!details) continue;
+      let backtestsIncluded = 0;
+      if (includeBacktests) {
+        const allBacktests = await storage.getBacktests();
+        for (const bt of allBacktests) {
+          if (!passesOptimization(bt.ticker, bt.setupType)) continue;
+          const details = bt.details as any[] | null;
+          if (!details) continue;
 
-        for (const d of details) {
-          if (!d.triggered) continue;
-          if (!d.entryPrice || d.entryPrice <= 0) continue;
-          if (!d.date) continue;
+          for (const d of details) {
+            if (!d.triggered) continue;
+            if (!d.entryPrice || d.entryPrice <= 0) continue;
+            if (!d.date) continue;
 
-          const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
-          if (signalDateKeys.has(dateKey)) continue;
+            const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
+            if (signalDateKeys.has(dateKey)) continue;
 
-          const entryPrice = d.entryPrice;
-          const magnetPrice = d.magnetPrice;
-          const stopDist = entryPrice * 0.01;
-          const reward = Math.abs(magnetPrice - entryPrice);
-          const rMultiple = d.hit ? reward / stopDist : -1;
+            const entryPrice = d.entryPrice;
+            const magnetPrice = d.magnetPrice;
+            const stopDist = entryPrice * 0.01;
+            const reward = Math.abs(magnetPrice - entryPrice);
+            const rMultiple = d.hit ? reward / stopDist : -1;
 
-          const exitTs = Math.floor(new Date(d.date + "T14:00:00-05:00").getTime() / 1000);
-          const entryTs = exitTs - 86400;
+            const exitTs = Math.floor(new Date(d.date + "T14:00:00-05:00").getTime() / 1000);
+            const entryTs = exitTs - 86400;
 
-          tradeInputs.push({
-            r_multiple: Math.round(rMultiple * 10000) / 10000,
-            entry_ts: entryTs,
-            exit_ts: exitTs,
-            symbol: bt.ticker,
-            entry_price: entryPrice,
-            timeframe: "1d",
-          });
+            tradeInputs.push({
+              r_multiple: Math.round(rMultiple * 10000) / 10000,
+              entry_ts: entryTs,
+              exit_ts: exitTs,
+              symbol: bt.ticker,
+              entry_price: entryPrice,
+              timeframe: "1d",
+            });
+            backtestsIncluded++;
+          }
         }
       }
 
       const result = computeAllProfitWindows(tradeInputs, riskPerTrade, [30, 60, 90]);
-      res.json(result);
+      res.json({
+        ...result,
+        filters: {
+          min_win_rate: minWinRate,
+          min_expectancy_r: minExpectancyR,
+          min_sample_size: minSampleSize,
+          include_backtests: includeBacktests,
+        },
+        data_summary: {
+          total_signals_considered: totalSignalsConsidered,
+          signals_filtered_by_profile: signalsFilteredByProfile,
+          signals_filtered_by_optimization: signalsFilteredByOptimization,
+          signals_included: signalsIncluded,
+          backtests_included: backtestsIncluded,
+          total_trade_inputs: tradeInputs.length,
+        },
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

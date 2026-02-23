@@ -1,0 +1,209 @@
+Perform a TESTING & ROBUSTNESS REFRESHER PASS on this app using the EXISTING SYSTEM ONLY.
+
+HARD CONSTRAINTS (NON-NEGOTIABLE)
+- Do NOT create new tabs/pages/routes unless absolutely required for backend-only internal endpoints.
+- Do NOT remove, rename, or break existing tabs/pages/endpoints/features.
+- Do NOT simplify the app.
+- Preserve all progress bars, loading states, status indicators, phase trackers, and job telemetry.
+- Integrate all improvements into the EXISTING pages/components/endpoints (Backtest, Optimization/Optimize, Performance/Stats, Settings, Audit, Scheduler, Guide, etc. depending on this codebase).
+- Backward compatibility is required for database/schema and API payloads.
+
+GOAL
+Refresh and harden the app’s testing framework so backtest results are more reliable and clearly qualified by robustness validation, WITHOUT changing the app’s visible navigation structure.
+
+This is a refresher/integration pass, not a rewrite.
+
+WHAT TO ADD / ENFORCE (IN EXISTING SYSTEM)
+Implement or strengthen these test gates inside the current architecture:
+1) Backtest with explicit fees/slippage assumptions
+2) Out-of-sample (OOS) validation tracking/reporting
+3) Walk-forward testing integration
+4) Stress testing integration
+5) Monte Carlo integration
+6) Parameter sweep integration
+7) Stop sensitivity integration
+8) Reliability summary score / confidence panel (computed from existing test results)
+9) Regime-aware reporting (at minimum tag/segment results by market regime if data is available; otherwise scaffold with clear status)
+10) Forward-validation workflow scaffolding (paper/live micro-size tracking hooks) WITHOUT adding a new tab
+
+CRITICAL UI RULE
+All of the above must be surfaced through EXISTING tabs and panels:
+- Add sections/cards/subsections within current Backtest / Optimize / Performance / Settings / Audit / Guide pages
+- Reuse existing progress components/status indicators
+- If there is already a robustness area, extend it there
+- If there is already an audit page, add testing coverage/health there
+- If there is already a guide page, add “how to interpret test reliability” there
+
+PHASE 1 — AUDIT CURRENT TESTING CAPABILITIES (READ FIRST, THEN IMPLEMENT)
+Before coding, inspect the codebase and summarize in chat:
+- Which of the 10 test gates already exist fully
+- Which exist partially
+- Which are missing
+- Where each one lives (file + endpoint + UI page)
+- Which progress/status components already exist and can be reused
+Then implement the refresher pass.
+
+PHASE 2 — NORMALIZE TEST RESULT STORAGE (ADDITIVE ONLY)
+Without breaking existing data, normalize and/or extend existing result models/tables to support a consistent reliability summary.
+
+Add fields only if missing (reuse existing if present):
+- run_type (BACKTEST, OOS, WALK_FORWARD, STRESS, MONTE_CARLO, SWEEP, STOP_SENSITIVITY)
+- run_status (QUEUED, RUNNING, COMPLETED, FAILED)
+- settings_hash / config_hash
+- sample_in_sample_count
+- sample_out_of_sample_count
+- date_range_start / date_range_end
+- fees_assumption
+- slippage_assumption
+- metric_summary_json
+- robustness_summary_json
+- warnings_json
+- started_at / finished_at / elapsed_ms
+- progress_json (for batch/phase visibility)
+- parent_run_id (to link robustness runs to a backtest/optimization run)
+
+If the app already has multiple run tables (for example TDI robustness tables), do NOT replace them. Add a thin normalization layer or aggregator service that reads them and produces a unified reliability summary.
+
+PHASE 3 — RELIABILITY AGGREGATOR SERVICE (CORE ADDITION, NO NEW TAB)
+Create a modular service that computes a “reliability summary” from existing testing outputs.
+
+Examples:
+- TypeScript/Node app: server/lib/reliability.ts
+- Python/FastAPI app: backend/app/services/reliability_summary.py
+
+Required outputs (computed from existing runs where available):
+- has_backtest
+- has_oos
+- has_walkforward
+- has_stress
+- has_montecarlo
+- has_sweep
+- has_stop_sensitivity
+- fees_slippage_mode_present (bool)
+- sample_quality_flags (small sample, unstable, overfit risk, etc.)
+- consistency_score (0-100)
+- overfit_risk_flag (low/medium/high)
+- robustness_grade (A/B/C/D/F or similar)
+- key_warnings[] (plain language)
+- recommended_next_step (plain language, short)
+- last_updated_ts
+
+Rules:
+- Do NOT fake confidence. If data is missing, lower reliability and report what is missing.
+- Explicitly penalize:
+  - no OOS
+  - no walk-forward
+  - tiny sample sizes
+  - highly unstable parameter sensitivity
+  - stress/MC failure patterns
+- Use existing metrics if present; do not duplicate expensive computations unnecessarily.
+
+PHASE 4 — FEES / SLIPPAGE EXPLICITNESS (IN EXISTING BACKTEST/SETTINGS)
+Ensure backtests and related analyses explicitly display and persist:
+- fees assumptions
+- slippage assumptions
+- whether assumptions were applied or not
+
+Requirements:
+- If currently hidden in code defaults, expose the values in existing Backtest and/or Settings UI
+- Store assumptions in run metadata
+- Include in exports and audit summaries
+- Show warning badge if backtest runs with zero fees/slippage (configurable warning, not blocked)
+
+PHASE 5 — OOS / WALK-FORWARD / ROBUSTNESS INTEGRATION REFRESH
+Integrate existing robustness outputs into the current user workflow without new tabs.
+
+Requirements:
+- Existing Backtest/Optimize pages should show linked robustness status/results for a run (or latest related run)
+- Add a compact “Reliability” panel/card to an EXISTING page (Backtest or Optimize preferred; Performance acceptable if architecture dictates)
+- Add progress/status indicators for robustness jobs using existing progress components
+- Add rerun actions/buttons inside existing sections if endpoints already exist (walk-forward, stress, MC, sweep, stop sensitivity)
+- Add clear status labels: Not Run / Running / Passed / Warning / Failed / Partial
+
+If a capability is missing in this app (example: SITU may lack Monte Carlo):
+- Add scaffold hook + status “Not Implemented Yet”
+- Do NOT create a new tab
+- Do NOT pretend it exists
+
+PHASE 6 — REGIME-AWARE REPORTING (MINIMUM VIABLE, IN EXISTING PAGES)
+Add a regime segmentation summary to existing Backtest or Performance views.
+
+Minimum acceptable implementation:
+- Segment historical results into simple buckets if possible (for example trend / range / high-vol / low-vol using existing volatility/trend metrics)
+- Show a compact table/card with basic metrics per regime (trade count, win rate, expectancy)
+- If regime classification cannot be completed from current data, add a scaffold and explicit status message in the reliability panel
+
+No new tab. Use existing page sections.
+
+PHASE 7 — FORWARD VALIDATION SCAFFOLD (NO NEW TAB)
+Add a lightweight forward-validation tracking section to an EXISTING page (Performance, Trades, or Guide/Settings depending architecture), without creating a new page.
+
+Goal:
+Track whether the strategy has:
+- paper forward test phase
+- live micro-size phase
+- live scaled phase (optional)
+And basic stats for each phase if available.
+
+Requirements:
+- Minimal schema additions or app_settings keys are acceptable
+- Can be simple status cards + dates + notes + checklist
+- Must not interfere with existing trading workflow
+- This is a platform hook for future real-world validation discipline
+
+PHASE 8 — AUDIT & GUIDE REFRESH (NO NEW TAB)
+Integrate testing reliability visibility into existing Audit and Guide systems:
+- Audit page/endpoint: include testing coverage matrix and reliability summary snapshot
+- Feature map/audit JSON (if app supports it): include test gate coverage fields
+- Guide page: add short section explaining how to interpret backtests vs robustness vs forward validation
+Do not create new tabs.
+
+PHASE 9 — API ENHANCEMENTS (ADDITIVE, BACKWARD-COMPATIBLE)
+Add or extend endpoints only as needed, but keep current endpoints working.
+
+Prefer:
+- Extend existing backtest/optimize/stats/audit endpoints to return reliability summary payloads
+Optional if cleaner:
+- GET /analysis/reliability
+- GET /analysis/reliability/latest
+But ONLY if needed and without changing navigation.
+
+Batch/test job endpoints must return progress/status metadata (or preserve and extend existing metadata):
+- total_items / completed_items / failed_items
+- current_phase / phase_index / phase_total
+- started_at / finished_at / elapsed_ms
+- warnings / errors arrays
+
+PHASE 10 — UI INTEGRATION DETAILS (EXISTING TABS ONLY)
+Add within existing pages:
+- ReliabilitySummaryCard
+- TestCoverageChecklist (Backtest/O optimize/Audit section)
+- AssumptionBadges (fees/slippage/OOS)
+- RobustnessStatusRow
+- ForwardValidationStatusCard
+- RegimeSummaryTable (compact)
+
+Requirements:
+- Reuse current styling system and existing status/progress components
+- Do not clutter layout; use collapsible sections if needed
+- Preserve all current page functionality
+
+PHASE 11 — ACCEPTANCE CHECKS (MUST PASS)
+After implementation, provide:
+1) What was already present vs what was added/refreshed
+2) List of files changed
+3) Schema/model changes (if any)
+4) Endpoints extended/added (if any)
+5) Which EXISTING pages were modified (confirm no new tabs added)
+6) Confirmation all original tabs/pages still load and function
+7) Confirmation progress bars/status indicators remain visible
+8) Example reliability summary payload
+9) Known limitations / missing test gates (if any)
+10) Next recommended steps for full platform-standard reliability parity
+
+IMPLEMENTATION STYLE
+- Modular services/utilities; avoid giant route/page files if possible
+- Keep route handlers thin and reuse existing service patterns
+- Additive changes only
+- Preserve existing database and API compatibility
+- Be explicit in warnings when a robustness component is absent rather than silently skipping it

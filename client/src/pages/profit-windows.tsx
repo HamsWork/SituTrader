@@ -90,10 +90,21 @@ interface InstrumentResult {
   execution?: { windows: ExecutionWindow[]; timing: TimingRecommendation };
 }
 
+interface DataSummary {
+  total_signals_considered: number;
+  signals_filtered_by_profile: number;
+  signals_filtered_by_optimization: number;
+  signals_included: number;
+  backtests_included: number;
+  total_trade_inputs: number;
+}
+
 interface ProfitWindowsData {
   comparison: Record<string, InstrumentResult>;
   risk_per_trade: number;
   generated_at: string;
+  filters: { min_win_rate: number; min_expectancy_r: number; min_sample_size: number; include_backtests: boolean };
+  data_summary: DataSummary;
 }
 
 const INST_ORDER = ["SHARES", "LETF", "OPTIONS", "LETF_OPTIONS"];
@@ -121,9 +132,15 @@ export default function ProfitWindowsPage() {
   const [risk, setRisk] = useState(1000);
   const [activeWindow, setActiveWindow] = useState(0);
   const [activeInstrument, setActiveInstrument] = useState("SHARES");
+  const [minWinRate, setMinWinRate] = useState(0);
+  const [minExpectancyR, setMinExpectancyR] = useState(0);
+  const [minSampleSize, setMinSampleSize] = useState(0);
+  const [includeBacktests, setIncludeBacktests] = useState(false);
+
+  const queryParams = `risk=${risk}&minWinRate=${minWinRate}&minExpectancyR=${minExpectancyR}&minSampleSize=${minSampleSize}&includeBacktests=${includeBacktests}`;
 
   const { data, isLoading } = useQuery<ProfitWindowsData>({
-    queryKey: [`/api/performance/profit-windows?risk=${risk}`],
+    queryKey: [`/api/performance/profit-windows?${queryParams}`],
   });
 
   const currentInstrument = useMemo(() => {
@@ -166,37 +183,113 @@ export default function ProfitWindowsPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="space-y-1">
-          <Label className="text-xs">Risk Per Trade</Label>
-          <div className="flex items-center gap-1">
-            <span className="text-sm text-muted-foreground">$</span>
-            <Input
-              type="number"
-              value={risk}
-              onChange={(e) => setRisk(parseInt(e.target.value) || 1000)}
-              className="w-24 h-8 text-sm"
-              data-testid="input-risk"
-            />
+      <Card>
+        <CardContent className="pt-4 pb-4 px-4">
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Risk Per Trade</Label>
+              <div className="flex items-center gap-1">
+                <span className="text-sm text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  value={risk}
+                  onChange={(e) => setRisk(parseInt(e.target.value) || 1000)}
+                  className="w-24 h-8 text-sm"
+                  data-testid="input-risk"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Min Win Rate</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={minWinRate}
+                  onChange={(e) => setMinWinRate(parseFloat(e.target.value) || 0)}
+                  className="w-20 h-8 text-sm"
+                  data-testid="input-min-wr"
+                  placeholder="0.50"
+                />
+                <span className="text-[10px] text-muted-foreground">0-1</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Min Expectancy R</Label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                value={minExpectancyR}
+                onChange={(e) => setMinExpectancyR(parseFloat(e.target.value) || 0)}
+                className="w-20 h-8 text-sm"
+                data-testid="input-min-exp"
+                placeholder="0.5"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Min Sample Size</Label>
+              <Input
+                type="number"
+                min="0"
+                value={minSampleSize}
+                onChange={(e) => setMinSampleSize(parseInt(e.target.value) || 0)}
+                className="w-20 h-8 text-sm"
+                data-testid="input-min-sample"
+                placeholder="10"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Include Backtests</Label>
+              <button
+                onClick={() => setIncludeBacktests(!includeBacktests)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors border ${
+                  includeBacktests
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                }`}
+                data-testid="btn-include-bt"
+              >
+                {includeBacktests ? "ON" : "OFF"}
+              </button>
+            </div>
+            <div className="flex gap-1">
+              {WINDOW_LABELS.map((label, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveWindow(idx)}
+                  className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                    activeWindow === idx
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                  }`}
+                  data-testid={`btn-window-${idx}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="flex gap-1">
-          {WINDOW_LABELS.map((label, idx) => (
-            <button
-              key={idx}
-              onClick={() => setActiveWindow(idx)}
-              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-                activeWindow === idx
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted hover:bg-muted/80 text-muted-foreground"
-              }`}
-              data-testid={`btn-window-${idx}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+          {data?.data_summary && (
+            <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t text-[11px] text-muted-foreground">
+              <span data-testid="text-signals-considered">{data.data_summary.total_signals_considered} signals evaluated</span>
+              {data.data_summary.signals_filtered_by_profile > 0 && (
+                <span className="text-yellow-500">{data.data_summary.signals_filtered_by_profile} filtered by profile</span>
+              )}
+              {data.data_summary.signals_filtered_by_optimization > 0 && (
+                <span className="text-yellow-500">{data.data_summary.signals_filtered_by_optimization} filtered by optimization</span>
+              )}
+              <span className="font-medium text-foreground" data-testid="text-signals-included">{data.data_summary.signals_included} signals included</span>
+              {data.data_summary.backtests_included > 0 && (
+                <span className="text-blue-500">{data.data_summary.backtests_included} backtest trades added</span>
+              )}
+              <span className="font-medium">{data.data_summary.total_trade_inputs} total trades</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-4">

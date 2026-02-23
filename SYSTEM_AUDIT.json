@@ -106,7 +106,7 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 1919,
+    "routes_lines": 1968,
     "storage_file": "server/storage.ts",
     "storage_lines": 904,
     "api_endpoints": [
@@ -386,7 +386,7 @@
       {
         "route": "/profit-windows",
         "file": "client/src/pages/profit-windows.tsx",
-        "lines": 601,
+        "lines": 689,
         "purpose": "Multi-instrument profit windows with execution cost analysis"
       },
       {
