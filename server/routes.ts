@@ -1724,6 +1724,28 @@ export async function registerRoutes(
         const dateFrom = tradeDates.length > 0 ? tradeDates[0] : null;
         const dateTo = tradeDates.length > 0 ? tradeDates[tradeDates.length - 1] : null;
 
+        const sorted = [...periodTrades].sort((a, b) => a.date.localeCompare(b.date));
+        let cumPnl = 0;
+        const equityCurve = sorted.map((t, i) => {
+          cumPnl += t.pnlDollar;
+          return { trade: i + 1, date: t.date, ticker: t.ticker, pnl: Math.round(t.pnlDollar * 100) / 100, cumPnl: Math.round(cumPnl * 100) / 100 };
+        });
+
+        const dailyMap = new Map<string, number>();
+        for (const t of periodTrades) {
+          dailyMap.set(t.date, (dailyMap.get(t.date) ?? 0) + t.pnlDollar);
+        }
+        const dailyPnl = Array.from(dailyMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, pnl]) => ({ date: date.slice(5), pnl: Math.round(pnl * 100) / 100 }));
+
+        const maxCurvePoints = 500;
+        let sampledCurve = equityCurve;
+        if (equityCurve.length > maxCurvePoints) {
+          const step = Math.ceil(equityCurve.length / maxCurvePoints);
+          sampledCurve = equityCurve.filter((_, i) => i % step === 0 || i === equityCurve.length - 1);
+        }
+
         return {
           label,
           totalTrades,
@@ -1742,6 +1764,8 @@ export async function registerRoutes(
           backtestCount: btCount,
           dateFrom,
           dateTo,
+          equityCurve: sampledCurve,
+          dailyPnl,
         };
       };
 
@@ -1776,6 +1800,20 @@ export async function registerRoutes(
         ? Math.ceil((new Date(latestDate).getTime() - new Date(earliestDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
         : 0;
 
+      const period = parseInt(req.query.period as string ?? "4");
+      const instrument = (req.query.instrument as string) || "all";
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize as string) || 100));
+
+      const periodTradesMap = [trades30, trades60, trades90, tradesOlder, tradeResults];
+      let selectedTrades = periodTradesMap[period] ?? tradeResults;
+      if (instrument !== "all") {
+        selectedTrades = selectedTrades.filter(t => t.instrumentType === instrument);
+      }
+      const totalFilteredTrades = selectedTrades.length;
+      const totalPages = Math.ceil(totalFilteredTrades / pageSize);
+      const paginatedTrades = selectedTrades.slice((page - 1) * pageSize, page * pageSize);
+
       res.json({
         capitalPerTrade,
         totalSignalsAnalyzed: allSignals.length,
@@ -1785,7 +1823,8 @@ export async function registerRoutes(
         earliestDate,
         latestDate,
         periodSummaries,
-        trades: tradeResults,
+        trades: paginatedTrades,
+        pagination: { page, pageSize, totalFilteredTrades, totalPages },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

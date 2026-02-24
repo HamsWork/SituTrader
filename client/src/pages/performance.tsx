@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -73,6 +72,19 @@ interface TradeResult {
   source?: string;
 }
 
+interface EquityCurvePoint {
+  trade: number;
+  date: string;
+  ticker: string;
+  pnl: number;
+  cumPnl: number;
+}
+
+interface DailyPnlPoint {
+  date: string;
+  pnl: number;
+}
+
 interface PeriodSummary {
   label: string;
   totalTrades: number;
@@ -91,6 +103,15 @@ interface PeriodSummary {
   backtestCount?: number;
   dateFrom?: string | null;
   dateTo?: string | null;
+  equityCurve: EquityCurvePoint[];
+  dailyPnl: DailyPnlPoint[];
+}
+
+interface Pagination {
+  page: number;
+  pageSize: number;
+  totalFilteredTrades: number;
+  totalPages: number;
 }
 
 interface PerformanceData {
@@ -103,17 +124,20 @@ interface PerformanceData {
   latestDate: string | null;
   periodSummaries: PeriodSummary[];
   trades: TradeResult[];
+  pagination: Pagination;
 }
 
 export default function PerformancePage() {
   const [capital, setCapital] = useState(1000);
   const [periodFilter, setPeriodFilter] = useState<number>(4);
   const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const pageSize = 100;
 
   const { data, isLoading, isFetching } = useQuery<PerformanceData>({
-    queryKey: ["/api/performance/analysis", capital],
+    queryKey: ["/api/performance/analysis", capital, periodFilter, instrumentFilter, page],
     queryFn: async () => {
-      const res = await fetch(`/api/performance/analysis?capital=${capital}`);
+      const res = await fetch(`/api/performance/analysis?capital=${capital}&period=${periodFilter}&instrument=${instrumentFilter}&page=${page}&pageSize=${pageSize}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -124,69 +148,10 @@ export default function PerformancePage() {
     return data.periodSummaries[periodFilter] ?? data.periodSummaries[4];
   }, [data, periodFilter]);
 
-  const filteredTrades = useMemo(() => {
-    if (!data) return [];
-    const now = new Date();
-    let trades: TradeResult[];
-
-    if (periodFilter === 4) {
-      trades = data.trades;
-    } else if (periodFilter === 3) {
-      const cutoff90 = new Date(now);
-      cutoff90.setDate(cutoff90.getDate() - 90);
-      const c90 = cutoff90.toISOString().slice(0, 10);
-      trades = data.trades.filter(t => t.date < c90);
-    } else {
-      const windowDefs = [
-        { start: 0, end: 30 },
-        { start: 30, end: 60 },
-        { start: 60, end: 90 },
-      ];
-      const w = windowDefs[periodFilter];
-      const startCutoff = new Date(now);
-      startCutoff.setDate(startCutoff.getDate() - w.end);
-      const endCutoff = new Date(now);
-      endCutoff.setDate(endCutoff.getDate() - w.start);
-      const startStr = startCutoff.toISOString().slice(0, 10);
-      const endStr = endCutoff.toISOString().slice(0, 10);
-      trades = data.trades.filter(t => t.date >= startStr && (w.start === 0 ? true : t.date < endStr));
-    }
-
-    if (instrumentFilter !== "all") {
-      trades = trades.filter(t => t.instrumentType === instrumentFilter);
-    }
-    return trades;
-  }, [data, periodFilter, instrumentFilter]);
-
-  const equityCurve = useMemo(() => {
-    if (!filteredTrades.length) return [];
-    const sorted = [...filteredTrades].sort((a, b) => a.date.localeCompare(b.date));
-    let cumPnl = 0;
-    return sorted.map((t, i) => {
-      cumPnl += t.pnlDollar;
-      return {
-        trade: i + 1,
-        date: t.date,
-        ticker: t.ticker,
-        pnl: t.pnlDollar,
-        cumPnl: Math.round(cumPnl * 100) / 100,
-      };
-    });
-  }, [filteredTrades]);
-
-  const dailyPnl = useMemo(() => {
-    if (!filteredTrades.length) return [];
-    const byDate = new Map<string, number>();
-    for (const t of filteredTrades) {
-      byDate.set(t.date, (byDate.get(t.date) ?? 0) + t.pnlDollar);
-    }
-    return Array.from(byDate.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, pnl]) => ({
-        date: date.slice(5),
-        pnl: Math.round(pnl * 100) / 100,
-      }));
-  }, [filteredTrades]);
+  const equityCurve = activePeriod?.equityCurve ?? [];
+  const dailyPnl = activePeriod?.dailyPnl ?? [];
+  const filteredTrades = data?.trades ?? [];
+  const pagination = data?.pagination ?? { page: 1, pageSize, totalFilteredTrades: 0, totalPages: 1 };
 
   const instrumentPieData = useMemo(() => {
     if (!activePeriod) return [];
@@ -201,7 +166,15 @@ export default function PerformancePage() {
 
   const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-3))", "hsl(var(--chart-4))"];
 
-  const progressValue = isLoading ? 30 : isFetching ? 70 : 100;
+  const handlePeriodChange = (v: string) => {
+    setPeriodFilter(parseInt(v));
+    setPage(1);
+  };
+
+  const handleInstrumentChange = (v: string) => {
+    setInstrumentFilter(v);
+    setPage(1);
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -218,15 +191,9 @@ export default function PerformancePage() {
         </div>
       </div>
 
-      {(isLoading || isFetching) && (
+      {isLoading && (
         <div className="space-y-1" data-testid="progress-bar">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              {isLoading ? "Loading analysis..." : "Updating..."}
-            </span>
-            <span className="text-xs font-mono text-muted-foreground">{progressValue}%</span>
-          </div>
-          <Progress value={progressValue} className="h-2" />
+          <span className="text-xs text-muted-foreground">Loading analysis...</span>
         </div>
       )}
 
@@ -246,7 +213,7 @@ export default function PerformancePage() {
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Period</Label>
-          <Select value={String(periodFilter)} onValueChange={(v) => setPeriodFilter(parseInt(v))}>
+          <Select value={String(periodFilter)} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-[140px] h-8 text-xs" data-testid="select-period">
               <SelectValue />
             </SelectTrigger>
@@ -261,7 +228,7 @@ export default function PerformancePage() {
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Instrument</Label>
-          <Select value={instrumentFilter} onValueChange={setInstrumentFilter}>
+          <Select value={instrumentFilter} onValueChange={handleInstrumentChange}>
             <SelectTrigger className="w-[160px] h-8 text-xs" data-testid="select-instrument">
               <SelectValue />
             </SelectTrigger>
@@ -303,7 +270,7 @@ export default function PerformancePage() {
                 <Card
                   key={p.label}
                   className={`cursor-pointer transition-all ${periodFilter === idx ? "ring-2 ring-primary" : "hover:bg-muted/30"}`}
-                  onClick={() => setPeriodFilter(idx)}
+                  onClick={() => { setPeriodFilter(idx); setPage(1); }}
                   data-testid={`card-period-${idx}`}
                 >
                   <CardContent className="pt-3 pb-3 px-4">
@@ -556,10 +523,10 @@ export default function PerformancePage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-sm">Trade History</CardTitle>
-                  <p className="text-xs text-muted-foreground">{filteredTrades.length} trades in selected period</p>
+                  <div className="text-xs text-muted-foreground">{pagination.totalFilteredTrades} trades in selected period</div>
                 </div>
                 <Badge variant="outline" className="text-xs">
-                  {filteredTrades.filter(t => t.outcome === "HIT_T1").length}W / {filteredTrades.filter(t => t.outcome === "STOPPED").length}L
+                  {activePeriod ? `${activePeriod.wins}W / ${activePeriod.losses}L` : ""}
                 </Badge>
               </div>
             </CardHeader>
@@ -567,83 +534,113 @@ export default function PerformancePage() {
               {filteredTrades.length === 0 ? (
                 <div className="p-8 text-center">
                   <Activity className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-xs text-muted-foreground">No trades in this period</p>
+                  <div className="text-xs text-muted-foreground">No trades in this period</div>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Ticker</TableHead>
-                        <TableHead>Setup</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Dir</TableHead>
-                        <TableHead className="text-right">Entry</TableHead>
-                        <TableHead className="text-right">Exit</TableHead>
-                        <TableHead className="text-right">Shares</TableHead>
-                        <TableHead className="text-right">Invested</TableHead>
-                        <TableHead className="text-right">P&L</TableHead>
-                        <TableHead className="text-right">P&L %</TableHead>
-                        <TableHead>Result</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredTrades.map(t => (
-                        <TableRow key={t.signalId} data-testid={`row-trade-${t.signalId}`}>
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{t.date}</TableCell>
-                          <TableCell className="font-medium">{t.ticker}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-[10px]">
-                              {SETUP_LABELS[t.setupType as SetupType] ?? t.setupType}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-[10px]">
-                              {t.instrumentType === "LEVERAGED_ETF" ? "LETF" : t.instrumentType === "OPTION" ? "OPT" : "SHR"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <span className={`text-xs font-medium ${t.bias === "BUY" ? "text-emerald-500" : "text-red-500"}`}>
-                              {t.bias}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">${t.entryPrice.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-mono text-sm">{t.exitPrice ? `$${t.exitPrice.toFixed(2)}` : "—"}</TableCell>
-                          <TableCell className="text-right font-mono text-sm">{t.shares}</TableCell>
-                          <TableCell className="text-right font-mono text-sm">${t.invested.toFixed(0)}</TableCell>
-                          <TableCell className="text-right font-mono font-medium">
-                            <span className={t.pnlDollar >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
-                              {t.pnlDollar >= 0 ? "+" : ""}${t.pnlDollar.toFixed(2)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
-                            <span className={t.pnlPct >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
-                              {t.pnlPct >= 0 ? "+" : ""}{t.pnlPct.toFixed(1)}%
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] ${
-                                  t.outcome === "HIT_T1"
-                                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                    : "bg-red-500/10 text-red-600 border-red-500/20"
-                                }`}
-                              >
-                                {t.outcome === "HIT_T1" ? "WIN" : "LOSS"}
-                              </Badge>
-                              {t.source === "backtest" && (
-                                <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-500 border-blue-500/20">BT</Badge>
-                              )}
-                            </div>
-                          </TableCell>
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Ticker</TableHead>
+                          <TableHead>Setup</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Dir</TableHead>
+                          <TableHead className="text-right">Entry</TableHead>
+                          <TableHead className="text-right">Exit</TableHead>
+                          <TableHead className="text-right">Shares</TableHead>
+                          <TableHead className="text-right">Invested</TableHead>
+                          <TableHead className="text-right">P&L</TableHead>
+                          <TableHead className="text-right">P&L %</TableHead>
+                          <TableHead>Result</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredTrades.map(t => (
+                          <TableRow key={t.signalId} data-testid={`row-trade-${t.signalId}`}>
+                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{t.date}</TableCell>
+                            <TableCell className="font-medium">{t.ticker}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[10px]">
+                                {SETUP_LABELS[t.setupType as SetupType] ?? t.setupType}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[10px]">
+                                {t.instrumentType === "LEVERAGED_ETF" ? "LETF" : t.instrumentType === "OPTION" ? "OPT" : "SHR"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <span className={`text-xs font-medium ${t.bias === "BUY" ? "text-emerald-500" : "text-red-500"}`}>
+                                {t.bias}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">${t.entryPrice.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">{t.exitPrice ? `$${t.exitPrice.toFixed(2)}` : "—"}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">{t.shares}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">${t.invested.toFixed(0)}</TableCell>
+                            <TableCell className="text-right font-mono font-medium">
+                              <span className={t.pnlDollar >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
+                                {t.pnlDollar >= 0 ? "+" : ""}${t.pnlDollar.toFixed(2)}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              <span className={t.pnlPct >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}>
+                                {t.pnlPct >= 0 ? "+" : ""}{t.pnlPct.toFixed(1)}%
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] ${
+                                    t.outcome === "HIT_T1"
+                                      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                      : "bg-red-500/10 text-red-600 border-red-500/20"
+                                  }`}
+                                >
+                                  {t.outcome === "HIT_T1" ? "WIN" : "LOSS"}
+                                </Badge>
+                                {t.source === "backtest" && (
+                                  <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-500 border-blue-500/20">BT</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {pagination.totalPages > 1 && (
+                    <div className="flex items-center justify-between px-4 py-3 border-t" data-testid="pagination-controls">
+                      <div className="text-xs text-muted-foreground">
+                        Showing {(pagination.page - 1) * pagination.pageSize + 1}–{Math.min(pagination.page * pagination.pageSize, pagination.totalFilteredTrades)} of {pagination.totalFilteredTrades}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setPage(p => Math.max(1, p - 1))}
+                          disabled={pagination.page <= 1}
+                          className="px-3 py-1 text-xs rounded border bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                          data-testid="button-prev-page"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {pagination.page} / {pagination.totalPages}
+                        </span>
+                        <button
+                          onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
+                          disabled={pagination.page >= pagination.totalPages}
+                          className="px-3 py-1 text-xs rounded border bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                          data-testid="button-next-page"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
