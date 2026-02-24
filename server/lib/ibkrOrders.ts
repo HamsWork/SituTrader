@@ -173,6 +173,9 @@ export async function executeTradeForSignal(
             tp1Qty,
             tp1Price,
           );
+          tp1Result.promise.catch((err: any) => {
+            log(`TP1 order ${tp1Result.orderId} rejected by broker: ${err.message}`, "ibkr");
+          });
           await storage.updateIbkrTrade(trade.id, {
             ibkrTp1OrderId: tp1Result.orderId,
           });
@@ -215,6 +218,9 @@ export async function executeTradeForSignal(
             tp2Qty,
             tp2Price,
           );
+          tp2Result.promise.catch((err: any) => {
+            log(`TP2 order ${tp2Result.orderId} rejected by broker: ${err.message}`, "ibkr");
+          });
           await storage.updateIbkrTrade(trade.id, {
             ibkrTp2OrderId: tp2Result.orderId,
           });
@@ -322,7 +328,7 @@ export async function applyBeStop(
   try {
     const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      // await postTradeUpdate(signal, updatedTrade, "RAISE_STOP"); TODO
+      await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
       log(
         `applyBeStop: RAISE_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
@@ -416,7 +422,7 @@ export async function applyTimeStop(
   try {
     const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      // await postTradeUpdate(signal, updatedTrade, "TIME_STOP");TODO
+      await postTradeUpdate(signal, updatedTrade, "TIME_STOP");
       log(
         `applyTimeStop: TIME_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
