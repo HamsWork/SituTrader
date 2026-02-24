@@ -210,14 +210,12 @@ export default function PerformancePage() {
           <Activity className="w-5 h-5" />
           Performance
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Simulated P&L for trades matching your active dashboard priorities
+        <div className="text-sm text-muted-foreground flex items-center flex-wrap gap-1">
+          <span>Simulated P&L for trades matching your active dashboard priorities</span>
           {data?.activeProfileName && (
-            <span className="ml-2 inline-flex items-center">
-              <Badge variant="outline" className="text-xs font-normal">{data.activeProfileName}</Badge>
-            </span>
+            <Badge variant="outline" className="text-xs font-normal">{data.activeProfileName}</Badge>
           )}
-        </p>
+        </div>
       </div>
 
       {(isLoading || isFetching) && (
