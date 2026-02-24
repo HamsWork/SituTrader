@@ -75,9 +75,9 @@ This document maps every major feature to the specific files and key functions/e
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/activation.ts` | `runActivationScan()` — stop management logic within | Volatility stop, BE stop, time stop logic; BE wired to IBKR stop modify + RAISE_STOP Discord alert |
+| `server/lib/activation.ts` | `runActivationScan()` — stop management logic within | Volatility stop, BE stop, time stop logic; delegates IBKR stop modifications to ibkrOrders |
 | `server/lib/ibkr.ts` | `modifyStopPrice()` | Modify IBKR stop order price |
-| `server/lib/ibkrOrders.ts` | `monitorActiveTrade()`, `monitorActiveTrades()` | Monitor single trade (TP1/TP2/stop fills) and move stops to BE after TP1 via IBKR |
+| `server/lib/ibkrOrders.ts` | `applyBeStop()`, `applyTimeStop()`, `monitorActiveTrade()`, `monitorActiveTrades()` | BE/TIME_STOP stop management with IBKR + Discord, monitor single trade (TP1/TP2/stop fills) |
 | `shared/schema.ts` | `stop_price`, `stop_stage`, `stop_moved_to_be_ts`, `time_stop_triggered_ts` | Stop state columns |
 | `server/lib/validate.ts` | `filterRTHBars()`, `timestampToET()` | RTH constraint for stop evaluation |
 | `client/src/pages/dashboard.tsx` | Stop stage indicator | Visual stop status |

@@ -158,6 +158,132 @@ export async function executeTradeForSignal(signalId: number, quantity: number =
   }
 }
 
+export async function applyBeStop(
+  ibkrTrade: IbkrTrade,
+  signal: Signal,
+  entryPrice: number,
+  isSell: boolean,
+): Promise<boolean> {
+  if (!ibkrTrade.ibkrStopOrderId || ibkrTrade.stopMovedToBe) return false;
+  if (!isConnected()) return false;
+
+  const instrumentType = ibkrTrade.instrumentType || "OPTION";
+  const optionTicker =
+    signal.optionContractTicker ||
+    (signal.optionsJson as any)?.candidate?.contractSymbol;
+  const instrumentTicker =
+    signal.instrumentTicker ||
+    (signal.leveragedEtfJson as any)?.ticker;
+  const contract = makeContract(instrumentType, signal.ticker, instrumentTicker, optionTicker);
+  const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
+
+  let beStopPrice = entryPrice;
+  if (
+    (instrumentType === "OPTION" || instrumentType === "LEVERAGED_ETF") &&
+    ibkrTrade.entryPrice
+  ) {
+    beStopPrice = ibkrTrade.entryPrice;
+  }
+
+  await modifyStopPrice(
+    ibkrTrade.ibkrStopOrderId,
+    contract,
+    closeAction,
+    ibkrTrade.remainingQuantity,
+    beStopPrice,
+  );
+  await storage.updateIbkrTrade(ibkrTrade.id, {
+    stopPrice: beStopPrice,
+    stopMovedToBe: true,
+  });
+  log(`applyBeStop: IBKR stop modified to $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id})`, "ibkr");
+
+  try {
+    const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
+    if (updatedTrade) {
+      await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
+      log(`applyBeStop: RAISE_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`, "ibkr");
+    }
+  } catch (discErr: any) {
+    log(`applyBeStop: Discord alert failed for signal ${signal.id}: ${discErr.message}`, "ibkr");
+  }
+
+  return true;
+}
+
+export async function applyTimeStop(
+  ibkrTrade: IbkrTrade,
+  signal: Signal,
+  entryPrice: number,
+  isSell: boolean,
+  newUnderlyingStop: number,
+  tightenedDist: number,
+  tightenFactor: number,
+  nowIso: string,
+): Promise<boolean> {
+  if (!ibkrTrade.ibkrStopOrderId) return false;
+  if (!isConnected()) return false;
+
+  const instrumentType = ibkrTrade.instrumentType || "OPTION";
+  const optionTicker =
+    signal.optionContractTicker ||
+    (signal.optionsJson as any)?.candidate?.contractSymbol;
+  const instrumentTicker =
+    signal.instrumentTicker ||
+    (signal.leveragedEtfJson as any)?.ticker;
+  const contract = makeContract(instrumentType, signal.ticker, instrumentTicker, optionTicker);
+  const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
+
+  let ibkrNewStop = newUnderlyingStop;
+  if (instrumentType === "OPTION" && ibkrTrade.entryPrice) {
+    const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
+    const riskPct = underlyingEntry > 0 ? tightenedDist / underlyingEntry : 0.025;
+    ibkrNewStop = isSell
+      ? Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 + riskPct)) * 100) / 100
+      : Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 - riskPct)) * 100) / 100;
+  } else if (instrumentType === "LEVERAGED_ETF" && ibkrTrade.entryPrice) {
+    const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
+    if (underlyingEntry > 0) {
+      const underlyingMovePct = (newUnderlyingStop - underlyingEntry) / underlyingEntry;
+      ibkrNewStop = Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 + underlyingMovePct * 3)) * 100) / 100;
+    }
+  }
+
+  await modifyStopPrice(
+    ibkrTrade.ibkrStopOrderId,
+    contract,
+    closeAction,
+    ibkrTrade.remainingQuantity,
+    ibkrNewStop,
+  );
+
+  const oldIbkrStop = ibkrTrade.stopPrice;
+  await storage.updateIbkrTrade(ibkrTrade.id, {
+    stopPrice: ibkrNewStop,
+    detailsJson: {
+      ...((ibkrTrade.detailsJson as any) ?? {}),
+      oldStopPrice: oldIbkrStop,
+      underlyingNewStop: newUnderlyingStop,
+      underlyingOldStop: signal.stopPrice,
+      timeStopTightenFactor: tightenFactor,
+      timeStopAppliedAt: nowIso,
+    },
+  });
+  log(`applyTimeStop: IBKR stop tightened to $${ibkrNewStop.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id}, underlying stop $${newUnderlyingStop.toFixed(2)})`, "ibkr");
+
+  try {
+    const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
+    if (updatedTrade) {
+      await postTradeUpdate(signal, updatedTrade, "TIME_STOP");
+      log(`applyTimeStop: TIME_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`, "ibkr");
+    }
+  } catch (discErr: any) {
+    log(`applyTimeStop: Discord alert failed for signal ${signal.id}: ${discErr.message}`, "ibkr");
+  }
+
+  return true;
+}
+
 function calculateLetfStopPrice(letfEntry: number, underlyingEntry: number | null, underlyingStop: number, isBuy: boolean): number {
   if (!underlyingEntry || underlyingEntry === 0) return isBuy ? letfEntry * 0.97 : letfEntry * 1.03;
   const underlyingMovePct = (underlyingStop - underlyingEntry) / underlyingEntry;
