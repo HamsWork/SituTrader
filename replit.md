@@ -81,10 +81,13 @@ The application follows a full-stack architecture.
 - [ ] Quick Reference table updated if new files added
 - [ ] replit.md updated if new features or dependencies added
 
+- **Bar Cache:** Persistent two-tier caching system (`server/lib/barCache/`) using SQLite (`bar_cache.db`) for permanent on-disk storage and a 5-minute in-memory layer. All bar fetches go through `fetchDailyBarsCached`/`fetchIntradayBarsCached` which use incremental fetching, per-series locking, and configurable staleness thresholds. Stats available at `GET /stats/bar-cache`.
+
 ## External Dependencies
 - **Polygon.io:** Primary source for historical and real-time market data (daily and intraday bars, grouped daily endpoint).
 - **PostgreSQL:** Relational database for storing application data.
 - **Drizzle ORM:** Used for interacting with the PostgreSQL database.
+- **better-sqlite3:** SQLite driver used for the persistent bar cache (`bar_cache.db`).
 - **@stoqey/ib:** Library for connecting and interacting with Interactive Brokers TWS/Gateway for trade execution.
 - **node-cron:** Used for scheduling automated tasks in Author Mode.
 - **dayjs:** Utilized for date and time manipulations, especially for timezone handling and market calendar logic.

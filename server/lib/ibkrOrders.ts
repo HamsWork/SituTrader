@@ -95,8 +95,13 @@ export async function executeTradeForSignal(
       let stopContractPrice: number;
       if (instrumentType === "OPTION") {
         const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
-        const underlyingStop = signal.stopPrice ?? (isBuy ? underlyingEntry * 0.98 : underlyingEntry * 1.02);
-        const riskPct = underlyingEntry > 0 ? Math.abs(underlyingStop - underlyingEntry) / underlyingEntry : 0.025;
+        const underlyingStop =
+          signal.stopPrice ??
+          (isBuy ? underlyingEntry * 0.98 : underlyingEntry * 1.02);
+        const riskPct =
+          underlyingEntry > 0
+            ? Math.abs(underlyingStop - underlyingEntry) / underlyingEntry
+            : 0.025;
         stopContractPrice = isBuy
           ? Math.max(0.01, Math.round(entryPrice * (1 - riskPct) * 100) / 100)
           : Math.max(0.01, Math.round(entryPrice * (1 + riskPct) * 100) / 100);
@@ -317,7 +322,7 @@ export async function applyBeStop(
   try {
     const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
+      // await postTradeUpdate(signal, updatedTrade, "RAISE_STOP"); TODO
       log(
         `applyBeStop: RAISE_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
@@ -411,7 +416,7 @@ export async function applyTimeStop(
   try {
     const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      await postTradeUpdate(signal, updatedTrade, "TIME_STOP");
+      // await postTradeUpdate(signal, updatedTrade, "TIME_STOP");TODO
       log(
         `applyTimeStop: TIME_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
@@ -685,10 +690,11 @@ export async function closeTradeManually(
     : null;
 
   const optionTicker = signal
-    ? (signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol)
+    ? signal.optionContractTicker ||
+      (signal.optionsJson as any)?.candidate?.contractSymbol
     : trade.instrumentTicker;
   const instrTicker = signal
-    ? (signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker)
+    ? signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker
     : trade.instrumentTicker;
 
   const contract = makeContract(

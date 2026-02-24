@@ -17,7 +17,7 @@
 │           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
-│  2,096-line routes.ts · 950-line storage.ts · Drizzle ORM          │
+│  2,132-line routes.ts · 950-line storage.ts · Drizzle ORM          │
 │  Session management · CORS · JSON body parsing                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER (server/lib/)                   │
@@ -26,7 +26,7 @@
 │  polygon.ts · universe.ts · options.ts · leveragedEtf.ts           │
 │  optionMonitor.ts · letfMonitor.ts · backtest.ts · calendar.ts     │
 │  confidence.ts · tradeplan.ts · validate.ts · profitWindows.ts     │
-│  reliability.ts                                                    │
+│  reliability.ts · barCache/ (SQLite persistent bar cache)          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SCHEDULER & WORKERS (server/jobs/)            │
 │  scheduler.ts (241 lines) · jobFunctions.ts (307 lines)           │
@@ -204,10 +204,22 @@ Full Interactive Brokers TWS/Gateway integration:
 
 **`ibkrOrders.ts` exports:** `executeTradeForSignal()`, `applyBeStop()`, `applyTimeStop()`, `monitorActiveTrade()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()`
 
-### 3.8 Polygon.io Integration (`server/lib/polygon.ts` — 475 lines)
+### 3.8 Polygon.io Integration (`server/lib/polygon.ts` — 551 lines)
 Market data provider with extensive API surface:
 
-**Exports:** `fetchDailyBars()`, `fetchIntradayBars()`, `fetchGroupedDaily()`, `fetchOptionsChain()`, `fetchOptionContractDetails()`, `fetchOptionQuote()`, `fetchOptionSnapshot()`, `fetchSnapshot()`, `fetchOptionNbbo()`, `fetchOptionLastTrade()`, `fetchOptionMarkAtTime()`, `fetchStockPriceAtTime()`, `fetchOptionMark()`
+**Exports:** `fetchDailyBars()`, `fetchIntradayBars()`, `fetchDailyBarsCached()`, `fetchIntradayBarsCached()`, `fetchGroupedDaily()`, `fetchOptionsChain()`, `fetchOptionContractDetails()`, `fetchOptionQuote()`, `fetchOptionSnapshot()`, `fetchSnapshot()`, `fetchOptionNbbo()`, `fetchOptionLastTrade()`, `fetchOptionMarkAtTime()`, `fetchStockPriceAtTime()`, `fetchOptionMark()`
+
+### 3.8.1 Bar Cache (`server/lib/barCache/` — 403 lines total)
+Persistent two-tier bar cache system (SQLite + in-memory):
+- **SQLite on-disk** (`bar_cache.db`): WAL mode, permanent storage, survives restarts
+- **In-memory**: 5-minute TTL, 500-entry cap, FIFO eviction
+- **Incremental fetch**: Only fetches missing bars from API, never re-fetches cached data
+- **Per-series locking**: Prevents stampede on concurrent requests for same symbol/timeframe
+- **Staleness thresholds**: Configurable per timeframe (1m: 120s → 1d: 14400s)
+
+**Files:** `types.ts`, `staleness.ts`, `memoryCache.ts`, `db.ts`, `locks.ts`, `getBars.ts`, `index.ts`
+**Exports:** `getBars()`, `getBarCacheStats()`, `openBarCacheDb()`, `getStalenessSeconds()`, `memClear()`
+**Endpoint:** `GET /stats/bar-cache` — returns cache stats (total bars, symbols, DB size, timestamps, WAL mode)
 
 ### 3.9 Options Enrichment (`server/lib/options.ts` — 320 lines)
 Options contract selection and enrichment:

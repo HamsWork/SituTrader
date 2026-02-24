@@ -334,6 +334,7 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/ibkr.ts` | IBKR Integration |
 | `server/lib/ibkrOrders.ts` | IBKR Integration, Stop Management |
 | `server/lib/polygon.ts` | Market Data, Universe, Options, Backtesting |
+| `server/lib/barCache/` | Bar Cache (persistent SQLite + in-memory) |
 | `server/lib/options.ts` | Options Enrichment |
 | `server/lib/leveragedEtf.ts` | LETF System |
 | `server/lib/universe.ts` | Universe Management |

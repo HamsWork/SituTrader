@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { storage } from "./storage";
-import { fetchDailyBars, fetchIntradayBars, fetchSnapshot, fetchOptionSnapshot } from "./lib/polygon";
+import { fetchDailyBars, fetchIntradayBars, fetchDailyBarsCached, fetchIntradayBarsCached, fetchSnapshot, fetchOptionSnapshot } from "./lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, prevTradingDay } from "./lib/calendar";
 import { detectAllSetups } from "./lib/rules";
 import { validateMagnetTouch } from "./lib/validate";
@@ -38,6 +38,7 @@ import {
   runStopSensitivityTest,
   runRegimeAnalysis,
 } from "./lib/reliability";
+import { getBarCacheStats } from "./lib/barCache";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -453,7 +454,7 @@ export async function registerRoutes(
 
       for (const ticker of tickersToScan) {
         try {
-          const dailyPolygon = await fetchDailyBars(ticker, from200, today);
+          const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
           for (const bar of dailyPolygon) {
             const date = formatDate(new Date(bar.t));
             await storage.upsertDailyBar({
@@ -470,7 +471,7 @@ export async function registerRoutes(
           }
           log(`Fetched ${dailyPolygon.length} daily bars for ${ticker}`, "refresh");
 
-          const intradayPolygon = await fetchIntradayBars(ticker, from15, today, timeframe);
+          const intradayPolygon = await fetchIntradayBarsCached(ticker, from15, today, timeframe);
           for (const bar of intradayPolygon) {
             const ts = new Date(bar.t).toISOString();
             await storage.upsertIntradayBar({
@@ -915,6 +916,15 @@ export async function registerRoutes(
     try {
       const status = await getUniverseStatus();
       res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/stats/bar-cache", async (_req, res) => {
+    try {
+      const stats = getBarCacheStats();
+      res.json(stats);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
