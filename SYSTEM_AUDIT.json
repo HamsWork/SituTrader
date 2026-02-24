@@ -203,8 +203,8 @@
       },
       {
         "file": "activation.ts",
-        "lines": 382,
-        "purpose": "Signal activation engine with stop management",
+        "lines": 429,
+        "purpose": "Signal activation engine with stop management and IBKR BE stop wiring",
         "exports": ["runActivationScan"]
       },
       {
@@ -215,8 +215,8 @@
       },
       {
         "file": "discord.ts",
-        "lines": 536,
-        "purpose": "Dual-channel Discord webhook integration",
+        "lines": 574,
+        "purpose": "Dual-channel Discord webhook integration with RAISE_STOP lifecycle event",
         "exports": ["postOptionsAlert", "postLetfAlert", "postTradeUpdate", "sendTestLetfAlert"]
       },
       {

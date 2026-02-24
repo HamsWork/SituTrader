@@ -239,7 +239,54 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           if (shouldApplyBE(stopCfg.stopMode) && sig.stopStage === "INITIAL") {
             const beEarned = rNow >= stopCfg.beRThreshold || progress >= stopCfg.beProgressThreshold;
             if (beEarned) {
-              await storage.updateSignalStopStage(sig.id, "BE", entryPrice, nowIso);
+              let ibkrBeSuccess = false;
+              let beStopPrice = entryPrice;
+
+              try {
+                const allTrades = await storage.getActiveIbkrTrades();
+                const ibkrTrade = allTrades.find(t => t.signalId === sig.id && t.status === "FILLED");
+                if (ibkrTrade && ibkrTrade.ibkrStopOrderId && !ibkrTrade.stopMovedToBe) {
+                  const { isConnected } = await import("./ibkr");
+                  if (isConnected()) {
+                    const { modifyStopPrice, makeContract } = await import("./ibkr");
+                    const instrumentType = ibkrTrade.instrumentType || "OPTION";
+                    const optionTicker = sig.optionContractTicker || (sig.optionsJson as any)?.candidate?.contractSymbol;
+                    const instrumentTicker = sig.instrumentTicker || (sig.leveragedEtfJson as any)?.ticker;
+                    const contract = makeContract(instrumentType, sig.ticker, instrumentTicker, optionTicker);
+                    const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
+
+                    if ((instrumentType === "OPTION" || instrumentType === "LEVERAGED_ETF") && ibkrTrade.entryPrice) {
+                      beStopPrice = ibkrTrade.entryPrice;
+                    }
+
+                    await modifyStopPrice(ibkrTrade.ibkrStopOrderId, contract, closeAction, ibkrTrade.remainingQuantity, beStopPrice);
+                    await storage.updateIbkrTrade(ibkrTrade.id, {
+                      stopPrice: beStopPrice,
+                      stopMovedToBe: true,
+                    });
+                    ibkrBeSuccess = true;
+                    log(`Activation BE: IBKR stop modified to $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${sig.id})`, "activation");
+
+                    const { postTradeUpdate } = await import("./discord");
+                    const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
+                    if (updatedTrade) {
+                      await postTradeUpdate(sig, updatedTrade, "RAISE_STOP");
+                      log(`Activation BE: RaiseStopLoss Discord alert sent for ${ticker} signal ${sig.id}`, "activation");
+                    }
+                  }
+                } else {
+                  ibkrBeSuccess = true;
+                }
+              } catch (beErr: any) {
+                log(`Activation BE: Failed to update IBKR stop or send Discord alert for signal ${sig.id}: ${beErr.message}`, "activation");
+              }
+
+              if (ibkrBeSuccess) {
+                await storage.updateSignalStopStage(sig.id, "BE", entryPrice, nowIso);
+              } else {
+                log(`Activation BE: Skipping signal stop stage update for ${sig.id} — IBKR modification failed`, "activation");
+              }
+
               events.push({
                 signalId: sig.id,
                 ticker,

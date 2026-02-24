@@ -387,6 +387,44 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       break;
     }
 
+    case "RAISE_STOP": {
+      color = GOLD;
+      heading = `**\u{1F6E1}\uFE0F ${signal.ticker}${letfLabel} Stop Loss Raised**`;
+      const entry = trade.entryPrice ?? 0;
+      const newStopPx = trade.stopPrice ?? entry;
+      const stockEntryRS = signal.entryPriceAtActivation ?? entry;
+      const tpDataRS = signal.tradePlanJson as any;
+
+      fields.push(
+        { name: "\u{1F7E0} Ticker", value: `${signal.ticker}`, inline: false },
+      );
+
+      pushInstrumentFields(fields, stockEntryRS);
+
+      const entryDispRS = hasLetfInfo ? stockEntryRS : entry;
+      const stopDispRS = hasLetfInfo ? stockEntryRS : newStopPx;
+      fields.push(
+        { ...SPACER },
+        { name: "\u2705 Entry", value: `${fmtPrice(entryDispRS)}`, inline: true },
+        { name: "\u{1F6E1}\uFE0F New Stop", value: `${fmtPrice(stopDispRS)} (Break Even)`, inline: true },
+        { name: "\u{1F4B8} Risk", value: `0% (Risk-Free)`, inline: true },
+        { ...SPACER },
+        { name: "\u{1F6A8} Status: Stop Loss Raised to Break Even \u{1F6A8}", value: "\u200b", inline: false },
+      );
+
+      if (hasLetfInfo && newStopPx !== stopDispRS) {
+        fields.push(
+          { name: "\u{1F4B9} LETF Stop Price", value: `${fmtPrice(newStopPx)}`, inline: true },
+          { ...SPACER },
+        );
+      }
+
+      fields.push(
+        { name: "\u{1F6E1}\uFE0F Risk Management", value: `Stop loss raised from initial level to ${fmtPrice(stopDispRS)} (break even).\nTrade is now risk-free on remaining position.${tpDataRS?.t2 ? `\n\u{1F3AF} Remaining target: TP2 at ${fmtPrice(tpDataRS.t2)}` : ""}`, inline: false },
+      );
+      break;
+    }
+
     case "STOPPED_OUT": {
       color = RED;
       heading = `**\u{1F6D1} ${signal.ticker}${letfLabel} Stop Loss HIT**`;

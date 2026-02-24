@@ -75,7 +75,7 @@ This document maps every major feature to the specific files and key functions/e
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/activation.ts` | `runActivationScan()` — stop management logic within | Volatility stop, BE stop, time stop logic |
+| `server/lib/activation.ts` | `runActivationScan()` — stop management logic within | Volatility stop, BE stop, time stop logic; BE wired to IBKR stop modify + RAISE_STOP Discord alert |
 | `server/lib/ibkr.ts` | `modifyStopPrice()` | Modify IBKR stop order price |
 | `server/lib/ibkrOrders.ts` | `monitorActiveTrades()` | Move stops to BE after TP1 via IBKR |
 | `shared/schema.ts` | `stop_price`, `stop_stage`, `stop_moved_to_be_ts`, `time_stop_triggered_ts` | Stop state columns |
@@ -101,7 +101,7 @@ This document maps every major feature to the specific files and key functions/e
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postTradeUpdate()`, `sendTestLetfAlert()` | Webhook message construction and delivery |
+| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery |
 | `server/lib/alerts.ts` | `runAlerts()` | Alert lifecycle detection and routing |
 | `shared/schema.ts` | `alert_state`, `next_alert_eligible_at` signal columns; `discord_alert_sent`, `discord_update_sent` trade columns | Alert state schema |
 | `server/storage.ts` | Signal/trade alert state updates | Persistence |

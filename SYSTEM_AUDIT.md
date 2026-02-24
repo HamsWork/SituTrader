@@ -1,6 +1,6 @@
 # SITU GOAT Trader — System Audit
 
-**Audit Date:** 2026-02-23  
+**Audit Date:** 2026-02-24  
 **Codebase Size:** ~22,400 lines of TypeScript/TSX across 72 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
@@ -165,13 +165,14 @@ Calculates R-multiple based statistics from resolved signals:
 
 **Exports:** `computeRMultiples()`, `aggregateExpectancy()`, `computeAndStoreExpectancy()`, `recomputeAllExpectancy()`, `getSetupAlertCategory()`
 
-### 3.4 Activation Engine (`server/lib/activation.ts` — 382 lines)
+### 3.4 Activation Engine (`server/lib/activation.ts` — 429 lines)
 Monitors intraday price action for entry triggers:
 - Conservative mode: Price must cross entry trigger level with confirming bar
 - Aggressive mode: First touch of trigger level activates
 - Manages state transitions: NOT_ACTIVE → ACTIVE → INVALIDATED
 - Stop management: Initial stop → BE stop (after TP1) → Time stop
 - Volatility-based stop calculation using ATR
+- **BE stop wired to IBKR:** When BE condition is met, modifies the IBKR stop order price and sends a RAISE_STOP Discord alert
 
 **Exports:** `runActivationScan()`
 
@@ -184,12 +185,13 @@ Lifecycle event detection and routing:
 
 **Exports:** `runAlerts()`
 
-### 3.6 Discord Integration (`server/lib/discord.ts` — 536 lines)
+### 3.6 Discord Integration (`server/lib/discord.ts` — 574 lines)
 Dual-channel webhook system:
 - **GOAT Alerts:** Options trades → `DISCORD_GOAT_ALERTS_WEBHOOK`
 - **GOAT Swings:** Leveraged ETF trades → `DISCORD_GOAT_SWINGS_WEBHOOK`
-- Color-coded embeds: GREEN (profit/TP hit), RED (stop/loss), GOLD (BE stop after TP1)
+- Color-coded embeds: GREEN (profit/TP hit), RED (stop/loss), GOLD (BE stop after TP1, RAISE_STOP)
 - Entry/TP1/TP2/Close lifecycle embeds with full P&L and R-multiple
+- **RAISE_STOP embed:** Sent when stop is raised to break-even, showing new stop level, risk reduction, and remaining TP2 target
 - LETF alerts show underlying stock prices for Entry/TP/Stop fields
 - Options alerts show strike/expiry/option price
 
