@@ -425,6 +425,59 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       break;
     }
 
+    case "TIME_STOP": {
+      color = GOLD;
+      heading = `**\u23F0 ${signal.ticker}${letfLabel} Time Stop Tightened**`;
+      const entryTS = trade.entryPrice ?? 0;
+      const newInstrStopTS = trade.stopPrice ?? 0;
+      const stockEntryTS = signal.entryPriceAtActivation ?? entryTS;
+      const tpDataTS = signal.tradePlanJson as any;
+      const oldUnderlyingStop = signal.stopPrice ?? 0;
+      const detailsTS = trade.detailsJson as any;
+      const oldInstrStop = detailsTS?.oldStopPrice ?? 0;
+
+      const isSellTS = tpDataTS?.bias === "SELL";
+      const tightenedUnderlyingStop = detailsTS?.underlyingNewStop ?? (() => {
+        const dist = Math.abs(stockEntryTS - oldUnderlyingStop);
+        const factor = detailsTS?.timeStopTightenFactor ?? 0.5;
+        return isSellTS ? stockEntryTS + dist * factor : stockEntryTS - dist * factor;
+      })();
+
+      fields.push(
+        { name: "\u{1F7E0} Ticker", value: `${signal.ticker}`, inline: false },
+      );
+
+      pushInstrumentFields(fields, stockEntryTS);
+
+      fields.push(
+        { ...SPACER },
+        { name: "\u2705 Entry", value: `${fmtPrice(hasLetfInfo ? stockEntryTS : entryTS)}`, inline: true },
+        { name: "\u{1F6E1}\uFE0F New Stop", value: `${fmtPrice(hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS)}`, inline: true },
+        { name: "\u{1F4B8} Risk", value: `${fmtPct(hasLetfInfo ? stockEntryTS : entryTS, hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS)}`, inline: true },
+        { ...SPACER },
+        { name: "\u23F0 Status: Time Stop Activated \u23F0", value: "\u200b", inline: false },
+      );
+
+      if (hasLetfInfo) {
+        fields.push(
+          { name: "\u{1F4C9} Old LETF Stop", value: `${fmtPrice(oldInstrStop)}`, inline: true },
+          { name: "\u{1F4C8} New LETF Stop", value: `${fmtPrice(newInstrStopTS)}`, inline: true },
+          { ...SPACER },
+        );
+      }
+
+      const activeMins = signal.activatedTs
+        ? Math.floor((Date.now() - new Date(signal.activatedTs).getTime()) / 60000)
+        : 0;
+
+      const oldDispTS = hasLetfInfo ? oldUnderlyingStop : (oldInstrStop || oldUnderlyingStop);
+      const newDispTS = hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS;
+      fields.push(
+        { name: "\u23F0 Time Stop Details", value: `Stop tightened after ${activeMins} minutes — insufficient movement toward target.\nOld stop: ${fmtPrice(oldDispTS)} → New stop: ${fmtPrice(newDispTS)}${tpDataTS?.t1 ? `\n\u{1F3AF} Target: ${fmtPrice(tpDataTS.t1)}` : ""}`, inline: false },
+      );
+      break;
+    }
+
     case "STOPPED_OUT": {
       color = RED;
       heading = `**\u{1F6D1} ${signal.ticker}${letfLabel} Stop Loss HIT**`;

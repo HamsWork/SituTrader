@@ -436,13 +436,114 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
               const newStop = isSell
                 ? entryPrice + tightenedDist
                 : entryPrice - tightenedDist;
-              await storage.updateSignalStopStage(
-                sig.id,
-                "TIME_TIGHTENED",
-                newStop,
-                undefined,
-                nowIso,
-              );
+
+              let ibkrTimeStopSuccess = false;
+
+              try {
+                const ibkrTrade = allIbkrTrades.find(
+                  (t) => t.signalId === sig.id && t.status === "FILLED",
+                );
+                if (
+                  ibkrTrade &&
+                  ibkrTrade.ibkrStopOrderId
+                ) {
+                  const { isConnected } = await import("./ibkr");
+                  if (isConnected()) {
+                    const { modifyStopPrice, makeContract } = await import(
+                      "./ibkr"
+                    );
+                    const instrumentType = ibkrTrade.instrumentType || "OPTION";
+                    const optionTicker =
+                      sig.optionContractTicker ||
+                      (sig.optionsJson as any)?.candidate?.contractSymbol;
+                    const instrumentTicker =
+                      sig.instrumentTicker ||
+                      (sig.leveragedEtfJson as any)?.ticker;
+                    const contract = makeContract(
+                      instrumentType,
+                      sig.ticker,
+                      instrumentTicker,
+                      optionTicker,
+                    );
+                    const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
+
+                    let ibkrNewStop = newStop;
+                    if (instrumentType === "OPTION" && ibkrTrade.entryPrice) {
+                      const underlyingEntry = sig.entryPriceAtActivation ?? entryPrice;
+                      const riskPct = underlyingEntry > 0 ? tightenedDist / underlyingEntry : 0.025;
+                      ibkrNewStop = isSell
+                        ? Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 + riskPct)) * 100) / 100
+                        : Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 - riskPct)) * 100) / 100;
+                    } else if (instrumentType === "LEVERAGED_ETF" && ibkrTrade.entryPrice) {
+                      const underlyingEntry = sig.entryPriceAtActivation ?? entryPrice;
+                      if (underlyingEntry > 0) {
+                        const underlyingMovePct = (newStop - underlyingEntry) / underlyingEntry;
+                        ibkrNewStop = Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 + underlyingMovePct * 3)) * 100) / 100;
+                      }
+                    }
+
+                    await modifyStopPrice(
+                      ibkrTrade.ibkrStopOrderId,
+                      contract,
+                      closeAction,
+                      ibkrTrade.remainingQuantity,
+                      ibkrNewStop,
+                    );
+                    const oldIbkrStop = ibkrTrade.stopPrice;
+                    await storage.updateIbkrTrade(ibkrTrade.id, {
+                      stopPrice: ibkrNewStop,
+                      detailsJson: {
+                        ...(ibkrTrade.detailsJson as any ?? {}),
+                        oldStopPrice: oldIbkrStop,
+                        underlyingNewStop: newStop,
+                        underlyingOldStop: sig.stopPrice,
+                        timeStopTightenFactor: stopCfg.timeStopTightenFactor,
+                        timeStopAppliedAt: nowIso,
+                      },
+                    });
+                    ibkrTimeStopSuccess = true;
+                    log(
+                      `Activation TIME_STOP: IBKR stop tightened to $${ibkrNewStop.toFixed(2)} for trade ${ibkrTrade.id} (signal ${sig.id}, underlying stop $${newStop.toFixed(2)})`,
+                      "activation",
+                    );
+
+                    const { postTradeUpdate } = await import("./discord");
+                    const updatedTrade = await storage.getIbkrTrade(
+                      ibkrTrade.id,
+                    );
+                    if (updatedTrade) {
+                      await postTradeUpdate(sig, updatedTrade, "TIME_STOP");
+                      log(
+                        `Activation TIME_STOP: Discord alert sent for ${ticker} signal ${sig.id}`,
+                        "activation",
+                      );
+                    }
+                  }
+                } else {
+                  ibkrTimeStopSuccess = true;
+                }
+              } catch (tsErr: any) {
+                log(
+                  `Activation TIME_STOP: Failed to update IBKR stop or send Discord alert for signal ${sig.id}: ${tsErr.message}`,
+                  "activation",
+                );
+              }
+
+              if (ibkrTimeStopSuccess) {
+                await storage.updateSignalStopStage(
+                  sig.id,
+                  "TIME_TIGHTENED",
+                  newStop,
+                  undefined,
+                  nowIso,
+                );
+              } else {
+                log(
+                  `Activation TIME_STOP: Skipping signal stop stage update for ${sig.id} — IBKR modification failed`,
+                  "activation",
+                );
+              }
+
               events.push({
                 signalId: sig.id,
                 ticker,

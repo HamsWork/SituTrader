@@ -165,7 +165,7 @@ Calculates R-multiple based statistics from resolved signals:
 
 **Exports:** `computeRMultiples()`, `aggregateExpectancy()`, `computeAndStoreExpectancy()`, `recomputeAllExpectancy()`, `getSetupAlertCategory()`
 
-### 3.4 Activation Engine (`server/lib/activation.ts` — 642 lines)
+### 3.4 Activation Engine (`server/lib/activation.ts` — 740 lines)
 Monitors intraday price action for entry triggers:
 - Conservative mode: Price must cross entry trigger level with confirming bar
 - Aggressive mode: First touch of trigger level activates
@@ -185,11 +185,11 @@ Lifecycle event detection and routing:
 
 **Exports:** `runAlerts()`
 
-### 3.6 Discord Integration (`server/lib/discord.ts` — 574 lines)
+### 3.6 Discord Integration (`server/lib/discord.ts` — 626 lines)
 Dual-channel webhook system:
 - **GOAT Alerts:** Options trades → `DISCORD_GOAT_ALERTS_WEBHOOK`
 - **GOAT Swings:** Leveraged ETF trades → `DISCORD_GOAT_SWINGS_WEBHOOK`
-- Color-coded embeds: GREEN (profit/TP hit), RED (stop/loss), GOLD (BE stop after TP1, RAISE_STOP)
+- Color-coded embeds: GREEN (profit/TP hit), RED (stop/loss), GOLD (BE stop/RAISE_STOP, TIME_STOP)
 - Entry/TP1/TP2/Close lifecycle embeds with full P&L and R-multiple
 - **RAISE_STOP embed:** Sent when stop is raised to break-even, showing new stop level, risk reduction, and remaining TP2 target
 - LETF alerts show underlying stock prices for Entry/TP/Stop fields
