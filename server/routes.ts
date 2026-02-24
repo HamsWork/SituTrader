@@ -1756,7 +1756,8 @@ export async function registerRoutes(
           totalInvested: Math.round(totalInvested * 100) / 100,
           capitalRequired: Math.round(capitalRequired),
           avgPnlPerTrade: Math.round(avgPnl * 100) / 100,
-          roi: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
+          roiOnCapital: capitalRequired > 0 ? Math.round((totalPnl / capitalRequired) * 10000) / 100 : 0,
+          edgePct: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
           bestTrade: bestTrade ? { ticker: bestTrade.ticker, pnl: bestTrade.pnlDollar } : null,
           worstTrade: worstTrade ? { ticker: worstTrade.ticker, pnl: worstTrade.pnlDollar } : null,
           instrumentBreakdown,
@@ -1783,10 +1784,10 @@ export async function registerRoutes(
       const tradesOlder = tradeResults.filter(t => t.date < c90);
 
       const periodSummaries = [
-        buildSummary("30 Days", trades30),
-        buildSummary("31-60 Days", trades60),
-        buildSummary("61-90 Days", trades90),
-        buildSummary("91+ Days", tradesOlder),
+        buildSummary("Last 30 Days", trades30),
+        buildSummary("31–60 Days Ago", trades60),
+        buildSummary("61–90 Days Ago", trades90),
+        buildSummary("91+ Days Ago", tradesOlder),
         buildSummary("Total", tradeResults),
       ];
 

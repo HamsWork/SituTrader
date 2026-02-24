@@ -1,0 +1,74 @@
+From this screenshot alone, the math is internally consistent — which is a good sign that it is “recording” in a coherent way — but I strongly suspect the ROI label is not the ROI you think it is.
+
+What checks out (your totals match)
+
+These four buckets sum perfectly:
+	•	Trades: 6,189 + 5,774 + 6,099 + 45,196 = 63,258 ✅
+	•	P and L: 12,767.72 − 8,146.92 − 10,179.73 + 24,073.64 = 18,514.71 ✅
+	•	Wins and losses: 29,490 W + 33,768 L = 63,258 ✅
+	•	Win rate: 29,490 / 63,258 = 46.6% ✅ (matches)
+
+So aggregation is not “broken.”
+
+The big issue: your ROI is almost certainly “edge on deployed notional,” not account ROI
+
+Your Total ROI shows +0.03%, with Total P and L +18,514.71 and “Capital Required” 10,000.
+
+If ROI were account-style ROI on required capital, it would be:
+	•	18,514.71 / 10,000 = 185.15% (not 0.03%)
+
+So your ROI is being computed with a much larger denominator than 10,000.
+
+And your “Avg P and L per trade” is +0.29 per 1000 position. If you assume each trade deploys ~1,000 notional, then:
+	•	Total deployed notional ≈ 63,258 trades × 1,000 = 63,258,000
+	•	ROI ≈ 18,514.71 / 63,258,000 = 0.0002926 = 0.029% → displayed as 0.03% ✅
+
+That lines up almost perfectly.
+
+Translation
+
+You’re showing ROI on total traded notional (sum of position sizes) — basically “edge” — while also showing capital required as a separate concept.
+
+That’s not “wrong,” but it’s misleading unless you label it clearly.
+
+What I would change (so nobody gets confused)
+	1.	Rename ROI to something honest, like:
+
+	•	“Return on Deployed Notional” or “Edge (P and L divided by gross exposure)”
+
+	2.	Add a second ROI that retail brains expect:
+
+	•	“Return on Required Capital” = total_pnl / capital_required
+(Or better: total_pnl / average capital actually deployed, if you track it)
+
+	3.	Make the denominator explicit in the UI:
+
+	•	“ROI computed as: total_pnl / sum(position_notional)”
+
+One more likely logic bug: what do the time buckets mean?
+
+Given 91+ Days has 45,196 trades, that bucket probably means:
+	•	“Trades closed more than 91 days ago” (age since close), not
+	•	“Trades held longer than 91 days” (trade duration)
+
+If you intended duration, you’re almost certainly bucketing on the wrong timestamp (using now - entry_time or now - exit_time instead of exit_time - entry_time).
+
+Quick rule
+	•	Duration bucket: holding_days = exit_ts - entry_ts
+	•	Recency bucket: age_days = now - exit_ts
+
+Fast self-audit you can run (no guessing)
+
+Use these checks in code (or SQL) and compare to your UI:
+	•	Totals
+	•	sum(bucket_trades) == total_trades
+	•	sum(bucket_pnl) == total_pnl
+	•	wins + losses == total_trades
+	•	ROI sanity (print all 3 to confirm which you’re using)
+	•	roi_edge = total_pnl / sum(position_notional)
+	•	roi_req_cap = total_pnl / capital_required
+	•	roi_per_trade = total_pnl / total_trades
+	•	Bucket definition sanity (print sample rows at bucket boundaries)
+	•	If you meant duration, verify exit_ts exists and exit_ts - entry_ts is what you bucket.
+
+If you paste the function (or the snippet) where you compute ROI + bucket assignment, I’ll tell you exactly what’s off and what to change.

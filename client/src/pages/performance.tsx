@@ -95,7 +95,8 @@ interface PeriodSummary {
   totalInvested: number;
   capitalRequired: number;
   avgPnlPerTrade: number;
-  roi: number;
+  roiOnCapital: number;
+  edgePct: number;
   bestTrade: { ticker: string; pnl: number } | null;
   worstTrade: { ticker: string; pnl: number } | null;
   instrumentBreakdown: { type: string; count: number; pnl: number; winRate: number }[];
@@ -280,7 +281,7 @@ export default function PerformancePage() {
                         variant="outline"
                         className={`text-[10px] ${p.totalPnl >= 0 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}`}
                       >
-                        {p.totalPnl >= 0 ? "+" : ""}{p.roi}% ROI
+                        {p.totalPnl >= 0 ? "+" : ""}{p.roiOnCapital}% ROI
                       </Badge>
                     </div>
                     <div className={`text-xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
@@ -291,12 +292,11 @@ export default function PerformancePage() {
                       <span>{p.winRate}% WR</span>
                       <span>${p.capitalRequired.toLocaleString()} req</span>
                     </div>
-                    {p.totalTrades > 0 && (p.liveCount != null || p.backtestCount != null) && (
-                      <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/70">
-                        {(p.liveCount ?? 0) > 0 && <span>{p.liveCount} live</span>}
-                        {(p.backtestCount ?? 0) > 0 && <span>{p.backtestCount} backtest</span>}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/70">
+                      <span>{p.edgePct >= 0 ? "+" : ""}{p.edgePct}% edge</span>
+                      {(p.liveCount ?? 0) > 0 && <span>{p.liveCount} live</span>}
+                      {(p.backtestCount ?? 0) > 0 && <span>{p.backtestCount} backtest</span>}
+                    </div>
                     {p.totalTrades === 0 && (
                       <div className="text-[10px] text-muted-foreground/60 mt-1">No trades in this period</div>
                     )}
@@ -320,7 +320,7 @@ export default function PerformancePage() {
                           variant="outline"
                           className={`text-[10px] ${p.totalPnl >= 0 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}`}
                         >
-                          {p.totalPnl >= 0 ? "+" : ""}{p.roi}% ROI
+                          {p.totalPnl >= 0 ? "+" : ""}{p.roiOnCapital}% ROI
                         </Badge>
                       </div>
                       <div className={`text-xl font-bold font-mono ${p.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`}>
@@ -333,6 +333,7 @@ export default function PerformancePage() {
                       </div>
                       {p.totalTrades > 0 && (
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
+                          <span>{p.edgePct >= 0 ? "+" : ""}{p.edgePct}% edge</span>
                           {(p.liveCount ?? 0) > 0 && <span>{p.liveCount} live</span>}
                           {(p.backtestCount ?? 0) > 0 && <span>{p.backtestCount} backtest</span>}
                         </div>
@@ -362,14 +363,14 @@ export default function PerformancePage() {
               <Card>
                 <CardContent className="pt-4 pb-3 px-4">
                   <div className="flex items-center gap-2 mb-1">
-                    <CircleDollarSign className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Capital Required</span>
+                    <TrendingUp className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">ROI on Capital</span>
                   </div>
-                  <div className="text-2xl font-bold font-mono" data-testid="text-capital-req">
-                    ${activePeriod.capitalRequired.toLocaleString()}
+                  <div className={`text-2xl font-bold font-mono ${activePeriod.roiOnCapital >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`} data-testid="text-roi">
+                    {activePeriod.roiOnCapital >= 0 ? "+" : ""}{activePeriod.roiOnCapital}%
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    ${capital.toLocaleString()} x {Math.min(activePeriod.totalTrades, 10)} concurrent
+                    on ${activePeriod.capitalRequired.toLocaleString()} capital ({activePeriod.edgePct}% edge)
                   </div>
                 </CardContent>
               </Card>
