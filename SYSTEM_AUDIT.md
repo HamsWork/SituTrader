@@ -165,7 +165,7 @@ Calculates R-multiple based statistics from resolved signals:
 
 **Exports:** `computeRMultiples()`, `aggregateExpectancy()`, `computeAndStoreExpectancy()`, `recomputeAllExpectancy()`, `getSetupAlertCategory()`
 
-### 3.4 Activation Engine (`server/lib/activation.ts` — 429 lines)
+### 3.4 Activation Engine (`server/lib/activation.ts` — 642 lines)
 Monitors intraday price action for entry triggers:
 - Conservative mode: Price must cross entry trigger level with confirming bar
 - Aggressive mode: First touch of trigger level activates
@@ -197,12 +197,12 @@ Dual-channel webhook system:
 
 **Exports:** `postOptionsAlert()`, `postLetfAlert()`, `postTradeUpdate()`, `sendTestLetfAlert()`
 
-### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 392 lines)
+### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 403 lines)
 Full Interactive Brokers TWS/Gateway integration:
 
 **`ibkr.ts` exports:** `connectIBKR()`, `disconnectIBKR()`, `isConnected()`, `getPositions()`, `getAccountSummary()`, `getOrderStatus()`, `getNextOrderId()`, `makeContract()`, `placeMarketOrder()`, `placeLimitOrder()`, `placeStopOrder()`, `cancelOrder()`, `modifyStopPrice()`, `getIBApi()`
 
-**`ibkrOrders.ts` exports:** `executeTradeForSignal()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()`
+**`ibkrOrders.ts` exports:** `executeTradeForSignal()`, `monitorActiveTrade()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()`
 
 ### 3.8 Polygon.io Integration (`server/lib/polygon.ts` — 475 lines)
 Market data provider with extensive API surface:

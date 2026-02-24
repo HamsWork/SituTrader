@@ -203,8 +203,8 @@
       },
       {
         "file": "activation.ts",
-        "lines": 429,
-        "purpose": "Signal activation engine with stop management and IBKR BE stop wiring",
+        "lines": 642,
+        "purpose": "Signal activation engine with stop management, IBKR BE stop wiring, and per-signal IBKR trade monitoring",
         "exports": ["runActivationScan"]
       },
       {
@@ -227,9 +227,9 @@
       },
       {
         "file": "ibkrOrders.ts",
-        "lines": 392,
-        "purpose": "IBKR bracket order creation and management",
-        "exports": ["executeTradeForSignal", "monitorActiveTrades", "closeTradeManually", "getIbkrDashboardData"]
+        "lines": 403,
+        "purpose": "IBKR bracket order execution, single-trade monitoring, and trade management",
+        "exports": ["executeTradeForSignal", "monitorActiveTrade", "monitorActiveTrades", "closeTradeManually", "getIbkrDashboardData"]
       },
       {
         "file": "polygon.ts",

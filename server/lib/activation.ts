@@ -1,7 +1,16 @@
 import { storage } from "../storage";
 import { filterRTHBars, timestampToET } from "./validate";
-import { fetchSnapshot, fetchOptionMark, fetchOptionMarkAtTime, fetchStockPriceAtTime } from "./polygon";
-import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./leveragedEtf";
+import {
+  fetchSnapshot,
+  fetchOptionMark,
+  fetchOptionMarkAtTime,
+  fetchStockPriceAtTime,
+} from "./polygon";
+import {
+  selectBestLeveragedEtf,
+  fetchStockNbbo,
+  hasLeveragedEtfMapping,
+} from "./leveragedEtf";
 import { log } from "../index";
 import type { Signal, TradePlan, OptionsData } from "@shared/schema";
 
@@ -18,7 +27,7 @@ export interface ActivationEvent {
 
 function computeEntryTriggerPrice(
   bars: Array<{ high: number; low: number; close: number }>,
-  tradePlan: TradePlan
+  tradePlan: TradePlan,
 ): number | null {
   if (bars.length < 2) return null;
   const isSell = tradePlan.bias === "SELL";
@@ -27,17 +36,32 @@ function computeEntryTriggerPrice(
 }
 
 function checkEntryTrigger(
-  bars: Array<{ ts: string; open: number; high: number; low: number; close: number; volume: number }>,
+  bars: Array<{
+    ts: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }>,
   tradePlan: TradePlan,
-  entryMode: string
-): { triggered: boolean; triggerTs?: string; entryPrice?: number; entryTriggerPrice?: number; invalidated?: boolean } {
+  entryMode: string,
+): {
+  triggered: boolean;
+  triggerTs?: string;
+  entryPrice?: number;
+  entryTriggerPrice?: number;
+  invalidated?: boolean;
+} {
   const rthBars = filterRTHBars(bars);
   if (rthBars.length === 0) return { triggered: false };
 
   const isSell = tradePlan.bias === "SELL";
   const magnetPrice = tradePlan.t1;
   const firstClose = rthBars[0]?.close;
-  const stopDistance = tradePlan.stopDistance ?? ((firstClose != null ? Math.abs(magnetPrice - firstClose) * 0.5 : 1) || 1);
+  const stopDistance =
+    tradePlan.stopDistance ??
+    ((firstClose != null ? Math.abs(magnetPrice - firstClose) * 0.5 : 1) || 1);
 
   if (entryMode === "aggressive") {
     for (const bar of rthBars) {
@@ -46,10 +70,20 @@ function checkEntryTrigger(
       if (totalMin < 575) continue;
 
       if (isSell && bar.close < bar.open) {
-        return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: bar.open };
+        return {
+          triggered: true,
+          triggerTs: bar.ts,
+          entryPrice: bar.close,
+          entryTriggerPrice: bar.open,
+        };
       }
       if (!isSell && bar.close > bar.open) {
-        return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: bar.open };
+        return {
+          triggered: true,
+          triggerTs: bar.ts,
+          entryPrice: bar.close,
+          entryTriggerPrice: bar.open,
+        };
       }
     }
   } else {
@@ -74,14 +108,24 @@ function checkEntryTrigger(
       } else {
         if (isSell) {
           if (bar.high >= breakoutPrice && bar.close <= breakoutPrice) {
-            return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: breakoutPrice };
+            return {
+              triggered: true,
+              triggerTs: bar.ts,
+              entryPrice: bar.close,
+              entryTriggerPrice: breakoutPrice,
+            };
           }
           if (bar.close > breakoutPrice + stopDistance) {
             breakoutSeen = false;
           }
         } else {
           if (bar.low <= breakoutPrice && bar.close >= breakoutPrice) {
-            return { triggered: true, triggerTs: bar.ts, entryPrice: bar.close, entryTriggerPrice: breakoutPrice };
+            return {
+              triggered: true,
+              triggerTs: bar.ts,
+              entryPrice: bar.close,
+              entryTriggerPrice: breakoutPrice,
+            };
           }
           if (bar.close < breakoutPrice - stopDistance) {
             breakoutSeen = false;
@@ -89,7 +133,6 @@ function checkEntryTrigger(
         }
       }
     }
-
   }
 
   return { triggered: false };
@@ -99,7 +142,7 @@ function checkInvalidation(
   currentPrice: number,
   tradePlan: TradePlan,
   entryPrice: number,
-  stopPrice: number | null
+  stopPrice: number | null,
 ): boolean {
   const effectiveStop = stopPrice;
   if (effectiveStop == null) {
@@ -122,7 +165,7 @@ function computeRNow(
   currentPrice: number,
   entryPrice: number,
   stopPrice: number,
-  isSell: boolean
+  isSell: boolean,
 ): number {
   const stopDist = Math.abs(entryPrice - stopPrice);
   if (stopDist === 0) return 0;
@@ -135,13 +178,19 @@ function computeProgressToTarget(
   currentPrice: number,
   entryPrice: number,
   targetPrice: number,
-  isSell: boolean
+  isSell: boolean,
 ): number {
   let progress: number;
   if (isSell) {
-    progress = (entryPrice - targetPrice) !== 0 ? (entryPrice - currentPrice) / (entryPrice - targetPrice) : 0;
+    progress =
+      entryPrice - targetPrice !== 0
+        ? (entryPrice - currentPrice) / (entryPrice - targetPrice)
+        : 0;
   } else {
-    progress = (targetPrice - entryPrice) !== 0 ? (currentPrice - entryPrice) / (targetPrice - entryPrice) : 0;
+    progress =
+      targetPrice - entryPrice !== 0
+        ? (currentPrice - entryPrice) / (targetPrice - entryPrice)
+        : 0;
   }
   return Math.max(0, Math.min(1, progress));
 }
@@ -161,7 +210,9 @@ function getStopConfig(settings: Record<string, string>): StopConfig {
     beProgressThreshold: parseFloat(settings.beProgressThreshold || "0.25"),
     beRThreshold: parseFloat(settings.beRThreshold || "0.5"),
     timeStopMinutes: parseInt(settings.timeStopMinutes || "120"),
-    timeStopProgressThreshold: parseFloat(settings.timeStopProgressThreshold || "0.15"),
+    timeStopProgressThreshold: parseFloat(
+      settings.timeStopProgressThreshold || "0.15",
+    ),
     timeStopTightenFactor: parseFloat(settings.timeStopTightenFactor || "0.5"),
   };
 }
@@ -188,6 +239,11 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   const activeSignals = await storage.getActiveSignals();
   if (activeSignals.length === 0) return events;
 
+  let allIbkrTrades: Awaited<ReturnType<typeof storage.getActiveIbkrTrades>> = [];
+  try {
+    allIbkrTrades = await storage.getActiveIbkrTrades();
+  } catch {}
+
   const tickerGroups = new Map<string, Signal[]>();
   for (const sig of activeSignals) {
     if (!tickerGroups.has(sig.ticker)) tickerGroups.set(sig.ticker, []);
@@ -202,7 +258,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       const snap = await fetchSnapshot(ticker);
       if (snap && snap.lastPrice > 0) currentPrice = snap.lastPrice;
     } catch (err: any) {
-      log(`Activation: failed to get snapshot for ${ticker}: ${err.message}`, "activation");
+      log(
+        `Activation: failed to get snapshot for ${ticker}: ${err.message}`,
+        "activation",
+      );
       continue;
     }
 
@@ -214,7 +273,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         const entryPrice = sig.entryPriceAtActivation ?? 0;
         const isSell = tp.bias === "SELL";
 
-        if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
+        if (
+          currentPrice &&
+          checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)
+        ) {
           await storage.updateSignalInvalidation(sig.id, nowIso);
           events.push({
             signalId: sig.id,
@@ -230,61 +292,120 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         }
 
         if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
-          const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
-          const progress = computeProgressToTarget(currentPrice, entryPrice, tp.t1, isSell);
+          const rNow = computeRNow(
+            currentPrice,
+            entryPrice,
+            sig.stopPrice,
+            isSell,
+          );
+          const progress = computeProgressToTarget(
+            currentPrice,
+            entryPrice,
+            tp.t1,
+            isSell,
+          );
           const activeMinutes = sig.activatedTs
-            ? Math.floor((now.getTime() - new Date(sig.activatedTs).getTime()) / 60000)
+            ? Math.floor(
+                (now.getTime() - new Date(sig.activatedTs).getTime()) / 60000,
+              )
             : 0;
 
           if (shouldApplyBE(stopCfg.stopMode) && sig.stopStage === "INITIAL") {
-            const beEarned = rNow >= stopCfg.beRThreshold || progress >= stopCfg.beProgressThreshold;
+            const beEarned =
+              rNow >= stopCfg.beRThreshold ||
+              progress >= stopCfg.beProgressThreshold;
             if (beEarned) {
               let ibkrBeSuccess = false;
               let beStopPrice = entryPrice;
 
               try {
-                const allTrades = await storage.getActiveIbkrTrades();
-                const ibkrTrade = allTrades.find(t => t.signalId === sig.id && t.status === "FILLED");
-                if (ibkrTrade && ibkrTrade.ibkrStopOrderId && !ibkrTrade.stopMovedToBe) {
+                const ibkrTrade = allIbkrTrades.find(
+                  (t) => t.signalId === sig.id && t.status === "FILLED",
+                );
+                if (
+                  ibkrTrade &&
+                  ibkrTrade.ibkrStopOrderId &&
+                  !ibkrTrade.stopMovedToBe
+                ) {
                   const { isConnected } = await import("./ibkr");
                   if (isConnected()) {
-                    const { modifyStopPrice, makeContract } = await import("./ibkr");
+                    const { modifyStopPrice, makeContract } = await import(
+                      "./ibkr"
+                    );
                     const instrumentType = ibkrTrade.instrumentType || "OPTION";
-                    const optionTicker = sig.optionContractTicker || (sig.optionsJson as any)?.candidate?.contractSymbol;
-                    const instrumentTicker = sig.instrumentTicker || (sig.leveragedEtfJson as any)?.ticker;
-                    const contract = makeContract(instrumentType, sig.ticker, instrumentTicker, optionTicker);
+                    const optionTicker =
+                      sig.optionContractTicker ||
+                      (sig.optionsJson as any)?.candidate?.contractSymbol;
+                    const instrumentTicker =
+                      sig.instrumentTicker ||
+                      (sig.leveragedEtfJson as any)?.ticker;
+                    const contract = makeContract(
+                      instrumentType,
+                      sig.ticker,
+                      instrumentTicker,
+                      optionTicker,
+                    );
                     const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
 
-                    if ((instrumentType === "OPTION" || instrumentType === "LEVERAGED_ETF") && ibkrTrade.entryPrice) {
+                    if (
+                      (instrumentType === "OPTION" ||
+                        instrumentType === "LEVERAGED_ETF") &&
+                      ibkrTrade.entryPrice
+                    ) {
                       beStopPrice = ibkrTrade.entryPrice;
                     }
 
-                    await modifyStopPrice(ibkrTrade.ibkrStopOrderId, contract, closeAction, ibkrTrade.remainingQuantity, beStopPrice);
+                    await modifyStopPrice(
+                      ibkrTrade.ibkrStopOrderId,
+                      contract,
+                      closeAction,
+                      ibkrTrade.remainingQuantity,
+                      beStopPrice,
+                    );
                     await storage.updateIbkrTrade(ibkrTrade.id, {
                       stopPrice: beStopPrice,
                       stopMovedToBe: true,
                     });
                     ibkrBeSuccess = true;
-                    log(`Activation BE: IBKR stop modified to $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${sig.id})`, "activation");
+                    log(
+                      `Activation BE: IBKR stop modified to $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${sig.id})`,
+                      "activation",
+                    );
 
                     const { postTradeUpdate } = await import("./discord");
-                    const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
+                    const updatedTrade = await storage.getIbkrTrade(
+                      ibkrTrade.id,
+                    );
                     if (updatedTrade) {
-                      await postTradeUpdate(sig, updatedTrade, "RAISE_STOP");
-                      log(`Activation BE: RaiseStopLoss Discord alert sent for ${ticker} signal ${sig.id}`, "activation");
+                      // await postTradeUpdate(sig, updatedTrade, "RAISE_STOP"); TODO
+                      log(
+                        `Activation BE: RaiseStopLoss Discord alert sent for ${ticker} signal ${sig.id}`,
+                        "activation",
+                      );
                     }
                   }
                 } else {
                   ibkrBeSuccess = true;
                 }
               } catch (beErr: any) {
-                log(`Activation BE: Failed to update IBKR stop or send Discord alert for signal ${sig.id}: ${beErr.message}`, "activation");
+                log(
+                  `Activation BE: Failed to update IBKR stop or send Discord alert for signal ${sig.id}: ${beErr.message}`,
+                  "activation",
+                );
               }
 
               if (ibkrBeSuccess) {
-                await storage.updateSignalStopStage(sig.id, "BE", entryPrice, nowIso);
+                await storage.updateSignalStopStage(
+                  sig.id,
+                  "BE",
+                  entryPrice,
+                  nowIso,
+                );
               } else {
-                log(`Activation BE: Skipping signal stop stage update for ${sig.id} — IBKR modification failed`, "activation");
+                log(
+                  `Activation BE: Skipping signal stop stage update for ${sig.id} — IBKR modification failed`,
+                  "activation",
+                );
               }
 
               events.push({
@@ -294,21 +415,34 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 tier: sig.tier,
                 qualityScore: sig.qualityScore,
                 entryPrice,
-                message: `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress*100).toFixed(0)}%)`,
+                message: `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`,
                 timestamp: nowIso,
               });
               continue;
             }
           }
 
-          if (shouldApplyTimeStop(stopCfg.stopMode) && sig.stopStage !== "TIME_TIGHTENED" && !sig.timeStopTriggeredTs) {
-            if (activeMinutes >= stopCfg.timeStopMinutes && progress < stopCfg.timeStopProgressThreshold) {
+          if (
+            shouldApplyTimeStop(stopCfg.stopMode) &&
+            sig.stopStage !== "TIME_TIGHTENED" &&
+            !sig.timeStopTriggeredTs
+          ) {
+            if (
+              activeMinutes >= stopCfg.timeStopMinutes &&
+              progress < stopCfg.timeStopProgressThreshold
+            ) {
               const stopDist = Math.abs(entryPrice - sig.stopPrice);
               const tightenedDist = stopDist * stopCfg.timeStopTightenFactor;
               const newStop = isSell
                 ? entryPrice + tightenedDist
                 : entryPrice - tightenedDist;
-              await storage.updateSignalStopStage(sig.id, "TIME_TIGHTENED", newStop, undefined, nowIso);
+              await storage.updateSignalStopStage(
+                sig.id,
+                "TIME_TIGHTENED",
+                newStop,
+                undefined,
+                nowIso,
+              );
               events.push({
                 signalId: sig.id,
                 ticker,
@@ -316,12 +450,34 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 tier: sig.tier,
                 qualityScore: sig.qualityScore,
                 entryPrice,
-                message: `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress*100).toFixed(0)}% progress`,
+                message: `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress * 100).toFixed(0)}% progress`,
                 timestamp: nowIso,
               });
               continue;
             }
           }
+        }
+
+        try {
+          const sigTrades = allIbkrTrades.filter(t => t.signalId === sig.id && t.status === "FILLED");
+          if (sigTrades.length > 0) {
+            const { isConnected } = await import("./ibkr");
+            if (isConnected()) {
+              const { monitorActiveTrade } = await import("./ibkrOrders");
+              for (const ibkrTrade of sigTrades) {
+                try {
+                  const result = await monitorActiveTrade(ibkrTrade, sig);
+                  if (result.event) {
+                    log(`Activation monitor: trade ${ibkrTrade.id} event=${result.event} for ${ticker} signal ${sig.id}`, "activation");
+                  }
+                } catch (monErr: any) {
+                  log(`Activation monitor: error monitoring trade ${ibkrTrade.id} for signal ${sig.id}: ${monErr.message}`, "activation");
+                }
+              }
+            }
+          }
+        } catch (tradeMonErr: any) {
+          log(`Activation monitor: failed to monitor trades for signal ${sig.id}: ${tradeMonErr.message}`, "activation");
         }
 
         continue;
@@ -330,7 +486,11 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       if (sig.activationStatus === "INVALIDATED") continue;
 
       const targetDate = sig.targetDate;
-      const intradayBars = await storage.getIntradayBars(ticker, targetDate, timeframe);
+      const intradayBars = await storage.getIntradayBars(
+        ticker,
+        targetDate,
+        timeframe,
+      );
       if (intradayBars.length === 0) {
         if (targetDate === today && currentPrice) {
           continue;
@@ -339,62 +499,106 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       }
 
       const result = checkEntryTrigger(
-        intradayBars.map(b => ({ ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume })),
+        intradayBars.map((b) => ({
+          ts: b.ts,
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+          volume: b.volume,
+        })),
         tp,
-        entryMode
+        entryMode,
       );
 
       if (result.triggered && result.entryPrice) {
         let stopPrice: number | undefined;
         if (tp.stopDistance && tp.stopDistance > 0) {
-          stopPrice = tp.bias === "SELL"
-            ? result.entryPrice + tp.stopDistance
-            : result.entryPrice - tp.stopDistance;
+          stopPrice =
+            tp.bias === "SELL"
+              ? result.entryPrice + tp.stopDistance
+              : result.entryPrice - tp.stopDistance;
         }
         await storage.updateSignalActivation(
-          sig.id, "ACTIVE", result.triggerTs, result.entryPrice,
+          sig.id,
+          "ACTIVE",
+          result.triggerTs,
+          result.entryPrice,
           stopPrice,
-          result.entryTriggerPrice
+          result.entryTriggerPrice,
         );
 
         const opts = sig.optionsJson as OptionsData | null;
-        const contractTicker = sig.optionContractTicker || opts?.candidate?.contractSymbol;
+        const contractTicker =
+          sig.optionContractTicker || opts?.candidate?.contractSymbol;
         if (contractTicker) {
           try {
-            const triggerMs = result.triggerTs ? new Date(result.triggerTs).getTime() : Date.now();
-            let entryMarkPrice = await fetchOptionMarkAtTime(contractTicker, triggerMs);
+            const triggerMs = result.triggerTs
+              ? new Date(result.triggerTs).getTime()
+              : Date.now();
+            let entryMarkPrice = await fetchOptionMarkAtTime(
+              contractTicker,
+              triggerMs,
+            );
             if (entryMarkPrice == null) {
               const liveQuote = await fetchOptionMark(contractTicker, ticker);
-              if (liveQuote && liveQuote.mark != null) entryMarkPrice = liveQuote.mark;
+              if (liveQuote && liveQuote.mark != null)
+                entryMarkPrice = liveQuote.mark;
             }
             if (entryMarkPrice != null) {
               await storage.updateSignalOptionTracking(sig.id, {
                 optionContractTicker: contractTicker,
                 optionEntryMark: entryMarkPrice,
               });
-              log(`Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${result.triggerTs} (${contractTicker})`, "activation");
+              log(
+                `Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${result.triggerTs} (${contractTicker})`,
+                "activation",
+              );
             }
           } catch (err: any) {
-            log(`Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`, "activation");
+            log(
+              `Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`,
+              "activation",
+            );
           }
         }
 
-        if (hasLeveragedEtfMapping(ticker) && (!sig.instrumentType || sig.instrumentType === "OPTION") && !sig.instrumentTicker) {
+        if (
+          hasLeveragedEtfMapping(ticker) &&
+          (!sig.instrumentType || sig.instrumentType === "OPTION") &&
+          !sig.instrumentTicker
+        ) {
           try {
             const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
             if (suggestion) {
-              const triggerMs = result.triggerTs ? new Date(result.triggerTs).getTime() : Date.now();
-              let letfEntry = await fetchStockPriceAtTime(suggestion.ticker, triggerMs);
+              const triggerMs = result.triggerTs
+                ? new Date(result.triggerTs).getTime()
+                : Date.now();
+              let letfEntry = await fetchStockPriceAtTime(
+                suggestion.ticker,
+                triggerMs,
+              );
               if (letfEntry == null) {
                 const letfQuote = await fetchStockNbbo(suggestion.ticker);
                 letfEntry = letfQuote?.mid ?? null;
               }
               await storage.updateSignalLeveragedEtf(sig.id, suggestion);
-              await storage.updateSignalInstrument(sig.id, "LEVERAGED_ETF", suggestion.ticker, letfEntry);
-              log(`Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`, "activation");
+              await storage.updateSignalInstrument(
+                sig.id,
+                "LEVERAGED_ETF",
+                suggestion.ticker,
+                letfEntry,
+              );
+              log(
+                `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`,
+                "activation",
+              );
             }
           } catch (err: any) {
-            log(`Failed to auto-select LETF for signal ${sig.id}: ${err.message}`, "activation");
+            log(
+              `Failed to auto-select LETF for signal ${sig.id}: ${err.message}`,
+              "activation",
+            );
           }
         }
 
@@ -413,12 +617,21 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           const { isConnected } = await import("./ibkr");
           if (isConnected()) {
             const { executeTradeForSignal } = await import("./ibkrOrders");
-            const qty = parseInt(await storage.getSetting("ibkrDefaultQuantity") || "1") || 1;
+            const qty =
+              parseInt(
+                (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+              ) || 1;
             await executeTradeForSignal(sig.id, qty);
-            log(`Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty})`, "activation");
+            log(
+              `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty})`,
+              "activation",
+            );
           }
         } catch (autoErr: any) {
-          log(`Auto-execute IBKR failed for signal ${sig.id}: ${autoErr.message}`, "activation");
+          log(
+            `Auto-execute IBKR failed for signal ${sig.id}: ${autoErr.message}`,
+            "activation",
+          );
         }
       }
     }

@@ -172,145 +172,156 @@ function calculateLetfTargetPrice(letfEntry: number, underlyingEntry: number | n
   return Math.round(Math.max(0.01, letfTargetEstimate) * 100) / 100;
 }
 
+export async function monitorActiveTrade(tradeInput: IbkrTrade, signal: Signal): Promise<{ event: string | null; updatedTrade: IbkrTrade | null }> {
+  const trade = await storage.getIbkrTrade(tradeInput.id);
+  if (!trade || trade.status !== "FILLED") return { event: null, updatedTrade: null };
+
+  const tp = signal.tradePlanJson as TradePlan;
+  if (!tp) return { event: null, updatedTrade: null };
+
+  const instrumentType = trade.instrumentType || "OPTION";
+  const optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
+  const instrumentTicker = signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
+  const contract = makeContract(instrumentType, signal.ticker, instrumentTicker, optionTicker);
+  const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
+
+  if (trade.ibkrTp1OrderId && trade.tpHitLevel === 0) {
+    const tp1Status = getOrderStatus(trade.ibkrTp1OrderId);
+    if (tp1Status?.status === "Filled") {
+      const tp1FillPrice = tp1Status.avgFillPrice;
+      const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
+      const tp1Pnl = trade.entryPrice
+        ? (trade.side === "BUY" ? tp1FillPrice - trade.entryPrice : trade.entryPrice - tp1FillPrice) * tp1Qty
+        : 0;
+
+      const newRemaining = trade.originalQuantity - tp1Qty;
+
+      await storage.updateIbkrTrade(trade.id, {
+        tpHitLevel: 1,
+        tp1FillPrice,
+        tp1FilledAt: new Date().toISOString(),
+        tp1PnlRealized: tp1Pnl,
+        remainingQuantity: newRemaining,
+        pnl: tp1Pnl,
+      });
+
+      log(`TP1 filled for trade ${trade.id}: ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}`, "ibkr");
+
+      if (trade.ibkrStopOrderId && trade.entryPrice && !trade.stopMovedToBe) {
+        try {
+          await modifyStopPrice(trade.ibkrStopOrderId, contract, closeAction, newRemaining, trade.entryPrice);
+          await storage.updateIbkrTrade(trade.id, {
+            stopPrice: trade.entryPrice,
+            stopMovedToBe: true,
+          });
+          log(`Stop moved to BE ($${trade.entryPrice.toFixed(2)}) for trade ${trade.id} after TP1 fill`, "ibkr");
+        } catch (err: any) {
+          log(`Failed to move stop to BE for trade ${trade.id}: ${err.message}`, "ibkr");
+        }
+      }
+
+      const updatedTrade = await storage.getIbkrTrade(trade.id);
+      if (updatedTrade) {
+        await postTradeUpdate(signal, updatedTrade, "TP1_HIT");
+      }
+      return { event: "TP1_HIT", updatedTrade };
+    }
+  }
+
+  if (trade.ibkrTp2OrderId && trade.tpHitLevel === 1) {
+    const tp2Status = getOrderStatus(trade.ibkrTp2OrderId);
+    if (tp2Status?.status === "Filled") {
+      const tp2FillPrice = tp2Status.avgFillPrice;
+      const tp2Qty = trade.remainingQuantity;
+      const tp2Pnl = trade.entryPrice
+        ? (trade.side === "BUY" ? tp2FillPrice - trade.entryPrice : trade.entryPrice - tp2FillPrice) * tp2Qty
+        : 0;
+
+      const totalPnl = (trade.tp1PnlRealized ?? 0) + tp2Pnl;
+      const totalPnlPct = trade.entryPrice ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100 : null;
+      const rMultiple = trade.entryPrice && tp.stopDistance ? totalPnl / (tp.stopDistance * trade.originalQuantity) : null;
+
+      if (trade.ibkrStopOrderId) {
+        try { await cancelOrder(trade.ibkrStopOrderId); } catch {}
+      }
+
+      await storage.updateIbkrTrade(trade.id, {
+        tpHitLevel: 2,
+        tp2FillPrice,
+        tp2FilledAt: new Date().toISOString(),
+        remainingQuantity: 0,
+        status: "CLOSED",
+        exitPrice: tp2FillPrice,
+        pnl: totalPnl,
+        pnlPct: totalPnlPct,
+        rMultiple,
+        closedAt: new Date().toISOString(),
+      });
+
+      log(`TP2 filled for trade ${trade.id}: all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`, "ibkr");
+
+      const updatedTrade = await storage.getIbkrTrade(trade.id);
+      if (updatedTrade) {
+        await postTradeUpdate(signal, updatedTrade, "TP2_HIT");
+      }
+      return { event: "TP2_HIT", updatedTrade };
+    }
+  }
+
+  if (trade.ibkrStopOrderId) {
+    const stopStatus = getOrderStatus(trade.ibkrStopOrderId);
+    if (stopStatus?.status === "Filled") {
+      const exitPrice = stopStatus.avgFillPrice;
+      const stoppedQty = trade.remainingQuantity;
+      const stopPnl = trade.entryPrice
+        ? (trade.side === "BUY" ? exitPrice - trade.entryPrice : trade.entryPrice - exitPrice) * stoppedQty
+        : 0;
+
+      const totalPnl = (trade.tp1PnlRealized ?? 0) + stopPnl;
+      const totalPnlPct = trade.entryPrice ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100 : null;
+      const rMultiple = trade.entryPrice && tp.stopDistance ? totalPnl / (tp.stopDistance * trade.originalQuantity) : null;
+
+      if (trade.ibkrTp1OrderId && trade.tpHitLevel === 0) {
+        try { await cancelOrder(trade.ibkrTp1OrderId); } catch {}
+      }
+      if (trade.ibkrTp2OrderId && trade.tpHitLevel < 2) {
+        try { await cancelOrder(trade.ibkrTp2OrderId); } catch {}
+      }
+
+      await storage.updateIbkrTrade(trade.id, {
+        status: "CLOSED",
+        exitPrice,
+        remainingQuantity: 0,
+        pnl: totalPnl,
+        pnlPct: totalPnlPct,
+        rMultiple,
+        closedAt: new Date().toISOString(),
+      });
+
+      log(`Stop filled for trade ${trade.id}: closed ${stoppedQty} @ $${exitPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`, "ibkr");
+
+      const eventType = trade.tpHitLevel > 0 ? "STOPPED_OUT_AFTER_TP" : "STOPPED_OUT";
+      const updatedTrade = await storage.getIbkrTrade(trade.id);
+      if (updatedTrade) {
+        await postTradeUpdate(signal, updatedTrade, eventType);
+      }
+      return { event: eventType, updatedTrade };
+    }
+  }
+
+  return { event: null, updatedTrade: null };
+}
+
 export async function monitorActiveTrades(): Promise<void> {
   const trades = await storage.getActiveIbkrTrades();
+  const allSignals = await storage.getSignals(undefined, 1000);
 
   for (const trade of trades) {
     try {
-      const signal = trade.signalId ? (await storage.getSignals(undefined, 1000)).find(s => s.id === trade.signalId) : null;
+      const signal = trade.signalId ? allSignals.find(s => s.id === trade.signalId) : null;
       if (!signal) continue;
 
-      const tp = signal.tradePlanJson as TradePlan;
-      if (!tp) continue;
-
-      const instrumentType = trade.instrumentType || "OPTION";
-      const optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
-      const instrumentTicker = signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
-      const contract = makeContract(instrumentType, signal.ticker, instrumentTicker, optionTicker);
-      const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
-
-      if (trade.ibkrTp1OrderId && trade.tpHitLevel === 0) {
-        const tp1Status = getOrderStatus(trade.ibkrTp1OrderId);
-        if (tp1Status?.status === "Filled") {
-          const tp1FillPrice = tp1Status.avgFillPrice;
-          const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
-          const tp1Pnl = trade.entryPrice
-            ? (trade.side === "BUY" ? tp1FillPrice - trade.entryPrice : trade.entryPrice - tp1FillPrice) * tp1Qty
-            : 0;
-
-          const newRemaining = trade.originalQuantity - tp1Qty;
-
-          await storage.updateIbkrTrade(trade.id, {
-            tpHitLevel: 1,
-            tp1FillPrice,
-            tp1FilledAt: new Date().toISOString(),
-            tp1PnlRealized: tp1Pnl,
-            remainingQuantity: newRemaining,
-            pnl: tp1Pnl,
-          });
-
-          log(`TP1 filled for trade ${trade.id}: ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}`, "ibkr");
-
-          if (trade.ibkrStopOrderId && trade.entryPrice && !trade.stopMovedToBe) {
-            try {
-              await modifyStopPrice(trade.ibkrStopOrderId, contract, closeAction, newRemaining, trade.entryPrice);
-              await storage.updateIbkrTrade(trade.id, {
-                stopPrice: trade.entryPrice,
-                stopMovedToBe: true,
-              });
-              log(`Stop moved to BE ($${trade.entryPrice.toFixed(2)}) for trade ${trade.id} after TP1 fill`, "ibkr");
-            } catch (err: any) {
-              log(`Failed to move stop to BE for trade ${trade.id}: ${err.message}`, "ibkr");
-            }
-          }
-
-          const updatedTrade = await storage.getIbkrTrade(trade.id);
-          if (updatedTrade && signal) {
-            await postTradeUpdate(signal, updatedTrade, "TP1_HIT");
-          }
-          continue;
-        }
-      }
-
-      if (trade.ibkrTp2OrderId && trade.tpHitLevel === 1) {
-        const tp2Status = getOrderStatus(trade.ibkrTp2OrderId);
-        if (tp2Status?.status === "Filled") {
-          const tp2FillPrice = tp2Status.avgFillPrice;
-          const tp2Qty = trade.remainingQuantity;
-          const tp2Pnl = trade.entryPrice
-            ? (trade.side === "BUY" ? tp2FillPrice - trade.entryPrice : trade.entryPrice - tp2FillPrice) * tp2Qty
-            : 0;
-
-          const totalPnl = (trade.tp1PnlRealized ?? 0) + tp2Pnl;
-          const totalPnlPct = trade.entryPrice ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100 : null;
-          const rMultiple = trade.entryPrice && tp.stopDistance ? totalPnl / (tp.stopDistance * trade.originalQuantity) : null;
-
-          if (trade.ibkrStopOrderId) {
-            try { await cancelOrder(trade.ibkrStopOrderId); } catch {}
-          }
-
-          await storage.updateIbkrTrade(trade.id, {
-            tpHitLevel: 2,
-            tp2FillPrice,
-            tp2FilledAt: new Date().toISOString(),
-            remainingQuantity: 0,
-            status: "CLOSED",
-            exitPrice: tp2FillPrice,
-            pnl: totalPnl,
-            pnlPct: totalPnlPct,
-            rMultiple,
-            closedAt: new Date().toISOString(),
-          });
-
-          log(`TP2 filled for trade ${trade.id}: all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`, "ibkr");
-
-          const updatedTrade = await storage.getIbkrTrade(trade.id);
-          if (updatedTrade && signal) {
-            await postTradeUpdate(signal, updatedTrade, "TP2_HIT");
-          }
-          continue;
-        }
-      }
-
-      if (trade.ibkrStopOrderId) {
-        const stopStatus = getOrderStatus(trade.ibkrStopOrderId);
-        if (stopStatus?.status === "Filled") {
-          const exitPrice = stopStatus.avgFillPrice;
-          const stoppedQty = trade.remainingQuantity;
-          const stopPnl = trade.entryPrice
-            ? (trade.side === "BUY" ? exitPrice - trade.entryPrice : trade.entryPrice - exitPrice) * stoppedQty
-            : 0;
-
-          const totalPnl = (trade.tp1PnlRealized ?? 0) + stopPnl;
-          const totalPnlPct = trade.entryPrice ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100 : null;
-          const rMultiple = trade.entryPrice && tp.stopDistance ? totalPnl / (tp.stopDistance * trade.originalQuantity) : null;
-
-          if (trade.ibkrTp1OrderId && trade.tpHitLevel === 0) {
-            try { await cancelOrder(trade.ibkrTp1OrderId); } catch {}
-          }
-          if (trade.ibkrTp2OrderId && trade.tpHitLevel < 2) {
-            try { await cancelOrder(trade.ibkrTp2OrderId); } catch {}
-          }
-
-          await storage.updateIbkrTrade(trade.id, {
-            status: "CLOSED",
-            exitPrice,
-            remainingQuantity: 0,
-            pnl: totalPnl,
-            pnlPct: totalPnlPct,
-            rMultiple,
-            closedAt: new Date().toISOString(),
-          });
-
-          log(`Stop filled for trade ${trade.id}: closed ${stoppedQty} @ $${exitPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`, "ibkr");
-
-          const updatedTrade = await storage.getIbkrTrade(trade.id);
-          if (updatedTrade && signal) {
-            await postTradeUpdate(signal, updatedTrade, trade.tpHitLevel > 0 ? "STOPPED_OUT_AFTER_TP" : "STOPPED_OUT");
-          }
-          continue;
-        }
-      }
+      await monitorActiveTrade(trade, signal);
     } catch (err: any) {
       log(`Trade monitor error for trade ${trade.id}: ${err.message}`, "ibkr");
     }

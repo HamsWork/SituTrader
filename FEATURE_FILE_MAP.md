@@ -77,7 +77,7 @@ This document maps every major feature to the specific files and key functions/e
 |---|---|---|
 | `server/lib/activation.ts` | `runActivationScan()` — stop management logic within | Volatility stop, BE stop, time stop logic; BE wired to IBKR stop modify + RAISE_STOP Discord alert |
 | `server/lib/ibkr.ts` | `modifyStopPrice()` | Modify IBKR stop order price |
-| `server/lib/ibkrOrders.ts` | `monitorActiveTrades()` | Move stops to BE after TP1 via IBKR |
+| `server/lib/ibkrOrders.ts` | `monitorActiveTrade()`, `monitorActiveTrades()` | Monitor single trade (TP1/TP2/stop fills) and move stops to BE after TP1 via IBKR |
 | `shared/schema.ts` | `stop_price`, `stop_stage`, `stop_moved_to_be_ts`, `time_stop_triggered_ts` | Stop state columns |
 | `server/lib/validate.ts` | `filterRTHBars()`, `timestampToET()` | RTH constraint for stop evaluation |
 | `client/src/pages/dashboard.tsx` | Stop stage indicator | Visual stop status |
@@ -89,7 +89,7 @@ This document maps every major feature to the specific files and key functions/e
 | File | Key Exports | Role |
 |---|---|---|
 | `server/lib/ibkr.ts` | `connectIBKR()`, `disconnectIBKR()`, `isConnected()`, `getPositions()`, `getAccountSummary()`, `getOrderStatus()`, `getNextOrderId()`, `makeContract()`, `placeMarketOrder()`, `placeLimitOrder()`, `placeStopOrder()`, `cancelOrder()`, `modifyStopPrice()`, `getIBApi()` | Connection, account data, order primitives |
-| `server/lib/ibkrOrders.ts` | `executeTradeForSignal()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()` | High-level trade execution and management |
+| `server/lib/ibkrOrders.ts` | `executeTradeForSignal()`, `monitorActiveTrade()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()` | High-level trade execution, single-trade monitoring, and management |
 | `shared/schema.ts` | `ibkr_trades` table, `ibkr_state` table | Trade and connection state schema |
 | `server/storage.ts` | IBKR trade and state CRUD | Persistence layer |
 | `server/routes.ts` | `POST /api/ibkr/connect`, `POST /api/ibkr/disconnect`, `GET /api/ibkr/status`, `GET /api/ibkr/dashboard`, `POST /api/ibkr/execute`, `POST /api/ibkr/close/:tradeId`, `GET /api/ibkr/trades`, `POST /api/ibkr/monitor` | API endpoints |
