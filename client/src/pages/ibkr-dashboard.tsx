@@ -102,7 +102,7 @@ function OptionEntryDisplay({ trade }: { trade: any }) {
 
   return (
     <div>
-      <span className="text-muted-foreground">Option Entry</span>
+      <span className="text-muted-foreground">Entry</span>
       <div className="font-semibold">{trade.entryPrice != null ? `$${trade.entryPrice.toFixed(2)}` : "—"}</div>
       {parsed && (
         <div className="text-[10px] text-muted-foreground leading-tight">
