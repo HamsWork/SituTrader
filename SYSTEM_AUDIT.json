@@ -1,6 +1,6 @@
 {
   "audit_metadata": {
-    "audit_date": "2026-02-23",
+    "audit_date": "2026-02-24",
     "codebase_lines": 22400,
     "source_files": 72,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
@@ -215,7 +215,7 @@
       },
       {
         "file": "discord.ts",
-        "lines": 626,
+        "lines": 642,
         "purpose": "Dual-channel Discord webhook integration with RAISE_STOP and TIME_STOP lifecycle events",
         "exports": ["postOptionsAlert", "postLetfAlert", "postTradeUpdate", "sendTestLetfAlert"]
       },
@@ -227,7 +227,7 @@
       },
       {
         "file": "ibkrOrders.ts",
-        "lines": 529,
+        "lines": 791,
         "purpose": "IBKR bracket order execution, single-trade monitoring, BE/TIME_STOP stop management, and trade management",
         "exports": ["executeTradeForSignal", "applyBeStop", "applyTimeStop", "monitorActiveTrade", "monitorActiveTrades", "closeTradeManually", "getIbkrDashboardData"]
       },

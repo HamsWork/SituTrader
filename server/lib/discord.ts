@@ -503,9 +503,25 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         { name: "\u{1F6D1} Stop Hit", value: `${fmtPrice(stopDispPx)}`, inline: true },
         { name: "\u{1F4B8} Result", value: `${lossPct}`, inline: true },
         { ...SPACER },
+      );
+
+      if (hasLetfInfo && exitPrice > 0) {
+        fields.push(
+          { name: "\u{1F4B9} LETF Exit Price", value: `${fmtPrice(exitPrice)}`, inline: true },
+          { ...SPACER },
+        );
+      }
+
+      fields.push(
         { name: "\u{1F6A8} Status: Position Closed \u{1F6A8}", value: "\u200b", inline: false },
         { name: "\u{1F6E1}\uFE0F Discipline Matters", value: `Following the plan keeps you in the game for winning trades`, inline: false },
       );
+
+      if (trade.pnl != null) {
+        fields.push(
+          { name: "Total P&L", value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, inline: false },
+        );
+      }
       break;
     }
 
@@ -566,11 +582,10 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       pushInstrumentFields(fields, stockEntryClosed);
 
       const entryDispClosed = hasLetfInfo ? stockEntryClosed : entry;
-      const exitDispClosed = hasLetfInfo ? stockEntryClosed : exitPrice;
       fields.push(
         { ...SPACER },
         { name: "\u2705 Entry", value: `${fmtPrice(entryDispClosed)}`, inline: true },
-        { name: "\u{1F3C1} Exit", value: hasLetfInfo ? "Manual Close" : `${fmtPrice(exitDispClosed)}`, inline: true },
+        { name: "\u{1F3C1} Exit", value: hasLetfInfo ? `${fmtPrice(exitPrice)} (LETF)` : `${fmtPrice(exitPrice)}`, inline: true },
         { name: "\u{1F4B8} Profit", value: `${pnlPct}`, inline: true },
         { ...SPACER },
         { name: "\u{1F6A8} Status: Position Closed \u{1F6A8}", value: "\u200b", inline: false },

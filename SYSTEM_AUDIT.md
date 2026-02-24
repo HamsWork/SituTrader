@@ -185,7 +185,7 @@ Lifecycle event detection and routing:
 
 **Exports:** `runAlerts()`
 
-### 3.6 Discord Integration (`server/lib/discord.ts` — 626 lines)
+### 3.6 Discord Integration (`server/lib/discord.ts` — 642 lines)
 Dual-channel webhook system:
 - **GOAT Alerts:** Options trades → `DISCORD_GOAT_ALERTS_WEBHOOK`
 - **GOAT Swings:** Leveraged ETF trades → `DISCORD_GOAT_SWINGS_WEBHOOK`
@@ -197,7 +197,7 @@ Dual-channel webhook system:
 
 **Exports:** `postOptionsAlert()`, `postLetfAlert()`, `postTradeUpdate()`, `sendTestLetfAlert()`
 
-### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 529 lines)
+### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 791 lines)
 Full Interactive Brokers TWS/Gateway integration:
 
 **`ibkr.ts` exports:** `connectIBKR()`, `disconnectIBKR()`, `isConnected()`, `getPositions()`, `getAccountSummary()`, `getOrderStatus()`, `getNextOrderId()`, `makeContract()`, `placeMarketOrder()`, `placeLimitOrder()`, `placeStopOrder()`, `cancelOrder()`, `modifyStopPrice()`, `getIBApi()`
