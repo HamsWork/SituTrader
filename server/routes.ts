@@ -1467,6 +1467,137 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/discord/replay-test", async (req, res) => {
+    try {
+      const { dryRun = true } = req.body;
+      const allSignals = await storage.getSignals(undefined, 5000);
+      const activated = allSignals.filter(s =>
+        s.activatedTs && (s.activationStatus === "ACTIVE" || s.activationStatus === "INVALIDATED")
+      );
+
+      const above80 = activated
+        .filter(s => (s.qualityScore ?? 0) > 80)
+        .sort((a, b) => (b.qualityScore ?? 0) - (a.qualityScore ?? 0));
+
+      const bestOption = above80.find(s => (s.instrumentType || "OPTION") === "OPTION");
+      const bestLetf = above80.find(s => s.instrumentType === "LEVERAGED_ETF");
+
+      const results: any[] = [];
+
+      const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      const tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
+      const hasOptionToday = tradesCreatedToday.some(t => t.instrumentType === "OPTION");
+      const hasLetfToday = tradesCreatedToday.some(t => t.instrumentType === "LEVERAGED_ETF");
+
+      for (const candidate of [
+        { label: "OPTION", signal: bestOption, blocked: hasOptionToday },
+        { label: "LETF", signal: bestLetf, blocked: hasLetfToday },
+      ]) {
+        if (!candidate.signal) {
+          results.push({ label: candidate.label, status: "NO_CANDIDATE", reason: "No activated signal with QS > 80 found" });
+          continue;
+        }
+        if (candidate.blocked) {
+          results.push({
+            label: candidate.label, status: "DAILY_LIMIT",
+            reason: `Already 1 ${candidate.label} trade today`,
+            signal: { id: candidate.signal.id, ticker: candidate.signal.ticker, qs: candidate.signal.qualityScore },
+          });
+          continue;
+        }
+
+        const sig = candidate.signal;
+        const tp = sig.tradePlanJson as any;
+        const inst = sig.instrumentType || "OPTION";
+
+        if (dryRun) {
+          results.push({
+            label: candidate.label, status: "DRY_RUN",
+            reason: "Would create trade + send Discord (set dryRun:false to execute)",
+            signal: {
+              id: sig.id, ticker: sig.ticker, setupType: sig.setupType,
+              qs: sig.qualityScore, tier: sig.tier, instrumentType: inst,
+              direction: tp?.bias, entryPrice: sig.entryPriceAtActivation,
+              stopPrice: sig.stopPrice, t1: tp?.t1, t2: tp?.t2,
+              activatedTs: sig.activatedTs,
+            },
+            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+          });
+        } else {
+          const isBuy = tp?.bias === "BUY";
+          const action = isBuy ? "BUY" : "SELL";
+          const optionTicker = sig.optionContractTicker || (sig.optionsJson as any)?.candidate?.contractSymbol;
+          const instrumentTicker = sig.instrumentTicker || (sig.leveragedEtfJson as any)?.ticker;
+
+          const trade = await storage.createIbkrTrade({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            instrumentType: inst,
+            instrumentTicker: inst === "OPTION" ? optionTicker : instrumentTicker,
+            side: action,
+            quantity: 1,
+            originalQuantity: 1,
+            remainingQuantity: 1,
+            tpHitLevel: 0,
+            stopPrice: sig.stopPrice ?? null,
+            target1Price: tp?.t1 ?? null,
+            target2Price: tp?.t2 ?? null,
+            status: "PENDING",
+          });
+
+          let discordOk = false;
+          try {
+            if (inst === "OPTION") {
+              discordOk = await postOptionsAlert(sig, {
+                ...trade,
+                entryPrice: sig.entryPriceAtActivation ?? null,
+                status: "PENDING",
+              } as any);
+            } else {
+              discordOk = await postLetfAlert(sig, {
+                ...trade,
+                entryPrice: sig.entryPriceAtActivation ?? null,
+                status: "PENDING",
+              } as any);
+            }
+            if (discordOk) {
+              await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
+            }
+          } catch (discErr: any) {
+            log(`Replay test Discord error: ${discErr.message}`, "discord");
+          }
+
+          await storage.updateIbkrTrade(trade.id, {
+            status: "PENDING",
+            notes: "Created via replay-test endpoint (IBKR not connected)",
+          });
+
+          results.push({
+            label: candidate.label, status: "EXECUTED",
+            tradeId: trade.id,
+            discordSent: discordOk,
+            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+            signal: {
+              id: sig.id, ticker: sig.ticker, setupType: sig.setupType,
+              qs: sig.qualityScore, tier: sig.tier, instrumentType: inst,
+              entryPrice: sig.entryPriceAtActivation,
+            },
+          });
+        }
+      }
+
+      res.json({
+        dryRun,
+        todayEt,
+        existingTradesToday: { option: hasOptionToday, letf: hasLetfToday },
+        candidatesAbove80: above80.length,
+        results,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Performance Analysis Routes ──
 
   app.get("/api/performance/analysis", async (req, res) => {
