@@ -1,0 +1,204 @@
+You are my senior TypeScript engineer. Implement a persistent bar cache with BOTH:
+1) a 5-minute in-memory cache (hot path)
+2) a permanent on-disk SQLite cache in a separate DB file named bar_cache.db
+
+This cache must store ALL OHLCV bars fetched from ANY market data API permanently and survive restarts. Long-running processes (optimizer/backtester/scanner/ranking) must be able to restart and pick up without re-fetching unnecessarily.
+
+===============================================================================
+A) DATABASE (bar_cache.db) — REQUIRED
+===============================================================================
+
+1) Create a separate SQLite file bar_cache.db in the project root (NOT inside main app db).
+2) On DB open, set:
+   - PRAGMA journal_mode=WAL;
+   - PRAGMA synchronous=NORMAL;
+
+3) Create tables:
+
+-- Stores every bar permanently
+CREATE TABLE IF NOT EXISTS bar_cache (
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  adjusted INTEGER NOT NULL,
+  timestamp REAL NOT NULL,
+  open REAL NOT NULL,
+  high REAL NOT NULL,
+  low REAL NOT NULL,
+  close REAL NOT NULL,
+  volume REAL NOT NULL,
+  UNIQUE(symbol, timeframe, adjusted, timestamp)
+);
+
+-- Tracks staleness and last fetch per series
+CREATE TABLE IF NOT EXISTS cache_meta (
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  adjusted INTEGER NOT NULL,
+  last_fetched REAL NOT NULL,
+  PRIMARY KEY(symbol, timeframe, adjusted)
+);
+
+4) Inserts must use INSERT OR REPLACE into bar_cache to satisfy the unique constraint.
+
+===============================================================================
+B) STALENESS THRESHOLDS — REQUIRED
+===============================================================================
+
+Use these thresholds (seconds):
+- 1m: 120
+- 5m: 300
+- 15m: 600
+- 1h: 1800
+- 4h: 3600
+- 1d: 14400 (4 hours)
+
+Implement helper:
+getStalenessSeconds(timeframe: string): number
+
+===============================================================================
+C) MEMORY CACHE LAYER (5 minutes) — REQUIRED
+===============================================================================
+
+Implement a 5-minute in-memory cache in front of disk cache:
+- Check memory first, then disk, then API — strictly in that order.
+- Key must include: symbol, timeframe, adjusted, startTs, endTs.
+- TTL = 300 seconds.
+- Store the fully materialized bar list returned for that query window.
+- Use a simple Map with {expiresAt, data}. Optionally cap entries (e.g., 500) with FIFO eviction.
+
+===============================================================================
+D) INCREMENTAL FETCH LOGIC — REQUIRED
+===============================================================================
+
+All bar reads must go through a single unified function:
+
+async getBars({
+  symbol,
+  timeframe,
+  adjusted,
+  startTs,
+  endTs,
+  fetcher
+}): Promise<Bar[]>
+
+Where:
+- startTs/endTs are unix timestamps in seconds or milliseconds (pick ONE standard; document and enforce).
+- fetcher is a function: (params) => Promise<Bar[]> that calls the actual market data API (Polygon, etc.).
+- Bar shape: { timestamp, open, high, low, close, volume } (timestamp numeric)
+
+Logic:
+
+1) Memory cache check:
+   If (memory has non-expired data for this exact window) return it immediately.
+
+2) Disk cache check:
+   Query bar_cache for [startTs, endTs] inclusive for this (symbol,timeframe,adjusted), ordered asc.
+   Also find latest cached timestamp for this series within the window.
+   Read cache_meta.last_fetched for this series.
+
+3) Determine coverage:
+   - If cached bars exist AND latest_cached_timestamp >= endTs AND (now - last_fetched) <= stalenessSeconds:
+       Return cached bars (skip API entirely) and set memory cache.
+   - Else if cached bars exist but (latest_cached_timestamp < endTs OR stale):
+       Fetch ONLY NEW bars starting from latest_cached_timestamp (not re-fetching overlap).
+       Use a safe “since” boundary:
+         fetchStart = latest_cached_timestamp + epsilon
+         epsilon should match timeframe granularity; simplest: fetchStart = latest_cached_timestamp + 1
+       Call fetcher for [fetchStart, endTs], then:
+         - INSERT OR REPLACE new bars into bar_cache
+         - UPDATE cache_meta.last_fetched = now
+       Finally return the full range [startTs,endTs] from disk (not from concatenating in memory), set memory cache.
+   - Else (no cached bars):
+       Full fetch via fetcher for [startTs,endTs],
+       save all to bar_cache,
+       upsert cache_meta.last_fetched,
+       then return full range from disk (or return fetched list if identical; but prefer disk read for consistency), set memory cache.
+
+4) Critical: “No data should ever be lost or re-fetched unnecessarily.”
+   - Never delete bars.
+   - Do not re-fetch ranges already cached unless required for missing end coverage.
+   - Always persist fetched bars to disk before returning final results.
+
+5) Time normalization:
+   Implement a single normalization layer so both disk and fetcher use the same timestamp unit.
+   Choose milliseconds OR seconds and enforce everywhere.
+   Add assertions / conversion helpers.
+
+===============================================================================
+E) CONCURRENCY / SAFETY — REQUIRED
+===============================================================================
+
+- Ensure WAL + synchronous NORMAL is set.
+- Use a single shared DB connection for bar_cache.db.
+- Wrap writes in a transaction for speed:
+  - batch insert bars within a transaction
+  - update cache_meta within same transaction
+- Prevent stampede: if multiple requests fetch the same series simultaneously, add a per-series mutex/lock in memory:
+  lockKey = symbol|timeframe|adjusted
+  so only one fetch writes at a time; others await and then read from disk.
+
+===============================================================================
+F) /stats/bar-cache ENDPOINT — REQUIRED
+===============================================================================
+
+Add a GET endpoint: /stats/bar-cache
+
+Return JSON with:
+- totalBarsCached: number (SELECT COUNT(*) FROM bar_cache)
+- uniqueSymbols: number (SELECT COUNT(DISTINCT symbol) FROM bar_cache)
+- dbSizeBytes: number (file size of bar_cache.db)
+- oldestBarTimestamp: number | null (SELECT MIN(timestamp) FROM bar_cache)
+- newestBarTimestamp: number | null (SELECT MAX(timestamp) FROM bar_cache)
+- oldestLastFetched: number | null (SELECT MIN(last_fetched) FROM cache_meta)
+- newestLastFetched: number | null (SELECT MAX(last_fetched) FROM cache_meta)
+
+Also include:
+- walMode: current PRAGMA journal_mode
+- synchronous: current PRAGMA synchronous
+
+===============================================================================
+G) CODE ORGANIZATION — REQUIRED
+===============================================================================
+
+Create these files/modules:
+
+/src/barCache/types.ts
+  - Bar type
+  - GetBarsParams type
+
+/src/barCache/staleness.ts
+  - getStalenessSeconds(timeframe)
+
+/src/barCache/memoryCache.ts
+  - MemoryCache class (TTL map)
+
+/src/barCache/db.ts
+  - openBarCacheDb(): sets pragmas, creates tables
+  - helpers: queryBarsRange, getLatestCachedTs, getMeta, upsertBars, upsertMeta
+  - transaction insert
+
+/src/barCache/locks.ts
+  - per-series lock (simple Promise queue/mutex)
+
+/src/barCache/getBars.ts
+  - the unified getBars function implementing ALL logic above
+
+/src/pages/api/stats/bar-cache.ts (or app router equivalent)
+  - implements /stats/bar-cache
+
+Then integrate:
+- Replace all direct market API bar fetch calls across the app with getBars(...) and provide fetcher wrappers per API.
+- Ensure ANY process uses getBars so restarting relies on disk cache.
+
+===============================================================================
+H) OUTPUT IN YOUR FIRST RESPONSE — REQUIRED
+===============================================================================
+
+Before coding, output:
+1) Implementation plan (bullets)
+2) Timestamp standard decision (seconds vs ms) and conversion rules
+3) File tree
+4) SQL migration/init code
+Then proceed to implement.
+
+Start now.

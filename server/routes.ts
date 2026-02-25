@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { storage } from "./storage";
-import { fetchDailyBars, fetchIntradayBars, fetchSnapshot, fetchOptionSnapshot } from "./lib/polygon";
+import { fetchDailyBars, fetchIntradayBars, fetchDailyBarsCached, fetchIntradayBarsCached, fetchSnapshot, fetchOptionSnapshot } from "./lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, prevTradingDay } from "./lib/calendar";
 import { detectAllSetups } from "./lib/rules";
 import { validateMagnetTouch } from "./lib/validate";
@@ -38,6 +38,7 @@ import {
   runStopSensitivityTest,
   runRegimeAnalysis,
 } from "./lib/reliability";
+import { getBarCacheStats } from "./lib/barCache";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -453,7 +454,7 @@ export async function registerRoutes(
 
       for (const ticker of tickersToScan) {
         try {
-          const dailyPolygon = await fetchDailyBars(ticker, from200, today);
+          const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
           for (const bar of dailyPolygon) {
             const date = formatDate(new Date(bar.t));
             await storage.upsertDailyBar({
@@ -470,7 +471,7 @@ export async function registerRoutes(
           }
           log(`Fetched ${dailyPolygon.length} daily bars for ${ticker}`, "refresh");
 
-          const intradayPolygon = await fetchIntradayBars(ticker, from15, today, timeframe);
+          const intradayPolygon = await fetchIntradayBarsCached(ticker, from15, today, timeframe);
           for (const bar of intradayPolygon) {
             const ts = new Date(bar.t).toISOString();
             await storage.upsertIntradayBar({
@@ -915,6 +916,15 @@ export async function registerRoutes(
     try {
       const status = await getUniverseStatus();
       res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/stats/bar-cache", async (_req, res) => {
+    try {
+      const stats = getBarCacheStats();
+      res.json(stats);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1714,6 +1724,28 @@ export async function registerRoutes(
         const dateFrom = tradeDates.length > 0 ? tradeDates[0] : null;
         const dateTo = tradeDates.length > 0 ? tradeDates[tradeDates.length - 1] : null;
 
+        const sorted = [...periodTrades].sort((a, b) => a.date.localeCompare(b.date));
+        let cumPnl = 0;
+        const equityCurve = sorted.map((t, i) => {
+          cumPnl += t.pnlDollar;
+          return { trade: i + 1, date: t.date, ticker: t.ticker, pnl: Math.round(t.pnlDollar * 100) / 100, cumPnl: Math.round(cumPnl * 100) / 100 };
+        });
+
+        const dailyMap = new Map<string, number>();
+        for (const t of periodTrades) {
+          dailyMap.set(t.date, (dailyMap.get(t.date) ?? 0) + t.pnlDollar);
+        }
+        const dailyPnl = Array.from(dailyMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, pnl]) => ({ date: date.slice(5), pnl: Math.round(pnl * 100) / 100 }));
+
+        const maxCurvePoints = 500;
+        let sampledCurve = equityCurve;
+        if (equityCurve.length > maxCurvePoints) {
+          const step = Math.ceil(equityCurve.length / maxCurvePoints);
+          sampledCurve = equityCurve.filter((_, i) => i % step === 0 || i === equityCurve.length - 1);
+        }
+
         return {
           label,
           totalTrades,
@@ -1724,7 +1756,8 @@ export async function registerRoutes(
           totalInvested: Math.round(totalInvested * 100) / 100,
           capitalRequired: Math.round(capitalRequired),
           avgPnlPerTrade: Math.round(avgPnl * 100) / 100,
-          roi: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
+          roiOnCapital: capitalRequired > 0 ? Math.round((totalPnl / capitalRequired) * 10000) / 100 : 0,
+          edgePct: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
           bestTrade: bestTrade ? { ticker: bestTrade.ticker, pnl: bestTrade.pnlDollar } : null,
           worstTrade: worstTrade ? { ticker: worstTrade.ticker, pnl: worstTrade.pnlDollar } : null,
           instrumentBreakdown,
@@ -1732,6 +1765,8 @@ export async function registerRoutes(
           backtestCount: btCount,
           dateFrom,
           dateTo,
+          equityCurve: sampledCurve,
+          dailyPnl,
         };
       };
 
@@ -1749,10 +1784,10 @@ export async function registerRoutes(
       const tradesOlder = tradeResults.filter(t => t.date < c90);
 
       const periodSummaries = [
-        buildSummary("30 Days", trades30),
-        buildSummary("31-60 Days", trades60),
-        buildSummary("61-90 Days", trades90),
-        buildSummary("91+ Days", tradesOlder),
+        buildSummary("Last 30 Days", trades30),
+        buildSummary("31–60 Days Ago", trades60),
+        buildSummary("61–90 Days Ago", trades90),
+        buildSummary("91+ Days Ago", tradesOlder),
         buildSummary("Total", tradeResults),
       ];
 
@@ -1766,6 +1801,20 @@ export async function registerRoutes(
         ? Math.ceil((new Date(latestDate).getTime() - new Date(earliestDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
         : 0;
 
+      const period = parseInt(req.query.period as string ?? "4");
+      const instrument = (req.query.instrument as string) || "all";
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize as string) || 100));
+
+      const periodTradesMap = [trades30, trades60, trades90, tradesOlder, tradeResults];
+      let selectedTrades = periodTradesMap[period] ?? tradeResults;
+      if (instrument !== "all") {
+        selectedTrades = selectedTrades.filter(t => t.instrumentType === instrument);
+      }
+      const totalFilteredTrades = selectedTrades.length;
+      const totalPages = Math.ceil(totalFilteredTrades / pageSize);
+      const paginatedTrades = selectedTrades.slice((page - 1) * pageSize, page * pageSize);
+
       res.json({
         capitalPerTrade,
         totalSignalsAnalyzed: allSignals.length,
@@ -1775,7 +1824,8 @@ export async function registerRoutes(
         earliestDate,
         latestDate,
         periodSummaries,
-        trades: tradeResults,
+        trades: paginatedTrades,
+        pagination: { page, pageSize, totalFilteredTrades, totalPages },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

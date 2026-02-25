@@ -114,11 +114,17 @@ export async function executeTradeForSignal(
     if (entryPrice) {
       let stopContractPrice: number;
       if (instrumentType === "OPTION") {
-        const riskPct = 0.5;
-        stopContractPrice = Math.max(
-          0.01,
-          Math.round(entryPrice * (1 - riskPct) * 100) / 100,
-        );
+        const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
+        const underlyingStop =
+          signal.stopPrice ??
+          (isBuy ? underlyingEntry * 0.98 : underlyingEntry * 1.02);
+        const riskPct =
+          underlyingEntry > 0
+            ? Math.abs(underlyingStop - underlyingEntry) / underlyingEntry
+            : 0.025;
+        stopContractPrice = isBuy
+          ? Math.max(0.01, Math.round(entryPrice * (1 - riskPct) * 100) / 100)
+          : Math.max(0.01, Math.round(entryPrice * (1 + riskPct) * 100) / 100);
       } else if (instrumentType === "LEVERAGED_ETF") {
         stopContractPrice = signal.stopPrice
           ? calculateLetfStopPrice(
@@ -187,6 +193,9 @@ export async function executeTradeForSignal(
             tp1Qty,
             tp1Price,
           );
+          tp1Result.promise.catch((err: any) => {
+            log(`TP1 order ${tp1Result.orderId} rejected by broker: ${err.message}`, "ibkr");
+          });
           await storage.updateIbkrTrade(trade.id, {
             ibkrTp1OrderId: tp1Result.orderId,
           });
@@ -229,6 +238,9 @@ export async function executeTradeForSignal(
             tp2Qty,
             tp2Price,
           );
+          tp2Result.promise.catch((err: any) => {
+            log(`TP2 order ${tp2Result.orderId} rejected by broker: ${err.message}`, "ibkr");
+          });
           await storage.updateIbkrTrade(trade.id, {
             ibkrTp2OrderId: tp2Result.orderId,
           });
@@ -336,7 +348,7 @@ export async function applyBeStop(
   try {
     const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      // await postTradeUpdate(signal, updatedTrade, "RAISE_STOP"); TODO
+      await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
       log(
         `applyBeStop: RAISE_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
@@ -430,7 +442,7 @@ export async function applyTimeStop(
   try {
     const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      // await postTradeUpdate(signal, updatedTrade, "TIME_STOP"); TODO
+      await postTradeUpdate(signal, updatedTrade, "TIME_STOP");
       log(
         `applyTimeStop: TIME_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
@@ -697,11 +709,25 @@ export async function closeTradeManually(
 
   if (!isConnected()) throw new Error("IBKR not connected");
 
+  const signal = trade.signalId
+    ? (await storage.getSignals(undefined, 1000)).find(
+        (s) => s.id === trade.signalId,
+      )
+    : null;
+
+  const optionTicker = signal
+    ? signal.optionContractTicker ||
+      (signal.optionsJson as any)?.candidate?.contractSymbol
+    : trade.instrumentTicker;
+  const instrTicker = signal
+    ? signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker
+    : trade.instrumentTicker;
+
   const contract = makeContract(
     trade.instrumentType,
     trade.ticker,
-    trade.instrumentTicker,
-    trade.instrumentTicker,
+    instrTicker,
+    optionTicker,
   );
   const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
 
@@ -737,26 +763,30 @@ export async function closeTradeManually(
           : trade.entryPrice - exitPrice) * closeQty
       : 0;
   const totalPnl = (trade.tp1PnlRealized ?? 0) + closePnl;
+  const totalPnlPct = trade.entryPrice
+    ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
+    : null;
+  const tp = signal?.tradePlanJson as TradePlan | undefined;
+  const rMultiple =
+    trade.entryPrice && tp?.stopDistance
+      ? totalPnl / (tp.stopDistance * trade.originalQuantity)
+      : null;
 
   await storage.updateIbkrTrade(trade.id, {
     status: "CLOSED",
     exitPrice,
     remainingQuantity: 0,
     pnl: totalPnl,
+    pnlPct: totalPnlPct,
+    rMultiple,
     closedAt: new Date().toISOString(),
   });
 
-  const signal = trade.signalId
-    ? (await storage.getSignals(undefined, 1000)).find(
-        (s) => s.id === trade.signalId,
-      )
-    : null;
   if (signal) {
-    await postTradeUpdate(
-      signal,
-      { ...trade, exitPrice, pnl: totalPnl, status: "CLOSED" } as IbkrTrade,
-      "CLOSED",
-    );
+    const closedTrade = await storage.getIbkrTrade(trade.id);
+    if (closedTrade) {
+      await postTradeUpdate(signal, closedTrade, "CLOSED");
+    }
   }
 
   return await storage.getIbkrTrade(trade.id);

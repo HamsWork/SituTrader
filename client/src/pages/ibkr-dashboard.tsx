@@ -71,6 +71,48 @@ function TpProgressBadges({ trade }: { trade: any }) {
   );
 }
 
+function parseOptionTicker(ticker: string | null | undefined): { strike: string; expiry: string; right: string } | null {
+  if (!ticker) return null;
+  const match = ticker.match(/O:(\w+?)(\d{6})([CP])(\d{8})/);
+  if (!match) return null;
+  const dateStr = match[2];
+  const year = `20${dateStr.slice(0, 2)}`;
+  const month = dateStr.slice(2, 4);
+  const day = dateStr.slice(4, 6);
+  const strike = (parseInt(match[4]) / 1000).toString();
+  return {
+    strike,
+    expiry: `${month}/${day}/${year}`,
+    right: match[3] === "C" ? "Call" : "Put",
+  };
+}
+
+function OptionEntryDisplay({ trade }: { trade: any }) {
+  const isOption = trade.instrumentType === "OPTION";
+  if (!isOption) {
+    return (
+      <div>
+        <span className="text-muted-foreground">Entry</span>
+        <div className="font-semibold">{trade.entryPrice != null ? `$${trade.entryPrice.toFixed(2)}` : "—"}</div>
+      </div>
+    );
+  }
+
+  const parsed = parseOptionTicker(trade.instrumentTicker);
+
+  return (
+    <div>
+      <span className="text-muted-foreground">Entry</span>
+      <div className="font-semibold">{trade.entryPrice != null ? `$${trade.entryPrice.toFixed(2)}` : "—"}</div>
+      {parsed && (
+        <div className="text-[10px] text-muted-foreground leading-tight">
+          {parsed.strike} {parsed.right} {parsed.expiry}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrderIdCell({ label, orderId }: { label: string; orderId?: number | null }) {
   if (!orderId) return null;
   return (
@@ -217,7 +259,13 @@ export default function IbkrDashboard() {
                 <div key={trade.id} className="rounded-lg border p-3 space-y-2" data-testid={`card-active-trade-${trade.id}`}>
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-sm">{trade.instrumentTicker || trade.ticker}</span>
+                      <span className="font-bold text-sm">{trade.ticker}</span>
+                      {trade.instrumentType === "OPTION" && trade.instrumentTicker && (
+                        <span className="text-[10px] text-muted-foreground font-mono">{trade.instrumentTicker.replace("O:", "")}</span>
+                      )}
+                      {trade.instrumentType === "LEVERAGED_ETF" && trade.instrumentTicker && trade.instrumentTicker !== trade.ticker && (
+                        <span className="text-[10px] text-muted-foreground">via {trade.instrumentTicker}</span>
+                      )}
                       <Badge variant={trade.side === "BUY" ? "default" : "destructive"} className="text-xs">
                         {trade.side}
                       </Badge>
@@ -242,10 +290,7 @@ export default function IbkrDashboard() {
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Entry</span>
-                      <div className="font-semibold">${trade.entryPrice?.toFixed(2) ?? "—"}</div>
-                    </div>
+                    <OptionEntryDisplay trade={trade} />
                     <div>
                       <span className="text-muted-foreground">Stop</span>
                       <div className={`font-semibold ${trade.stopMovedToBe ? "text-amber-500" : "text-red-500"}`}>
@@ -371,7 +416,17 @@ export default function IbkrDashboard() {
                         {trade.side}
                       </Badge>
                     </TableCell>
-                    <TableCell>${trade.entryPrice?.toFixed(2) ?? "—"}</TableCell>
+                    <TableCell>
+                      <div>
+                        ${trade.entryPrice?.toFixed(2) ?? "—"}
+                        {trade.instrumentType === "OPTION" && (() => {
+                          const p = parseOptionTicker(trade.instrumentTicker);
+                          return p ? (
+                            <div className="text-[10px] text-muted-foreground">{p.strike} {p.right} {p.expiry}</div>
+                          ) : null;
+                        })()}
+                      </div>
+                    </TableCell>
                     <TableCell>${trade.exitPrice?.toFixed(2) ?? "—"}</TableCell>
                     <TableCell>
                       {trade.tpHitLevel === 2 ? (

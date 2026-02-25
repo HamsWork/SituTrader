@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { detectAllSetups, type SetupResult } from "./rules";
 import { validateMagnetTouch, computeMAEMFE, filterRTHBars } from "./validate";
-import { fetchIntradayBars } from "./polygon";
+import { fetchIntradayBarsCached } from "./polygon";
 import { formatDate } from "./calendar";
 import type { BacktestDetail, Backtest, TimeToHitStat } from "@shared/schema";
 import { log } from "../index";
@@ -46,7 +46,7 @@ export async function runBacktest(
 
     if (intradayBarsData.length === 0) {
       try {
-        const polygonBars = await fetchIntradayBars(ticker, setup.targetDate, setup.targetDate, timeframe);
+        const polygonBars = await fetchIntradayBarsCached(ticker, setup.targetDate, setup.targetDate, timeframe);
         for (const bar of polygonBars) {
           const ts = new Date(bar.t).toISOString();
           await storage.upsertIntradayBar({

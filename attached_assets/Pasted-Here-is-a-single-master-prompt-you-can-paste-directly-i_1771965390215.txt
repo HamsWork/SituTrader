@@ -1,0 +1,92 @@
+Here is a single master prompt you can paste directly into Replit Ghostwriter to audit and fix the bucket logic, ROI logic, and totals so you know exactly what is happening:
+
+⸻
+
+Audit my trading performance aggregation logic and fix any incorrect bucket assignment, ROI calculation, or misleading labeling.
+
+Context:
+I have a trading system that shows performance buckets labeled:
+	•	0 to 30 Days
+	•	31 to 60 Days
+	•	61 to 90 Days
+	•	91+ Days
+
+Each bucket shows:
+	•	total profit and loss
+	•	trade count
+	•	win rate
+	•	ROI
+
+The system also shows a master total across all buckets.
+
+Problem:
+I need to verify whether my bucket logic is based on:
+
+Option A: trade holding duration
+holding_days = exit_timestamp minus entry_timestamp
+
+Option B: trade age since close
+age_days = current_timestamp minus exit_timestamp
+
+I want the buckets to be based on trade holding duration, not age since close.
+
+Tasks to perform:
+	1.	Locate the exact code where trades are assigned to buckets.
+	2.	Print and verify these values for at least 20 example trades across different buckets:
+
+	•	entry_timestamp
+	•	exit_timestamp
+	•	current_timestamp
+	•	holding_days = exit_timestamp minus entry_timestamp
+	•	age_days = current_timestamp minus exit_timestamp
+	•	bucket currently assigned
+	•	bucket that should be assigned based on holding_days
+
+	3.	Verify bucket assignment logic follows this exact rule:
+
+if holding_days <= 30: bucket = “0 to 30 Days”
+else if holding_days <= 60: bucket = “31 to 60 Days”
+else if holding_days <= 90: bucket = “61 to 90 Days”
+else: bucket = “91+ Days”
+	4.	Verify aggregation logic:
+
+Confirm these are true:
+
+sum(bucket_trade_counts) equals total_trade_count
+sum(bucket_profit_loss) equals total_profit_loss
+
+If not, print exact discrepancy and which trades are miscounted.
+	5.	Audit ROI calculation and print the exact formula currently used.
+
+Then compute and print all three versions for comparison:
+
+ROI_deployed_notional = total_profit_loss divided by sum_of_all_position_notional
+ROI_required_capital = total_profit_loss divided by capital_required
+ROI_per_trade = total_profit_loss divided by total_trade_count
+
+Clearly label which one is currently displayed.
+	6.	Fix and rewrite aggregation code so it:
+
+	•	correctly uses holding_days for bucket assignment
+	•	correctly aggregates profit and loss and trade counts
+	•	clearly labels ROI as either
+“Return on deployed notional”
+or
+“Return on capital required”
+
+	7.	Output corrected aggregation function as clean production-ready code.
+	8.	Add a debug function called audit_trade_buckets() that prints:
+
+	•	bucket totals
+	•	master total
+	•	verification that sums match
+	•	sample trades showing bucket assignment correctness
+
+Goal:
+Ensure bucket logic, totals, and ROI are mathematically correct, logically consistent, and transparently labeled.
+
+Do not guess. Inspect actual timestamps and calculations in the existing code and verify correctness step by step.
+
+⸻
+
+If you paste that into Replit, it will immediately expose whether your buckets are using the wrong timestamp or if aggregation is flawed.

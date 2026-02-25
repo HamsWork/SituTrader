@@ -1,6 +1,6 @@
 {
   "audit_metadata": {
-    "audit_date": "2026-02-23",
+    "audit_date": "2026-02-24",
     "codebase_lines": 22400,
     "source_files": 72,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
@@ -141,6 +141,7 @@
       { "method": "GET", "path": "/api/alerts/events", "purpose": "Get alert events" },
       { "method": "POST", "path": "/api/universe/rebuild", "purpose": "Rebuild universe" },
       { "method": "GET", "path": "/api/universe/status", "purpose": "Universe status" },
+      { "method": "GET", "path": "/stats/bar-cache", "purpose": "Bar cache statistics (SQLite)" },
       { "method": "GET", "path": "/api/setup-stats", "purpose": "Overall setup stats" },
       { "method": "GET", "path": "/api/setup-stats/all", "purpose": "All setup stats" },
       { "method": "GET", "path": "/api/setup-stats/:setupType", "purpose": "Per-setup stats" },
@@ -215,7 +216,7 @@
       },
       {
         "file": "discord.ts",
-        "lines": 626,
+        "lines": 642,
         "purpose": "Dual-channel Discord webhook integration with RAISE_STOP and TIME_STOP lifecycle events",
         "exports": ["postOptionsAlert", "postLetfAlert", "postTradeUpdate", "sendTestLetfAlert"]
       },
@@ -227,15 +228,21 @@
       },
       {
         "file": "ibkrOrders.ts",
-        "lines": 529,
+        "lines": 791,
         "purpose": "IBKR bracket order execution, single-trade monitoring, BE/TIME_STOP stop management, and trade management",
         "exports": ["executeTradeForSignal", "applyBeStop", "applyTimeStop", "monitorActiveTrade", "monitorActiveTrades", "closeTradeManually", "getIbkrDashboardData"]
       },
       {
         "file": "polygon.ts",
-        "lines": 475,
+        "lines": 551,
         "purpose": "Polygon.io API client with rate limiting, caching, and options data",
-        "exports": ["fetchDailyBars", "fetchIntradayBars", "fetchGroupedDaily", "fetchOptionsChain", "fetchOptionContractDetails", "fetchOptionQuote", "fetchOptionSnapshot", "fetchSnapshot", "fetchOptionNbbo", "fetchOptionLastTrade", "fetchOptionMarkAtTime", "fetchStockPriceAtTime", "fetchOptionMark"]
+        "exports": ["fetchDailyBars", "fetchIntradayBars", "fetchDailyBarsCached", "fetchIntradayBarsCached", "fetchGroupedDaily", "fetchOptionsChain", "fetchOptionContractDetails", "fetchOptionQuote", "fetchOptionSnapshot", "fetchSnapshot", "fetchOptionNbbo", "fetchOptionLastTrade", "fetchOptionMarkAtTime", "fetchStockPriceAtTime", "fetchOptionMark"]
+      },
+      {
+        "file": "barCache/",
+        "lines": 403,
+        "purpose": "Persistent two-tier bar cache (SQLite on-disk + 5min in-memory) with incremental fetch, per-series locking, and staleness thresholds",
+        "exports": ["getBars", "getBarCacheStats", "openBarCacheDb", "getStalenessSeconds", "memClear"]
       },
       {
         "file": "options.ts",

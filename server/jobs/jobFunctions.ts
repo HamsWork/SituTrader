@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { fetchDailyBars, fetchIntradayBars, fetchSnapshot } from "../lib/polygon";
+import { fetchDailyBarsCached, fetchIntradayBarsCached, fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
 import { detectAllSetups } from "../lib/rules";
 import { validateMagnetTouch } from "../lib/validate";
@@ -66,7 +66,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
 
     for (const ticker of tickersToScan) {
       try {
-        const dailyPolygon = await fetchDailyBars(ticker, from200, today);
+        const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
         for (const bar of dailyPolygon) {
           const date = formatDate(new Date(bar.t));
           await storage.upsertDailyBar({
@@ -75,7 +75,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
           });
         }
 
-        const intradayPolygon = await fetchIntradayBars(ticker, from15, today, timeframe);
+        const intradayPolygon = await fetchIntradayBarsCached(ticker, from15, today, timeframe);
         for (const bar of intradayPolygon) {
           const ts = new Date(bar.t).toISOString();
           await storage.upsertIntradayBar({

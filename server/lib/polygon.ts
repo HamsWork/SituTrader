@@ -1,4 +1,6 @@
 import { log } from "../index";
+import { getBars } from "./barCache";
+import type { Bar } from "./barCache";
 
 const POLYGON_BASE = "https://api.polygon.io";
 const API_KEY = process.env.POLYGON_API_KEY;
@@ -472,4 +474,78 @@ export async function fetchOptionMark(contractTicker: string, underlyingTicker?:
   }
 
   return null;
+}
+
+function dateStrToMs(dateStr: string): number {
+  return new Date(dateStr + "T00:00:00Z").getTime();
+}
+
+function dateStrToEndMs(dateStr: string): number {
+  return new Date(dateStr + "T23:59:59.999Z").getTime();
+}
+
+function polygonBarToBar(pb: PolygonBar): Bar {
+  return {
+    timestamp: pb.t,
+    open: pb.o,
+    high: pb.h,
+    low: pb.l,
+    close: pb.c,
+    volume: pb.v,
+  };
+}
+
+function barToPolygonBar(b: Bar): PolygonBar {
+  return {
+    o: b.open,
+    h: b.high,
+    l: b.low,
+    c: b.close,
+    v: b.volume,
+    t: b.timestamp,
+  };
+}
+
+export async function fetchDailyBarsCached(
+  ticker: string,
+  from: string,
+  to: string,
+): Promise<PolygonBar[]> {
+  const bars = await getBars({
+    symbol: ticker,
+    timeframe: "1d",
+    adjusted: true,
+    startTs: dateStrToMs(from),
+    endTs: dateStrToEndMs(to),
+    fetcher: async (p) => {
+      const fromDate = new Date(p.startTs).toISOString().slice(0, 10);
+      const toDate = new Date(p.endTs).toISOString().slice(0, 10);
+      const raw = await fetchDailyBars(ticker, fromDate, toDate);
+      return raw.map(polygonBarToBar);
+    },
+  });
+  return bars.map(barToPolygonBar);
+}
+
+export async function fetchIntradayBarsCached(
+  ticker: string,
+  from: string,
+  to: string,
+  timeframe: string = "5",
+): Promise<PolygonBar[]> {
+  const tfKey = `${timeframe}m`;
+  const bars = await getBars({
+    symbol: ticker,
+    timeframe: tfKey,
+    adjusted: true,
+    startTs: dateStrToMs(from),
+    endTs: dateStrToEndMs(to),
+    fetcher: async (p) => {
+      const fromDate = new Date(p.startTs).toISOString().slice(0, 10);
+      const toDate = new Date(p.endTs).toISOString().slice(0, 10);
+      const raw = await fetchIntradayBars(ticker, fromDate, toDate, timeframe);
+      return raw.map(polygonBarToBar);
+    },
+  });
+  return bars.map(barToPolygonBar);
 }
