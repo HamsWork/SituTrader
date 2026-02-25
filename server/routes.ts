@@ -25,7 +25,7 @@ import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
 import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
-import { postOptionsAlert, postLetfAlert } from "./lib/discord";
+import { postOptionsAlert, postLetfAlert, postTradeUpdate } from "./lib/discord";
 import { computeAllProfitWindows, type TradeInput } from "./lib/profitWindows";
 import {
   computeReliabilitySummary,
@@ -1591,6 +1591,250 @@ export async function registerRoutes(
         todayEt,
         existingTradesToday: { option: hasOptionToday, letf: hasLetfToday },
         candidatesAbove80: above80.length,
+        results,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/discord/replay-lifecycle", async (req, res) => {
+    try {
+      const { dryRun = true, delayMs = 2000, scenarios } = req.body;
+
+      const allSignals = await storage.getSignals(undefined, 5000);
+      const activated = allSignals.filter(s =>
+        s.activatedTs && (s.activationStatus === "ACTIVE" || s.activationStatus === "INVALIDATED")
+      );
+      const candidates = activated
+        .filter(s => (s.qualityScore ?? 0) > 60)
+        .sort((a, b) => (b.qualityScore ?? 0) - (a.qualityScore ?? 0));
+
+      const optionCandidates = candidates.filter(s => (s.instrumentType || "OPTION") === "OPTION");
+      const letfCandidates = candidates.filter(s => s.instrumentType === "LEVERAGED_ETF");
+
+      type ScenarioConfig = {
+        name: string;
+        events: string[];
+        instrumentType: "OPTION" | "LEVERAGED_ETF";
+        outcome: "WINNER" | "LOSER" | "BE_STOP";
+      };
+
+      const defaultScenarios: ScenarioConfig[] = [
+        { name: "Option Winner (Full TP2)", events: ["FILLED", "TP1_HIT", "TP2_HIT"], instrumentType: "OPTION", outcome: "WINNER" },
+        { name: "Option Loser (Stopped Out)", events: ["FILLED", "TIME_STOP", "STOPPED_OUT"], instrumentType: "OPTION", outcome: "LOSER" },
+        { name: "LETF Winner (TP1 + BE Stop)", events: ["FILLED", "TP1_HIT", "RAISE_STOP", "STOPPED_OUT_AFTER_TP"], instrumentType: "LEVERAGED_ETF", outcome: "BE_STOP" },
+        { name: "LETF Full Winner (TP2 + Close)", events: ["FILLED", "TP1_HIT", "TP2_HIT", "CLOSED"], instrumentType: "LEVERAGED_ETF", outcome: "WINNER" },
+      ];
+
+      const activeScenarios: ScenarioConfig[] = scenarios ?? defaultScenarios;
+      const results: any[] = [];
+
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      for (let i = 0; i < activeScenarios.length; i++) {
+        const scenario = activeScenarios[i];
+        const pool = scenario.instrumentType === "OPTION" ? optionCandidates : letfCandidates;
+        const sig = pool[i % pool.length];
+
+        if (!sig) {
+          results.push({ scenario: scenario.name, status: "NO_CANDIDATE", instrumentType: scenario.instrumentType });
+          continue;
+        }
+
+        const tp = sig.tradePlanJson as any;
+        const inst = sig.instrumentType || "OPTION";
+        const isBuy = tp?.bias === "BUY";
+        const action = isBuy ? "BUY" : "SELL";
+        const entryPx = sig.entryPriceAtActivation ?? tp?.t1 ?? 100;
+        const stopPx = sig.stopPrice ?? (isBuy ? entryPx * 0.99 : entryPx * 1.01);
+        const t1Px = tp?.t1 ?? (isBuy ? entryPx * 1.02 : entryPx * 0.98);
+        const t2Px = tp?.t2 ?? (isBuy ? entryPx * 1.04 : entryPx * 0.96);
+        const optionTicker = sig.optionContractTicker || (sig.optionsJson as any)?.candidate?.contractSymbol;
+        const instrumentTicker = sig.instrumentTicker || (sig.leveragedEtfJson as any)?.ticker;
+
+        if (dryRun) {
+          results.push({
+            scenario: scenario.name,
+            status: "DRY_RUN",
+            events: scenario.events,
+            instrumentType: inst,
+            signal: {
+              id: sig.id, ticker: sig.ticker, setupType: sig.setupType,
+              qs: sig.qualityScore, tier: sig.tier,
+              entryPrice: entryPx, stopPrice: stopPx, t1: t1Px, t2: t2Px,
+            },
+            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+            discordMessages: scenario.events.length + 1,
+          });
+          continue;
+        }
+
+        const scenarioResults: any[] = [];
+        const now = new Date().toISOString();
+
+        const trade = await storage.createIbkrTrade({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          instrumentType: inst,
+          instrumentTicker: inst === "OPTION" ? optionTicker : instrumentTicker,
+          side: action,
+          quantity: 2,
+          originalQuantity: 2,
+          remainingQuantity: 2,
+          tpHitLevel: 0,
+          stopPrice: stopPx,
+          target1Price: t1Px,
+          target2Price: t2Px,
+          status: "PENDING",
+          notes: `Replay lifecycle: ${scenario.name}`,
+        });
+
+        let entryAlertOk = false;
+        try {
+          if (inst === "OPTION") {
+            entryAlertOk = await postOptionsAlert(sig, { ...trade, entryPrice: entryPx, status: "PENDING" } as any);
+          } else {
+            entryAlertOk = await postLetfAlert(sig, { ...trade, entryPrice: entryPx, status: "PENDING" } as any);
+          }
+          if (entryAlertOk) await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
+        } catch (e: any) {
+          log(`Replay lifecycle entry alert error: ${e.message}`, "discord");
+        }
+        scenarioResults.push({ step: "ENTRY_ALERT", type: inst === "OPTION" ? "postOptionsAlert" : "postLetfAlert", ok: entryAlertOk });
+
+        if (delayMs > 0) await delay(delayMs);
+
+        let currentTrade = { ...trade, entryPrice: entryPx, stopPrice: stopPx };
+
+        for (const event of scenario.events) {
+          let updatedFields: any = {};
+
+          switch (event) {
+            case "FILLED":
+              updatedFields = {
+                status: "FILLED",
+                entryPrice: entryPx,
+                filledAt: now,
+              };
+              break;
+            case "TP1_HIT":
+              updatedFields = {
+                tpHitLevel: 1,
+                tp1FillPrice: t1Px,
+                tp1FilledAt: now,
+                tp1PnlRealized: isBuy ? (t1Px - entryPx) * 1 : (entryPx - t1Px) * 1,
+                remainingQuantity: 1,
+                stopPrice: entryPx,
+                stopMovedToBe: true,
+                pnl: isBuy ? (t1Px - entryPx) * 1 : (entryPx - t1Px) * 1,
+              };
+              break;
+            case "TP2_HIT":
+              updatedFields = {
+                tpHitLevel: 2,
+                tp2FillPrice: t2Px,
+                tp2FilledAt: now,
+                remainingQuantity: 0,
+                exitPrice: t2Px,
+                status: "CLOSED",
+                pnl: isBuy ? (t1Px - entryPx) * 1 + (t2Px - entryPx) * 1 : (entryPx - t1Px) * 1 + (entryPx - t2Px) * 1,
+                pnlPct: isBuy ? ((t2Px - entryPx) / entryPx) * 100 : ((entryPx - t2Px) / entryPx) * 100,
+                rMultiple: 2.0,
+                closedAt: now,
+              };
+              break;
+            case "RAISE_STOP":
+              updatedFields = {
+                stopPrice: entryPx,
+                stopMovedToBe: true,
+              };
+              break;
+            case "TIME_STOP": {
+              const tightenFactor = 0.5;
+              const dist = Math.abs(entryPx - stopPx);
+              const newStopPx = isBuy ? entryPx - dist * tightenFactor : entryPx + dist * tightenFactor;
+              updatedFields = {
+                stopPrice: parseFloat(newStopPx.toFixed(2)),
+                detailsJson: { oldStopPrice: stopPx, newStopPrice: parseFloat(newStopPx.toFixed(2)), timeStopTightenFactor: tightenFactor },
+              };
+              break;
+            }
+            case "STOPPED_OUT":
+              updatedFields = {
+                status: "CLOSED",
+                exitPrice: currentTrade.stopPrice,
+                remainingQuantity: 0,
+                pnl: isBuy ? (currentTrade.stopPrice - entryPx) * (currentTrade as any).remainingQuantity || 2 : (entryPx - currentTrade.stopPrice) * (currentTrade as any).remainingQuantity || 2,
+                pnlPct: isBuy ? ((currentTrade.stopPrice - entryPx) / entryPx) * 100 : ((entryPx - currentTrade.stopPrice) / entryPx) * 100,
+                rMultiple: -1.0,
+                closedAt: now,
+              };
+              break;
+            case "STOPPED_OUT_AFTER_TP":
+              updatedFields = {
+                status: "CLOSED",
+                exitPrice: entryPx,
+                remainingQuantity: 0,
+                pnl: isBuy ? (t1Px - entryPx) * 1 : (entryPx - t1Px) * 1,
+                pnlPct: isBuy ? ((t1Px - entryPx) / entryPx) * 100 * 0.5 : ((entryPx - t1Px) / entryPx) * 100 * 0.5,
+                rMultiple: 0.5,
+                closedAt: now,
+              };
+              break;
+            case "CLOSED": {
+              const finalPnl = isBuy
+                ? (t1Px - entryPx) * 1 + (t2Px - entryPx) * 1
+                : (entryPx - t1Px) * 1 + (entryPx - t2Px) * 1;
+              updatedFields = {
+                status: "CLOSED",
+                exitPrice: t2Px,
+                remainingQuantity: 0,
+                pnl: finalPnl,
+                pnlPct: finalPnl > 0 ? Math.abs((finalPnl / (entryPx * 2)) * 100) : -Math.abs((finalPnl / (entryPx * 2)) * 100),
+                rMultiple: finalPnl > 0 ? 2.5 : -1.0,
+                closedAt: now,
+              };
+              break;
+            }
+          }
+
+          await storage.updateIbkrTrade(trade.id, updatedFields);
+          currentTrade = { ...currentTrade, ...updatedFields };
+
+          let discordOk = false;
+          try {
+            discordOk = await postTradeUpdate(sig, currentTrade as any, event);
+          } catch (e: any) {
+            log(`Replay lifecycle Discord error (${event}): ${e.message}`, "discord");
+          }
+
+          scenarioResults.push({ step: event, discordSent: discordOk, updatedFields: Object.keys(updatedFields) });
+
+          if (delayMs > 0 && event !== scenario.events[scenario.events.length - 1]) {
+            await delay(delayMs);
+          }
+        }
+
+        if (delayMs > 0 && i < activeScenarios.length - 1) {
+          await delay(delayMs * 2);
+        }
+
+        results.push({
+          scenario: scenario.name,
+          status: "COMPLETED",
+          tradeId: trade.id,
+          instrumentType: inst,
+          signal: { id: sig.id, ticker: sig.ticker, qs: sig.qualityScore, tier: sig.tier },
+          discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+          steps: scenarioResults,
+        });
+      }
+
+      res.json({
+        dryRun,
+        availableCandidates: { options: optionCandidates.length, letf: letfCandidates.length },
+        scenariosRun: activeScenarios.length,
         results,
       });
     } catch (err: any) {

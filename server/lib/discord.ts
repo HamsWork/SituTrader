@@ -1,11 +1,19 @@
 import { log } from "../log";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
 
-async function getWebhookUrl(channel: "alerts" | "swings"): Promise<string | undefined> {
-  const envKey = channel === "alerts" ? "DISCORD_GOAT_ALERTS_WEBHOOK" : "DISCORD_GOAT_SWINGS_WEBHOOK";
+async function getWebhookUrl(
+  channel: "alerts" | "swings",
+): Promise<string | undefined> {
+  const envKey =
+    channel === "alerts"
+      ? "DISCORD_GOAT_ALERTS_WEBHOOK"
+      : "DISCORD_GOAT_SWINGS_WEBHOOK";
   try {
     const { storage } = await import("../storage");
-    const settingKey = channel === "alerts" ? "discordGoatAlertsWebhook" : "discordGoatSwingsWebhook";
+    const settingKey =
+      channel === "alerts"
+        ? "discordGoatAlertsWebhook"
+        : "discordGoatSwingsWebhook";
     const fromDb = await storage.getSetting(settingKey);
     return fromDb || process.env[envKey] || undefined;
   } catch {
@@ -28,7 +36,12 @@ interface DiscordEmbed {
   timestamp?: string;
 }
 
-async function sendWebhook(url: string, content: string, embeds: DiscordEmbed[], isRetry = false): Promise<boolean> {
+async function sendWebhook(
+  url: string,
+  content: string,
+  embeds: DiscordEmbed[],
+  isRetry = false,
+): Promise<boolean> {
   if (!url) {
     log("Discord webhook URL not configured", "discord");
     return false;
@@ -93,8 +106,13 @@ function fmtPct(entry: number, target: number): string {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade, alertsWebhookUrl?: string): Promise<boolean> {
-  const DISCORD_GOAT_ALERTS_URL = alertsWebhookUrl ?? (await getWebhookUrl("alerts"));
+export async function postOptionsAlert(
+  signal: Signal,
+  trade?: IbkrTrade,
+  alertsWebhookUrl?: string,
+): Promise<boolean> {
+  const DISCORD_GOAT_ALERTS_URL =
+    alertsWebhookUrl ?? (await getWebhookUrl("alerts"));
   if (!DISCORD_GOAT_ALERTS_URL) return false;
 
   const tp = signal.tradePlanJson as TradePlan;
@@ -109,10 +127,14 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade, alerts
   const stopPrice = trade?.stopPrice ?? signal.stopPrice ?? 0;
 
   const t1Pct = fmtPct(entryPrice, tp.t1);
-  const stopPct = entryPrice > 0 ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1) : "?";
+  const stopPct =
+    entryPrice > 0
+      ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1)
+      : "?";
 
   let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
-  if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
+  if (tp.t2)
+    targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
   let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
@@ -120,14 +142,30 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade, alerts
   }
 
   const fields: DiscordField[] = [
-    { name: "\u{1F7E2} Ticker", value: `${signal.ticker}(${signal.ticker})`, inline: true },
-    { name: "\u{1F4CA} Stock Price", value: `$ ${entryPrice.toFixed(2)}`, inline: true },
+    {
+      name: "\u{1F7E2} Ticker",
+      value: `${signal.ticker}(${signal.ticker})`,
+      inline: true,
+    },
+    {
+      name: "\u{1F4CA} Stock Price",
+      value: `$ ${entryPrice.toFixed(2)}`,
+      inline: true,
+    },
     { ...SPACER },
     { name: "\u274C Expiration", value: `${expiry}`, inline: true },
     { name: "\u270D\uFE0F Strike", value: `${strike} ${right}`, inline: true },
-    { name: "\u{1F4B5} Option Price", value: `$ ${optionPrice.toFixed(2)}`, inline: true },
+    {
+      name: "\u{1F4B5} Option Price",
+      value: `$ ${optionPrice.toFixed(2)}`,
+      inline: true,
+    },
     { ...SPACER },
-    { name: "\u{1F4DD} Trade Plan", value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%), ${fmtPrice(entryPrice)}(+0%)`, inline: false },
+    {
+      name: "\u{1F4DD} Trade Plan",
+      value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%), ${fmtPrice(entryPrice)}(+0%)`,
+      inline: false,
+    },
     { ...SPACER },
     { name: "\u{1F4B0} Take Profit Plan", value: tpPlanText, inline: false },
   ];
@@ -142,8 +180,13 @@ export async function postOptionsAlert(signal: Signal, trade?: IbkrTrade, alerts
   return sendWebhook(DISCORD_GOAT_ALERTS_URL, `@everyone`, [embed]);
 }
 
-export async function postLetfAlert(signal: Signal, trade?: IbkrTrade, swingsWebhookUrl?: string): Promise<boolean> {
-  const DISCORD_GOAT_SWINGS_URL = swingsWebhookUrl ?? (await getWebhookUrl("swings"));
+export async function postLetfAlert(
+  signal: Signal,
+  trade?: IbkrTrade,
+  swingsWebhookUrl?: string,
+): Promise<boolean> {
+  const DISCORD_GOAT_SWINGS_URL =
+    swingsWebhookUrl ?? (await getWebhookUrl("swings"));
   if (!DISCORD_GOAT_SWINGS_URL) return false;
 
   const tp = signal.tradePlanJson as TradePlan;
@@ -158,23 +201,48 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade, swingsWeb
   const entryPrice = signal.entryPriceAtActivation ?? 0;
   const stopPrice = signal.stopPrice ?? 0;
   const letfEntry = trade?.entryPrice ?? 0;
-  const stopPct = entryPrice > 0 ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1) : "?";
+  const stopPct =
+    entryPrice > 0
+      ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1)
+      : "?";
 
   let targetsStr = `${fmtPrice(tp.t1)} (${fmtPct(entryPrice, tp.t1)})`;
-  if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
+  if (tp.t2)
+    targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
   let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
-  if (tp.t2) tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
+  if (tp.t2)
+    tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
 
   const fields: DiscordField[] = [
     { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
-    { name: "\u{1F4CA} Stock Price", value: `$ ${entryPrice.toFixed(2)}`, inline: true },
-    { name: "\u{1F4B9} Leveraged ETF", value: `${letfTicker} (${leverage}x ${direction})`, inline: true },
+    {
+      name: "\u{1F4CA} Stock Price",
+      value: `$ ${entryPrice.toFixed(2)}`,
+      inline: true,
+    },
+    {
+      name: "\u{1F4B9} Leveraged ETF",
+      value: `${letfTicker} (${leverage}x ${direction})`,
+      inline: true,
+    },
     { ...SPACER },
-    { name: "\u{1F4B0} Leveraged ETF Entry", value: letfEntry > 0 ? `$ ${letfEntry.toFixed(2)}` : "Pending", inline: true },
-    { name: "\u{1F6D1} Stop", value: `${fmtPrice(stopPrice)} (${stopPct}%)`, inline: true },
+    {
+      name: "\u{1F4B0} Leveraged ETF Entry",
+      value: letfEntry > 0 ? `$ ${letfEntry.toFixed(2)}` : "Pending",
+      inline: true,
+    },
+    {
+      name: "\u{1F6D1} Stop",
+      value: `${fmtPrice(stopPrice)} (${stopPct}%)`,
+      inline: true,
+    },
     { ...SPACER },
-    { name: "\u{1F4DD} Trade Plan", value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`, inline: false },
+    {
+      name: "\u{1F4DD} Trade Plan",
+      value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`,
+      inline: false,
+    },
     { ...SPACER },
     { name: "\u{1F4B0} Take Profit Plan", value: tpPlanText, inline: false },
   ];
@@ -189,39 +257,74 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade, swingsWeb
   return sendWebhook(DISCORD_GOAT_SWINGS_URL, `@everyone`, [embed]);
 }
 
-export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: string, tradeUpdateWebhookUrl?: string): Promise<boolean> {
+export async function postTradeUpdate(
+  signal: Signal,
+  trade: IbkrTrade,
+  event: string,
+  tradeUpdateWebhookUrl?: string,
+): Promise<boolean> {
   const isOption = trade.instrumentType === "OPTION";
   const isLetf = trade.instrumentType === "LEVERAGED_ETF";
-  const url = tradeUpdateWebhookUrl ?? (await getWebhookUrl(isOption ? "alerts" : "swings"));
+  const url =
+    tradeUpdateWebhookUrl ??
+    (await getWebhookUrl(isOption ? "alerts" : "swings"));
   if (!url) return false;
 
   const tp = signal.tradePlanJson as TradePlan;
   const optData = signal.optionsJson as any;
   const strike = optData?.candidate?.strike ?? "";
   const expiry = optData?.candidate?.expiry ?? "";
-  const right = optData?.candidate?.right === "C" ? "CALL" : optData?.candidate?.right === "P" ? "PUT" : "";
+  const right =
+    optData?.candidate?.right === "C"
+      ? "CALL"
+      : optData?.candidate?.right === "P"
+        ? "PUT"
+        : "";
 
   const letfData = signal.leveragedEtfJson as any;
   const letfTicker = letfData?.ticker || trade.instrumentTicker || "";
   const letfLeverage = letfData?.leverage ?? "";
   const letfDirection = letfData?.direction ?? "";
   const hasLetfInfo = isLetf && !!letfTicker;
-  const letfDisplayLabel = letfLeverage && letfDirection
-    ? `${letfTicker} (${letfLeverage}x ${letfDirection})`
-    : letfTicker;
+  const letfDisplayLabel =
+    letfLeverage && letfDirection
+      ? `${letfTicker} (${letfLeverage}x ${letfDirection})`
+      : letfTicker;
 
   function pushInstrumentFields(fields: DiscordField[], stockPx: number) {
     if (hasLetfInfo) {
       fields.push(
-        { name: "\u{1F4B9} Leveraged ETF", value: letfDisplayLabel, inline: true },
-        { name: "\u{1F4B5} Leveraged ETF Entry", value: trade.entryPrice ? `$ ${trade.entryPrice.toFixed(2)}` : "Pending", inline: true },
-        { name: "\u{1F4CA} Stock Price", value: `$ ${stockPx.toFixed(2)}`, inline: true },
+        {
+          name: "\u{1F4B9} Leveraged ETF",
+          value: letfDisplayLabel,
+          inline: true,
+        },
+        {
+          name: "\u{1F4B5} Leveraged ETF Entry",
+          value: trade.entryPrice
+            ? `$ ${trade.entryPrice.toFixed(2)}`
+            : "Pending",
+          inline: true,
+        },
+        {
+          name: "\u{1F4CA} Stock Price",
+          value: `$ ${stockPx.toFixed(2)}`,
+          inline: true,
+        },
       );
     } else if (strike && expiry) {
       fields.push(
         { name: "\u274C Expiration", value: `${expiry}`, inline: true },
-        { name: "\u270D\uFE0F Strike", value: `${strike} ${right}`, inline: true },
-        { name: "\u{1F4B5} Option Price", value: `$ ${(signal.optionEntryMark ?? trade.entryPrice ?? 0).toFixed(2)}`, inline: true },
+        {
+          name: "\u270D\uFE0F Strike",
+          value: `${strike} ${right}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F4B5} Option Price",
+          value: `$ ${(signal.optionEntryMark ?? trade.entryPrice ?? 0).toFixed(2)}`,
+          inline: true,
+        },
       );
     }
   }
@@ -241,7 +344,8 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tpData = signal.tradePlanJson as any;
       const entryPx = trade.entryPrice ?? signal.entryPriceAtActivation ?? 0;
       const stopPx = trade.stopPrice ?? signal.stopPrice ?? 0;
-      const stopPctFill = entryPx > 0 ? (((stopPx - entryPx) / entryPx) * 100).toFixed(1) : "?";
+      const stopPctFill =
+        entryPx > 0 ? (((stopPx - entryPx) / entryPx) * 100).toFixed(1) : "?";
 
       let targetsLine = "";
       if (tpData) {
@@ -255,27 +359,51 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       }
 
       let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
-      if (tpData?.t2) tpPlanText += `\nTake Profit (2): At T2 take off 50.0% of remaining position.`;
-      if (tpData?.t3) tpPlanText += `\nTake Profit (3): At T3 take off 50.0% of remaining position.`;
+      if (tpData?.t2)
+        tpPlanText += `\nTake Profit (2): At T2 take off 50.0% of remaining position.`;
+      if (tpData?.t3)
+        tpPlanText += `\nTake Profit (3): At T3 take off 50.0% of remaining position.`;
 
       fields.push(
         { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
-        { name: "\u{1F4CA} Stock Price", value: `$ ${(signal.entryPriceAtActivation ?? entryPx).toFixed(2)}`, inline: true },
+        {
+          name: "\u{1F4CA} Stock Price",
+          value: `$ ${(signal.entryPriceAtActivation ?? entryPx).toFixed(2)}`,
+          inline: true,
+        },
         { ...SPACER },
       );
 
       if (hasLetfInfo) {
         fields.push(
-          { name: "\u{1F4B9} Leveraged ETF", value: letfDisplayLabel, inline: true },
-          { name: "\u{1F4B5} Leveraged ETF Entry", value: trade.entryPrice ? `$ ${trade.entryPrice.toFixed(2)}` : "Pending", inline: true },
+          {
+            name: "\u{1F4B9} Leveraged ETF",
+            value: letfDisplayLabel,
+            inline: true,
+          },
+          {
+            name: "\u{1F4B5} Leveraged ETF Entry",
+            value: trade.entryPrice
+              ? `$ ${trade.entryPrice.toFixed(2)}`
+              : "Pending",
+            inline: true,
+          },
           { ...SPACER },
         );
       } else if (strike && expiry) {
         const optionPx = signal.optionEntryMark ?? trade.entryPrice ?? 0;
         fields.push(
           { name: "\u274C Expiration", value: `${expiry}`, inline: true },
-          { name: "\u270D\uFE0F Strike", value: `${strike} ${right}`, inline: true },
-          { name: "\u{1F4B5} Option Price", value: `$ ${optionPx.toFixed(2)}`, inline: true },
+          {
+            name: "\u270D\uFE0F Strike",
+            value: `${strike} ${right}`,
+            inline: true,
+          },
+          {
+            name: "\u{1F4B5} Option Price",
+            value: `$ ${optionPx.toFixed(2)}`,
+            inline: true,
+          },
           { ...SPACER },
         );
       }
@@ -284,9 +412,17 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
         ? `\u{1F6D1} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%)`
         : `\u{1F6D1} Stop Loss: ${fmtPrice(stopPx)}(${stopPctFill}%), ${fmtPrice(entryPx)}(+0%)`;
       fields.push(
-        { name: "\u{1F4DD} Trade Plan", value: `\u{1F3AF} Targets: ${targetsLine}\n${stopLine}`, inline: false },
+        {
+          name: "\u{1F4DD} Trade Plan",
+          value: `\u{1F3AF} Targets: ${targetsLine}\n${stopLine}`,
+          inline: false,
+        },
         { ...SPACER },
-        { name: "\u{1F4B0} Take Profit Plan", value: tpPlanText, inline: false },
+        {
+          name: "\u{1F4B0} Take Profit Plan",
+          value: tpPlanText,
+          inline: false,
+        },
       );
       break;
     }
@@ -300,26 +436,52 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tpData1 = signal.tradePlanJson as any;
       const stockTp1 = tpData1?.t1 ?? tp1Fill;
       const profitPct = hasLetfInfo
-        ? (stockEntry > 0 ? fmtPct(stockEntry, stockTp1) : "?")
-        : (entry > 0 ? fmtPct(entry, tp1Fill) : "?");
+        ? stockEntry > 0
+          ? fmtPct(stockEntry, stockTp1)
+          : "?"
+        : entry > 0
+          ? fmtPct(entry, tp1Fill)
+          : "?";
 
-      fields.push(
-        { name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: `\u{1F7E2} Ticker: ${signal.ticker}`,
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntry);
 
       const entryDisplay = hasLetfInfo ? stockEntry : entry;
       const tp1Display = hasLetfInfo ? stockTp1 : tp1Fill;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDisplay)}`, inline: true },
-        { name: "\u{1F3AF} TP Hit", value: `${fmtPrice(tp1Display)}`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDisplay)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F3AF} TP Hit",
+          value: `${fmtPrice(tp1Display)}`,
+          inline: true,
+        },
         { name: "\u{1F4B8} Profit", value: `${profitPct}`, inline: true },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: TP Reached \u{1F6A8}", value: "\u200b", inline: false },
-        { name: "\u{1F50D} Position Management", value: `\u2705 Reduce position by 50% (lock in profit)${tp?.t2 ? `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})` : ""}`, inline: false },
+        {
+          name: "\u{1F6A8} Status: TP Reached \u{1F6A8}",
+          value: "\u200b",
+          inline: false,
+        },
+        {
+          name: "\u{1F50D} Position Management",
+          value: `\u2705 Reduce position by 50% (lock in profit)${tp?.t2 ? `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(tp.t2)})` : ""}`,
+          inline: false,
+        },
         { ...SPACER },
-        { name: "\u{1F6E1}\uFE0F Risk Management", value: `Raising stop loss to ${fmtPrice(entry)} (break even) on remaining position to secure gains while allowing room to run.`, inline: false },
+        {
+          name: "\u{1F6E1}\uFE0F Risk Management",
+          value: `Raising stop loss to ${fmtPrice(entry)} (break even) on remaining position to secure gains while allowing room to run.`,
+          inline: false,
+        },
       );
       break;
     }
@@ -335,12 +497,18 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const stockTp2 = tpData2?.t2 ?? tp2Fill;
       const stockTp1forRisk = tpData2?.t1 ?? tp1Fill;
       const profitPct = hasLetfInfo
-        ? (stockEntry2 > 0 ? fmtPct(stockEntry2, stockTp2) : "?")
-        : (entry > 0 ? fmtPct(entry, tp2Fill) : "?");
+        ? stockEntry2 > 0
+          ? fmtPct(stockEntry2, stockTp2)
+          : "?"
+        : entry > 0
+          ? fmtPct(entry, tp2Fill)
+          : "?";
 
-      fields.push(
-        { name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: `\u{1F7E2} Ticker: ${signal.ticker}`,
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntry2);
 
@@ -348,14 +516,34 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tp2Disp = hasLetfInfo ? stockTp2 : tp2Fill;
       const tp1DispRisk = hasLetfInfo ? stockTp1forRisk : tp1Fill;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDisp2)}`, inline: true },
-        { name: "\u{1F3AF} TP2 Hit", value: `${fmtPrice(tp2Disp)}`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDisp2)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F3AF} TP2 Hit",
+          value: `${fmtPrice(tp2Disp)}`,
+          inline: true,
+        },
         { name: "\u{1F4B8} Profit", value: `${profitPct}`, inline: true },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: TP2 Reached \u{1F6A8}", value: "\u200b", inline: false },
-        { name: "\u{1F50D} Position Management", value: `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})\n\u{1F3AF} Set trailing stop on remaining runners`, inline: false },
+        {
+          name: "\u{1F6A8} Status: TP2 Reached \u{1F6A8}",
+          value: "\u200b",
+          inline: false,
+        },
+        {
+          name: "\u{1F50D} Position Management",
+          value: `\u2705 Reduce position by 50% of remaining (lock in ${profitPct})\n\u{1F3AF} Set trailing stop on remaining runners`,
+          inline: false,
+        },
         { ...SPACER },
-        { name: "\u{1F6E1}\uFE0F Risk Management", value: `Raising stop loss to ${fmtPrice(tp1DispRisk)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`, inline: false },
+        {
+          name: "\u{1F6E1}\uFE0F Risk Management",
+          value: `Raising stop loss to ${fmtPrice(tp1DispRisk)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`,
+          inline: false,
+        },
       );
       break;
     }
@@ -369,24 +557,46 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tpData3 = signal.tradePlanJson as any;
       const stockTp3 = tpData3?.t3 ?? exitPrice;
       const profitPct = hasLetfInfo
-        ? (stockEntry3 > 0 ? fmtPct(stockEntry3, stockTp3) : "?")
-        : (entry > 0 ? fmtPct(entry, exitPrice) : "?");
+        ? stockEntry3 > 0
+          ? fmtPct(stockEntry3, stockTp3)
+          : "?"
+        : entry > 0
+          ? fmtPct(entry, exitPrice)
+          : "?";
 
-      fields.push(
-        { name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: `\u{1F7E2} Ticker: ${signal.ticker}`,
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntry3);
 
       const entryDisp3 = hasLetfInfo ? stockEntry3 : entry;
       const tp3Disp = hasLetfInfo ? stockTp3 : exitPrice;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDisp3)}`, inline: true },
-        { name: "\u{1F3AF} TP3 Hit", value: `${fmtPrice(tp3Disp)}`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDisp3)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F3AF} TP3 Hit",
+          value: `${fmtPrice(tp3Disp)}`,
+          inline: true,
+        },
         { name: "\u{1F4B8} Profit", value: `${profitPct}`, inline: true },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: Position Closed \u{1F6A8}", value: "\u200b", inline: false },
-        { name: "\u{1F50D} Position Management", value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
+        {
+          name: "\u{1F6A8} Status: Position Closed \u{1F6A8}",
+          value: "\u200b",
+          inline: false,
+        },
+        {
+          name: "\u{1F50D} Position Management",
+          value: `\u2705 Full exit \u2014 all targets reached`,
+          inline: false,
+        },
       );
       break;
     }
@@ -399,32 +609,52 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const stockEntryRS = signal.entryPriceAtActivation ?? entry;
       const tpDataRS = signal.tradePlanJson as any;
 
-      fields.push(
-        { name: `\u{1F7E0} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: `\u{1F7E0} Ticker: ${signal.ticker}`,
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntryRS);
 
       const entryDispRS = hasLetfInfo ? stockEntryRS : entry;
       const stopDispRS = hasLetfInfo ? stockEntryRS : newStopPx;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDispRS)}`, inline: true },
-        { name: "\u{1F6E1}\uFE0F New Stop", value: `${fmtPrice(stopDispRS)} (Break Even)`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDispRS)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F6E1}\uFE0F New Stop",
+          value: `${fmtPrice(stopDispRS)} (Break Even)`,
+          inline: true,
+        },
         { name: "\u{1F4B8} Risk", value: `0% (Risk-Free)`, inline: true },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: Stop Loss Raised to Break Even \u{1F6A8}", value: "", inline: false },
+        {
+          name: "\u{1F6A8} Status: Stop Loss Raised to Break Even \u{1F6A8}",
+          value: "",
+          inline: false,
+        },
       );
 
       if (hasLetfInfo && newStopPx !== stopDispRS) {
         fields.push(
-          { name: "\u{1F4B9} LETF Stop Price", value: `${fmtPrice(newStopPx)}`, inline: true },
+          {
+            name: "\u{1F4B9} LETF Stop Price",
+            value: `${fmtPrice(newStopPx)}`,
+            inline: true,
+          },
           { ...SPACER },
         );
       }
 
-      fields.push(
-        { name: "\u{1F6E1}\uFE0F Risk Management", value: `Stop loss raised from initial level to ${fmtPrice(stopDispRS)} (break even).\nTrade is now risk-free on remaining position.${tpDataRS?.t2 ? `\n\u{1F3AF} Remaining target: TP2 at ${fmtPrice(tpDataRS.t2)}` : ""}`, inline: false },
-      );
+      fields.push({
+        name: "\u{1F6E1}\uFE0F Risk Management",
+        value: `Stop loss raised from initial level to ${fmtPrice(stopDispRS)} (break even).\nTrade is now risk-free on remaining position.${tpDataRS?.t2 ? `\n\u{1F3AF} Remaining target: TP2 at ${fmtPrice(tpDataRS.t2)}` : ""}`,
+        inline: false,
+      });
       break;
     }
 
@@ -440,43 +670,79 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const oldInstrStop = detailsTS?.oldStopPrice ?? 0;
 
       const isSellTS = tpDataTS?.bias === "SELL";
-      const tightenedUnderlyingStop = detailsTS?.underlyingNewStop ?? (() => {
-        const dist = Math.abs(stockEntryTS - oldUnderlyingStop);
-        const factor = detailsTS?.timeStopTightenFactor ?? 0.5;
-        return isSellTS ? stockEntryTS + dist * factor : stockEntryTS - dist * factor;
-      })();
+      const tightenedUnderlyingStop =
+        detailsTS?.underlyingNewStop ??
+        (() => {
+          const dist = Math.abs(stockEntryTS - oldUnderlyingStop);
+          const factor = detailsTS?.timeStopTightenFactor ?? 0.5;
+          return isSellTS
+            ? stockEntryTS + dist * factor
+            : stockEntryTS - dist * factor;
+        })();
 
-      fields.push(
-        { name: "\u{1F7E0} Ticker: ${signal.ticker}", value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: "\u{1F7E0} Ticker: ${signal.ticker}",
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntryTS);
 
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(hasLetfInfo ? stockEntryTS : entryTS)}`, inline: true },
-        { name: "\u{1F6E1}\uFE0F New Stop", value: `${fmtPrice(hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS)}`, inline: true },
-        { name: "\u{1F4B8} Risk", value: `${fmtPct(hasLetfInfo ? stockEntryTS : entryTS, hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS)}`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(hasLetfInfo ? stockEntryTS : entryTS)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F6E1}\uFE0F New Stop",
+          value: `${fmtPrice(hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F4B8} Risk",
+          value: `${fmtPct(hasLetfInfo ? stockEntryTS : entryTS, hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS)}`,
+          inline: true,
+        },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: Time Stop Activated \u{1F6A8}", value: "", inline: false },
+        {
+          name: "\u{1F6A8} Status: Time Stop Activated \u{1F6A8}",
+          value: "",
+          inline: false,
+        },
       );
 
       if (hasLetfInfo) {
         fields.push(
-          { name: "\u{1F4C9} Old LETF Stop", value: `${fmtPrice(oldInstrStop)}`, inline: true },
-          { name: "\u{1F4C8} New LETF Stop", value: `${fmtPrice(newInstrStopTS)}`, inline: true },
+          {
+            name: "\u{1F4C9} Old LETF Stop",
+            value: `${fmtPrice(oldInstrStop)}`,
+            inline: true,
+          },
+          {
+            name: "\u{1F4C8} New LETF Stop",
+            value: `${fmtPrice(newInstrStopTS)}`,
+            inline: true,
+          },
           { ...SPACER },
         );
       }
 
       const activeMins = signal.activatedTs
-        ? Math.floor((Date.now() - new Date(signal.activatedTs).getTime()) / 60000)
+        ? Math.floor(
+            (Date.now() - new Date(signal.activatedTs).getTime()) / 60000,
+          )
         : 0;
 
-      const oldDispTS = hasLetfInfo ? oldUnderlyingStop : (oldInstrStop || oldUnderlyingStop);
+      const oldDispTS = hasLetfInfo
+        ? oldUnderlyingStop
+        : oldInstrStop || oldUnderlyingStop;
       const newDispTS = hasLetfInfo ? tightenedUnderlyingStop : newInstrStopTS;
-      fields.push(
-        { name: "\u23F0 Time Stop Details", value: `Stop tightened after ${activeMins} minutes — insufficient movement toward target.\nOld stop: ${fmtPrice(oldDispTS)} → New stop: ${fmtPrice(newDispTS)}${tpDataTS?.t1 ? `\n\u{1F3AF} Target: ${fmtPrice(tpDataTS.t1)}` : ""}`, inline: false },
-      );
+      fields.push({
+        name: "\u23F0 Time Stop Details",
+        value: `Stop tightened after ${activeMins} minutes — insufficient movement toward target.\nOld stop: ${fmtPrice(oldDispTS)} → New stop: ${fmtPrice(newDispTS)}${tpDataTS?.t1 ? `\n\u{1F3AF} Target: ${fmtPrice(tpDataTS.t1)}` : ""}`,
+        inline: false,
+      });
       break;
     }
 
@@ -488,40 +754,68 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const stockEntryStop = signal.entryPriceAtActivation ?? entry;
       const stockStopPx = signal.stopPrice ?? exitPrice;
       const lossPct = hasLetfInfo
-        ? (stockEntryStop > 0 ? fmtPct(stockEntryStop, stockStopPx) : "?")
-        : (entry > 0 ? fmtPct(entry, exitPrice) : "?");
+        ? stockEntryStop > 0
+          ? fmtPct(stockEntryStop, stockStopPx)
+          : "?"
+        : entry > 0
+          ? fmtPct(entry, exitPrice)
+          : "?";
 
-      fields.push(
-        { name: "\u{1F6D1} Ticker: ${signal.ticker}", value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: `\u{1F6D1} Ticker: ${signal.ticker}`,
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntryStop);
 
       const entryDispStop = hasLetfInfo ? stockEntryStop : entry;
       const stopDispPx = hasLetfInfo ? stockStopPx : exitPrice;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDispStop)}`, inline: true },
-        { name: "\u{1F6D1} Stop Hit", value: `${fmtPrice(stopDispPx)}`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDispStop)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F6D1} Stop Hit",
+          value: `${fmtPrice(stopDispPx)}`,
+          inline: true,
+        },
         { name: "\u{1F4B8} Result", value: `${lossPct}`, inline: true },
         { ...SPACER },
       );
 
       if (hasLetfInfo && exitPrice > 0) {
         fields.push(
-          { name: "\u{1F4B9} LETF Exit Price", value: `${fmtPrice(exitPrice)}`, inline: true },
+          {
+            name: "\u{1F4B9} LETF Exit Price",
+            value: `${fmtPrice(exitPrice)}`,
+            inline: true,
+          },
           { ...SPACER },
         );
       }
 
       fields.push(
-        { name: "\u{1F6A8} Status: Position Closed \u{1F6A8}", value: "\u200b", inline: false },
-        { name: "\u{1F6E1}\uFE0F Discipline Matters", value: `Following the plan keeps you in the game for winning trades`, inline: false },
+        {
+          name: "\u{1F6A8} Status: Position Closed \u{1F6A8}",
+          value: "\u200b",
+          inline: false,
+        },
+        {
+          name: "\u{1F6E1}\uFE0F Discipline Matters",
+          value: `Following the plan keeps you in the game for winning trades`,
+          inline: false,
+        },
       );
 
       if (trade.pnl != null) {
-        fields.push(
-          { name: "Total P&L", value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, inline: false },
-        );
+        fields.push({
+          name: "Total P&L",
+          value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`,
+          inline: false,
+        });
       }
       break;
     }
@@ -536,30 +830,58 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       const tpDataBE = signal.tradePlanJson as any;
       const stockTp1BE = tpDataBE?.t1 ?? tp1Fill;
       const tp1Pct = hasLetfInfo
-        ? (stockEntryBE > 0 ? fmtPct(stockEntryBE, stockTp1BE) : "?")
-        : (entry > 0 ? fmtPct(entry, tp1Fill) : "?");
+        ? stockEntryBE > 0
+          ? fmtPct(stockEntryBE, stockTp1BE)
+          : "?"
+        : entry > 0
+          ? fmtPct(entry, tp1Fill)
+          : "?";
 
-      fields.push(
-        { name: "\u{1F7E0} Ticker: ${signal.ticker}", value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: "\u{1F7E0} Ticker: ${signal.ticker}",
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntryBE);
 
       const entryDispBE = hasLetfInfo ? stockEntryBE : entry;
       const beStopDisp = hasLetfInfo ? stockEntryBE : exitPrice;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDispBE)}`, inline: true },
-        { name: "\u{1F6D1} BE Stop", value: `${fmtPrice(beStopDisp)}`, inline: true },
-        { name: "\u{1F4B8} Profit", value: `${tp1Pct} (TP1 only)`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDispBE)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F6D1} BE Stop",
+          value: `${fmtPrice(beStopDisp)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F4B8} Profit",
+          value: `${tp1Pct} (TP1 only)`,
+          inline: true,
+        },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: Stopped at BE (after TP1) \u{1F6A8}", value: "\u200b", inline: false },
-        { name: "\u{1F6E1}\uFE0F Discipline Matters", value: `Following the plan keeps you in the game for winning trades`, inline: false },
+        {
+          name: "\u{1F6A8} Status: Stopped at BE (after TP1) \u{1F6A8}",
+          value: "\u200b",
+          inline: false,
+        },
+        {
+          name: "\u{1F6E1}\uFE0F Discipline Matters",
+          value: `Following the plan keeps you in the game for winning trades`,
+          inline: false,
+        },
       );
 
       if (trade.tp1PnlRealized != null) {
-        fields.push(
-          { name: "\u{1F4B0} TP1 P&L (banked)", value: `${fmtPnl(trade.tp1PnlRealized)}`, inline: false },
-        );
+        fields.push({
+          name: "\u{1F4B0} TP1 P&L (banked)",
+          value: `${fmtPnl(trade.tp1PnlRealized)}`,
+          inline: false,
+        });
       }
       break;
     }
@@ -573,36 +895,58 @@ export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: s
       heading = `**${emoji} ${signal.ticker}${letfLabel} Trade Closed**`;
       const pnlPct = hasLetfInfo
         ? "\u2014"
-        : (entry > 0 && exitPrice > 0 ? fmtPct(entry, exitPrice) : "\u2014");
+        : entry > 0 && exitPrice > 0
+          ? fmtPct(entry, exitPrice)
+          : "\u2014";
 
-      fields.push(
-        { name: `${trade.pnl && trade.pnl > 0 ? "\u{1F7E2}" : "\u{1F6D1}"} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false },
-      );
+      fields.push({
+        name: `${trade.pnl && trade.pnl > 0 ? "\u{1F7E2}" : "\u{1F6D1}"} Ticker: ${signal.ticker}`,
+        value: `\u200b`,
+        inline: false,
+      });
 
       pushInstrumentFields(fields, stockEntryClosed);
 
       const entryDispClosed = hasLetfInfo ? stockEntryClosed : entry;
       fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(entryDispClosed)}`, inline: true },
-        { name: "\u{1F3C1} Exit", value: hasLetfInfo ? `${fmtPrice(exitPrice)} (LETF)` : `${fmtPrice(exitPrice)}`, inline: true },
+        {
+          name: "\u2705 Entry",
+          value: `${fmtPrice(entryDispClosed)}`,
+          inline: true,
+        },
+        {
+          name: "\u{1F3C1} Exit",
+          value: hasLetfInfo
+            ? `${fmtPrice(exitPrice)} (LETF)`
+            : `${fmtPrice(exitPrice)}`,
+          inline: true,
+        },
         { name: "\u{1F4B8} Profit", value: `${pnlPct}`, inline: true },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: Position Closed \u{1F6A8}", value: "\u200b", inline: false },
+        {
+          name: "\u{1F6A8} Status: Position Closed \u{1F6A8}",
+          value: "\u200b",
+          inline: false,
+        },
       );
 
       if (trade.pnl != null) {
-        fields.push(
-          { name: "Total P&L", value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`, inline: false },
-        );
+        fields.push({
+          name: "Total P&L",
+          value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`,
+          inline: false,
+        });
       }
       break;
     }
 
     default: {
       heading = `**\u{1F4DD} ${signal.ticker} Trade Update**`;
-      fields.push(
-        { name: `Event: ${event}`, value: `Instrument: ${trade.instrumentTicker || signal.ticker}`, inline: false },
-      );
+      fields.push({
+        name: `Event: ${event}`,
+        value: `Instrument: ${trade.instrumentTicker || signal.ticker}`,
+        inline: false,
+      });
     }
   }
 
@@ -625,9 +969,19 @@ export async function sendTestLetfAlert(webhookUrl: string): Promise<boolean> {
     { name: "\u{1F4B0} Leveraged ETF Entry", value: "$ 178.32", inline: true },
     { name: "\u{1F6D1} Stop", value: "$594.20 (-0.7%)", inline: true },
     { ...SPACER },
-    { name: "\u{1F4DD} Trade Plan", value: "\u{1F3AF} Targets: $604.50 (+1.0%), $610.80 (+2.1%)\n\u{1F6D1} Stop Loss: $594.20(-0.7%)", inline: false },
+    {
+      name: "\u{1F4DD} Trade Plan",
+      value:
+        "\u{1F3AF} Targets: $604.50 (+1.0%), $610.80 (+2.1%)\n\u{1F6D1} Stop Loss: $594.20(-0.7%)",
+      inline: false,
+    },
     { ...SPACER },
-    { name: "\u{1F4B0} Take Profit Plan", value: "Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.\nTake Profit (2): At T2 take off remaining 50.0% of position.", inline: false },
+    {
+      name: "\u{1F4B0} Take Profit Plan",
+      value:
+        "Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.\nTake Profit (2): At T2 take off remaining 50.0% of position.",
+      inline: false,
+    },
   ];
 
   const embed: DiscordEmbed = {
