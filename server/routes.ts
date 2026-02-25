@@ -1440,6 +1440,9 @@ export async function registerRoutes(
       const sigs = await storage.getSignals(undefined, 500);
       const sig = sigs.find(s => s.id === signalId);
       if (!sig) return res.status(404).json({ message: "Signal not found" });
+      const qs = sig.qualityScore ?? 0;
+      if (qs <= 80) return res.status(400).json({ message: `Signal quality score ${qs} must be > 80 to send Discord alert` });
+      if ((sig.instrumentType || "OPTION") !== "OPTION") return res.status(400).json({ message: `Signal instrument type must be OPTION for this endpoint` });
       const ok = await postOptionsAlert(sig);
       res.json({ ok });
     } catch (err: any) {
@@ -1454,6 +1457,9 @@ export async function registerRoutes(
       const sigs = await storage.getSignals(undefined, 500);
       const sig = sigs.find(s => s.id === signalId);
       if (!sig) return res.status(404).json({ message: "Signal not found" });
+      const qs = sig.qualityScore ?? 0;
+      if (qs <= 80) return res.status(400).json({ message: `Signal quality score ${qs} must be > 80 to send Discord alert` });
+      if (sig.instrumentType !== "LEVERAGED_ETF") return res.status(400).json({ message: `Signal instrument type must be LEVERAGED_ETF for this endpoint` });
       const ok = await postLetfAlert(sig);
       res.json({ ok });
     } catch (err: any) {
