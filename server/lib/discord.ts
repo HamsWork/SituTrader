@@ -190,15 +190,6 @@ export async function postLetfAlert(signal: Signal, trade?: IbkrTrade, swingsWeb
 }
 
 export async function postTradeUpdate(signal: Signal, trade: IbkrTrade, event: string, tradeUpdateWebhookUrl?: string): Promise<boolean> {
-  if (!trade.ibkrOrderId) {
-    log(`postTradeUpdate skipped: trade ${trade.id} has no ibkrOrderId (not a real IBKR trade)`, "discord");
-    return false;
-  }
-  if (!trade.entryPrice) {
-    log(`postTradeUpdate skipped: trade ${trade.id} has no entryPrice (not filled)`, "discord");
-    return false;
-  }
-
   const isOption = trade.instrumentType === "OPTION";
   const isLetf = trade.instrumentType === "LEVERAGED_ETF";
   const url = tradeUpdateWebhookUrl ?? (await getWebhookUrl(isOption ? "alerts" : "swings"));

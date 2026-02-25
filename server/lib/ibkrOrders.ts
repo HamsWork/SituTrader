@@ -48,11 +48,6 @@ export async function executeTradeForSignal(
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) throw new Error(`Signal ${signalId} has no trade plan`);
 
-  if (!isConnected()) {
-    const ok = await connectIBKR();
-    if (!ok) throw new Error("Cannot connect to IBKR");
-  }
-
   const isBuy = tp.bias === "BUY";
   const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
   const closeAction: "BUY" | "SELL" = isBuy ? "SELL" : "BUY";
@@ -62,13 +57,6 @@ export async function executeTradeForSignal(
     (signal.optionsJson as any)?.candidate?.contractSymbol;
   const instrumentTicker =
     signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
-
-  const contract = makeContract(
-    instrumentType,
-    signal.ticker,
-    instrumentTicker,
-    optionTicker,
-  );
 
   const tp1Qty = Math.max(1, Math.floor(quantity / 2));
   const tp2Qty = quantity - tp1Qty;
@@ -89,6 +77,59 @@ export async function executeTradeForSignal(
     target2Price: tp.t2 ?? null,
     status: "PENDING",
   });
+
+  try {
+    if (instrumentType === "OPTION") {
+      await postOptionsAlert(signal, {
+        ...trade,
+        entryPrice: signal.entryPriceAtActivation ?? null,
+        status: "PENDING",
+      } as IbkrTrade);
+    } else if (instrumentType === "LEVERAGED_ETF") {
+      await postLetfAlert(signal, {
+        ...trade,
+        entryPrice: signal.entryPriceAtActivation ?? null,
+        status: "PENDING",
+      } as IbkrTrade);
+    } else {
+      await postOptionsAlert(signal, {
+        ...trade,
+        entryPrice: signal.entryPriceAtActivation ?? null,
+        status: "PENDING",
+      } as IbkrTrade);
+    }
+    await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
+    log(`Discord alert sent for signal ${signalId} (${signal.ticker} ${instrumentType})`, "discord");
+  } catch (discErr: any) {
+    log(`Discord alert failed for signal ${signalId}: ${discErr.message}`, "discord");
+  }
+
+  let ibkrConnected = false;
+  try {
+    if (!isConnected()) {
+      ibkrConnected = await connectIBKR();
+    } else {
+      ibkrConnected = true;
+    }
+  } catch (connErr: any) {
+    log(`IBKR connection attempt failed for signal ${signalId}: ${connErr.message}`, "ibkr");
+  }
+
+  if (!ibkrConnected) {
+    log(`IBKR not connected — trade ${trade.id} created as PENDING (Discord alert already sent)`, "ibkr");
+    await storage.updateIbkrTrade(trade.id, {
+      status: "PENDING",
+      notes: "IBKR not connected at time of execution; Discord alert sent",
+    });
+    return await storage.getIbkrTrade(trade.id);
+  }
+
+  const contract = makeContract(
+    instrumentType,
+    signal.ticker,
+    instrumentTicker,
+    optionTicker,
+  );
 
   try {
     const { orderId, promise } = await placeMarketOrder(
@@ -257,31 +298,6 @@ export async function executeTradeForSignal(
       }
     }
 
-    if (instrumentType === "OPTION") {
-      await postOptionsAlert(signal, {
-        ...trade,
-        ibkrOrderId: orderId,
-        entryPrice,
-        status: "FILLED",
-      } as IbkrTrade);
-    } else if (instrumentType === "LEVERAGED_ETF") {
-      await postLetfAlert(signal, {
-        ...trade,
-        ibkrOrderId: orderId,
-        entryPrice,
-        status: "FILLED",
-      } as IbkrTrade);
-    } else {
-      await postOptionsAlert(signal, {
-        ...trade,
-        ibkrOrderId: orderId,
-        entryPrice,
-        status: "FILLED",
-      } as IbkrTrade);
-    }
-
-    await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
-
     log(
       `Trade executed for signal ${signalId}: ${action} ${quantity} ${contract.symbol} filled at $${entryPrice}`,
       "ibkr",
@@ -293,8 +309,8 @@ export async function executeTradeForSignal(
       status: "ERROR",
       notes: err.message,
     });
-    log(`Trade execution error for signal ${signalId}: ${err.message}`, "ibkr");
-    throw err;
+    log(`IBKR execution error for signal ${signalId}: ${err.message} (Discord alert was already sent)`, "ibkr");
+    return await storage.getIbkrTrade(trade.id);
   }
 }
 
