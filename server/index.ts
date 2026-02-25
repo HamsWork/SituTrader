@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { connectIBKR, isConnected } from "./lib/ibkr";
 import { recomputeAllExpectancy } from "./lib/expectancy";
+import { log } from "./log";
 
 const app = express();
 const httpServer = createServer(app);
