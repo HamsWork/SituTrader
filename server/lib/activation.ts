@@ -245,6 +245,20 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     allIbkrTrades = await storage.getActiveIbkrTrades();
   } catch {}
 
+  const todayEt = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
+  let tradesCreatedToday: Awaited<ReturnType<typeof storage.getIbkrTradesCreatedOnEtDate>> = [];
+  try {
+    tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
+  } catch {}
+
+  /** At most 1 IBKR trade per instrument type per day (ET); track same-run so we don't post twice in one scan. */
+  const hasOptionToday = tradesCreatedToday.some((t) => t.instrumentType === "OPTION");
+  const hasLetfToday = tradesCreatedToday.some((t) => t.instrumentType === "LEVERAGED_ETF");
+  let executedOptionThisRun = false;
+  let executedLetfThisRun = false;
+
   const tickerGroups = new Map<string, Signal[]>();
   for (const sig of activeSignals) {
     if (!tickerGroups.has(sig.ticker)) tickerGroups.set(sig.ticker, []);
@@ -478,6 +492,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       );
 
       if (result.triggered && result.entryPrice) {
+        /** Effective instrument type for this signal (may be updated to LEVERAGED_ETF below). */
+        let instrumentTypeForExecution: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
+          (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") || "OPTION";
+
         let stopPrice: number | undefined;
         if (tp.stopDistance && tp.stopDistance > 0) {
           stopPrice =
@@ -555,6 +573,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 suggestion.ticker,
                 letfEntry,
               );
+              instrumentTypeForExecution = "LEVERAGED_ETF";
               log(
                 `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`,
                 "activation",
@@ -582,16 +601,42 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         try {
           const { isConnected } = await import("./ibkr");
           if (isConnected()) {
-            const { executeTradeForSignal } = await import("./ibkrOrders");
-            const qty =
-              parseInt(
-                (await storage.getSetting("ibkrDefaultQuantity")) || "1",
-              ) || 1;
-            await executeTradeForSignal(sig.id, qty);
-            log(
-              `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty})`,
-              "activation",
-            );
+            const qualityOk = (sig.qualityScore ?? 0) > 80;
+            const skipShares = instrumentTypeForExecution === "SHARES";
+            const wouldExceedOption =
+              instrumentTypeForExecution === "OPTION" && (hasOptionToday || executedOptionThisRun);
+            const wouldExceedLetf =
+              instrumentTypeForExecution === "LEVERAGED_ETF" && (hasLetfToday || executedLetfThisRun);
+
+            if (!qualityOk) {
+              log(
+                `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} <= 80`,
+                "activation",
+              );
+            } else if (skipShares) {
+              log(
+                `Skip IBKR execute for signal ${sig.id}: shares not traded`,
+                "activation",
+              );
+            } else if (wouldExceedOption || wouldExceedLetf) {
+              log(
+                `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
+                "activation",
+              );
+            } else {
+              const { executeTradeForSignal } = await import("./ibkrOrders");
+              const qty =
+                parseInt(
+                  (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+                ) || 1;
+              await executeTradeForSignal(sig.id, qty);
+              if (instrumentTypeForExecution === "OPTION") executedOptionThisRun = true;
+              else if (instrumentTypeForExecution === "LEVERAGED_ETF") executedLetfThisRun = true;
+              log(
+                `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
+                "activation",
+              );
+            }
           }
         } catch (autoErr: any) {
           log(

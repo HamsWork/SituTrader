@@ -24,6 +24,27 @@ export async function executeTradeForSignal(
   const signal = sigs.find((s) => s.id === signalId);
   if (!signal) throw new Error(`Signal ${signalId} not found`);
 
+  const qualityScore = signal.qualityScore ?? 0;
+  if (qualityScore <= 80) {
+    throw new Error(`Signal ${signalId} quality score ${qualityScore} must be > 80 to execute IBKR trade`);
+  }
+
+  const instrumentType = signal.instrumentType || "OPTION";
+  if (instrumentType === "SHARES") {
+    throw new Error(`IBKR execution is skipped for shares; only OPTION and LEVERAGED_ETF are traded`);
+  }
+
+  const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
+  const hasOptionToday = tradesCreatedToday.some((t) => t.instrumentType === "OPTION");
+  const hasLetfToday = tradesCreatedToday.some((t) => t.instrumentType === "LEVERAGED_ETF");
+  if (instrumentType === "OPTION" && hasOptionToday) {
+    throw new Error(`Already 1 OPTION trade created today (ET); only one IBKR option trade per day`);
+  }
+  if (instrumentType === "LEVERAGED_ETF" && hasLetfToday) {
+    throw new Error(`Already 1 LEVERAGED_ETF trade created today (ET); only one IBKR LETF trade per day`);
+  }
+
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) throw new Error(`Signal ${signalId} has no trade plan`);
 
@@ -36,7 +57,6 @@ export async function executeTradeForSignal(
   const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
   const closeAction: "BUY" | "SELL" = isBuy ? "SELL" : "BUY";
 
-  const instrumentType = signal.instrumentType || "OPTION";
   const optionTicker =
     signal.optionContractTicker ||
     (signal.optionsJson as any)?.candidate?.contractSymbol;
