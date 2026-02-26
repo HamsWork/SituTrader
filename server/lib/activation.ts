@@ -601,24 +601,29 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         });
 
         try {
-          const { isConnected } = await import("./ibkr");
-          if (isConnected()) {
-            const qualityOk = (sig.qualityScore ?? 0) > 80;
-            const wouldExceedOption =
-              instrumentTypeForExecution === "OPTION" && (hasOptionToday || executedOptionThisRun);
-            const wouldExceedLetf =
-              instrumentTypeForExecution === "LEVERAGED_ETF" && (hasLetfToday || executedLetfThisRun);
-            const wouldExceedShares =
-              instrumentTypeForExecution === "SHARES" && (hasSharesToday || executedSharesThisRun);
+          const qualityOk = (sig.qualityScore ?? 0) >= 70;
+          const wouldExceedOption =
+            instrumentTypeForExecution === "OPTION" && (hasOptionToday || executedOptionThisRun);
+          const wouldExceedLetf =
+            instrumentTypeForExecution === "LEVERAGED_ETF" && (hasLetfToday || executedLetfThisRun);
+          const wouldExceedShares =
+            instrumentTypeForExecution === "SHARES" && (hasSharesToday || executedSharesThisRun);
 
-            if (!qualityOk) {
+          if (!qualityOk) {
+            log(
+              `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} < 70`,
+              "activation",
+            );
+          } else if (wouldExceedOption || wouldExceedLetf || wouldExceedShares) {
+            log(
+              `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
+              "activation",
+            );
+          } else {
+            const { isConnected } = await import("./ibkr");
+            if (!isConnected()) {
               log(
-                `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} <= 80`,
-                "activation",
-              );
-            } else if (wouldExceedOption || wouldExceedLetf || wouldExceedShares) {
-              log(
-                `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
+                `Skip IBKR execute for signal ${sig.id}: IBKR not connected`,
                 "activation",
               );
             } else {
