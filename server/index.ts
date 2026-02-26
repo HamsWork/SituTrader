@@ -114,4 +114,15 @@ app.use((req, res, next) => {
       }, 3000);
     },
   );
+
+  function gracefulShutdown(signal: string) {
+    log(`${signal} received, shutting down...`);
+    httpServer.close(() => {
+      log("HTTP server closed");
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 5000);
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 })();
