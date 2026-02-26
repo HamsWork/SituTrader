@@ -12,7 +12,7 @@ import {
   getPositions,
   getAccountSummary,
 } from "./ibkr";
-import { postOptionsAlert, postLetfAlert, postTradeUpdate } from "./discord";
+import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./discord";
 import { log } from "../index";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
 
@@ -30,19 +30,20 @@ export async function executeTradeForSignal(
   }
 
   const instrumentType = signal.instrumentType || "OPTION";
-  if (instrumentType === "SHARES") {
-    throw new Error(`IBKR execution is skipped for shares; only OPTION and LEVERAGED_ETF are traded`);
-  }
 
   const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
   const hasOptionToday = tradesCreatedToday.some((t) => t.instrumentType === "OPTION");
   const hasLetfToday = tradesCreatedToday.some((t) => t.instrumentType === "LEVERAGED_ETF");
+  const hasSharesToday = tradesCreatedToday.some((t) => t.instrumentType === "SHARES");
   if (instrumentType === "OPTION" && hasOptionToday) {
     throw new Error(`Already 1 OPTION trade created today (ET); only one IBKR option trade per day`);
   }
   if (instrumentType === "LEVERAGED_ETF" && hasLetfToday) {
     throw new Error(`Already 1 LEVERAGED_ETF trade created today (ET); only one IBKR LETF trade per day`);
+  }
+  if (instrumentType === "SHARES" && hasSharesToday) {
+    throw new Error(`Already 1 SHARES trade created today (ET); only one IBKR shares trade per day`);
   }
 
   const tp = signal.tradePlanJson as TradePlan;
@@ -87,6 +88,12 @@ export async function executeTradeForSignal(
       } as IbkrTrade);
     } else if (instrumentType === "LEVERAGED_ETF") {
       await postLetfAlert(signal, {
+        ...trade,
+        entryPrice: signal.entryPriceAtActivation ?? null,
+        status: "PENDING",
+      } as IbkrTrade);
+    } else if (instrumentType === "SHARES") {
+      await postSharesAlert(signal, {
         ...trade,
         entryPrice: signal.entryPriceAtActivation ?? null,
         status: "PENDING",

@@ -25,7 +25,7 @@ import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
 import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
-import { postOptionsAlert, postLetfAlert, postTradeUpdate } from "./lib/discord";
+import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./lib/discord";
 import { computeAllProfitWindows, type TradeInput } from "./lib/profitWindows";
 import {
   computeReliabilitySummary,
@@ -1521,7 +1521,7 @@ export async function registerRoutes(
               stopPrice: sig.stopPrice, t1: tp?.t1, t2: tp?.t2,
               activatedTs: sig.activatedTs,
             },
-            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : inst === "SHARES" ? "GOAT_SHARES" : "GOAT_SWINGS",
           });
         } else {
           const isBuy = tp?.bias === "BUY";
@@ -1553,6 +1553,12 @@ export async function registerRoutes(
                 entryPrice: sig.entryPriceAtActivation ?? null,
                 status: "PENDING",
               } as any);
+            } else if (inst === "SHARES") {
+              discordOk = await postSharesAlert(sig, {
+                ...trade,
+                entryPrice: sig.entryPriceAtActivation ?? null,
+                status: "PENDING",
+              } as any);
             } else {
               discordOk = await postLetfAlert(sig, {
                 ...trade,
@@ -1576,7 +1582,7 @@ export async function registerRoutes(
             label: candidate.label, status: "EXECUTED",
             tradeId: trade.id,
             discordSent: discordOk,
-            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : inst === "SHARES" ? "GOAT_SHARES" : "GOAT_SWINGS",
             signal: {
               id: sig.id, ticker: sig.ticker, setupType: sig.setupType,
               qs: sig.qualityScore, tier: sig.tier, instrumentType: inst,
@@ -1612,11 +1618,12 @@ export async function registerRoutes(
 
       const optionCandidates = candidates.filter(s => (s.instrumentType || "OPTION") === "OPTION");
       const letfCandidates = candidates.filter(s => s.instrumentType === "LEVERAGED_ETF");
+      const sharesCandidates = candidates.length > 0 ? candidates : optionCandidates;
 
       type ScenarioConfig = {
         name: string;
         events: string[];
-        instrumentType: "OPTION" | "LEVERAGED_ETF";
+        instrumentType: "OPTION" | "LEVERAGED_ETF" | "SHARES";
         outcome: "WINNER" | "LOSER" | "BE_STOP";
       };
 
@@ -1625,6 +1632,7 @@ export async function registerRoutes(
         { name: "Option Loser (Stopped Out)", events: ["FILLED", "TIME_STOP", "STOPPED_OUT"], instrumentType: "OPTION", outcome: "LOSER" },
         { name: "LETF Winner (TP1 + BE Stop)", events: ["FILLED", "TP1_HIT", "RAISE_STOP", "STOPPED_OUT_AFTER_TP"], instrumentType: "LEVERAGED_ETF", outcome: "BE_STOP" },
         { name: "LETF Full Winner (TP2 + Close)", events: ["FILLED", "TP1_HIT", "TP2_HIT", "CLOSED"], instrumentType: "LEVERAGED_ETF", outcome: "WINNER" },
+        { name: "Shares Winner (Full TP2)", events: ["FILLED", "TP1_HIT", "TP2_HIT"], instrumentType: "SHARES", outcome: "WINNER" },
       ];
 
       const activeScenarios: ScenarioConfig[] = scenarios ?? defaultScenarios;
@@ -1634,7 +1642,7 @@ export async function registerRoutes(
 
       for (let i = 0; i < activeScenarios.length; i++) {
         const scenario = activeScenarios[i];
-        const pool = scenario.instrumentType === "OPTION" ? optionCandidates : letfCandidates;
+        const pool = scenario.instrumentType === "OPTION" ? optionCandidates : scenario.instrumentType === "SHARES" ? sharesCandidates : letfCandidates;
         const sig = pool[i % pool.length];
 
         if (!sig) {
@@ -1643,7 +1651,7 @@ export async function registerRoutes(
         }
 
         const tp = sig.tradePlanJson as any;
-        const inst = sig.instrumentType || "OPTION";
+        const inst = scenario.instrumentType || sig.instrumentType || "OPTION";
         const isBuy = tp?.bias === "BUY";
         const action = isBuy ? "BUY" : "SELL";
         const entryPx = sig.entryPriceAtActivation ?? tp?.t1 ?? 100;
@@ -1664,7 +1672,7 @@ export async function registerRoutes(
               qs: sig.qualityScore, tier: sig.tier,
               entryPrice: entryPx, stopPrice: stopPx, t1: t1Px, t2: t2Px,
             },
-            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+            discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : inst === "SHARES" ? "GOAT_SHARES" : "GOAT_SWINGS",
             discordMessages: scenario.events.length + 1,
           });
           continue;
@@ -1694,6 +1702,8 @@ export async function registerRoutes(
         try {
           if (inst === "OPTION") {
             entryAlertOk = await postOptionsAlert(sig, { ...trade, entryPrice: entryPx, status: "PENDING" } as any);
+          } else if (inst === "SHARES") {
+            entryAlertOk = await postSharesAlert(sig, { ...trade, entryPrice: entryPx, status: "PENDING" } as any);
           } else {
             entryAlertOk = await postLetfAlert(sig, { ...trade, entryPrice: entryPx, status: "PENDING" } as any);
           }
@@ -1701,7 +1711,7 @@ export async function registerRoutes(
         } catch (e: any) {
           log(`Replay lifecycle entry alert error: ${e.message}`, "discord");
         }
-        scenarioResults.push({ step: "ENTRY_ALERT", type: inst === "OPTION" ? "postOptionsAlert" : "postLetfAlert", ok: entryAlertOk });
+        scenarioResults.push({ step: "ENTRY_ALERT", type: inst === "OPTION" ? "postOptionsAlert" : inst === "SHARES" ? "postSharesAlert" : "postLetfAlert", ok: entryAlertOk });
 
         if (delayMs > 0) await delay(delayMs);
 
@@ -1826,14 +1836,14 @@ export async function registerRoutes(
           tradeId: trade.id,
           instrumentType: inst,
           signal: { id: sig.id, ticker: sig.ticker, qs: sig.qualityScore, tier: sig.tier },
-          discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : "GOAT_SWINGS",
+          discordChannel: inst === "OPTION" ? "GOAT_ALERTS" : inst === "SHARES" ? "GOAT_SHARES" : "GOAT_SWINGS",
           steps: scenarioResults,
         });
       }
 
       res.json({
         dryRun,
-        availableCandidates: { options: optionCandidates.length, letf: letfCandidates.length },
+        availableCandidates: { options: optionCandidates.length, letf: letfCandidates.length, shares: sharesCandidates.length },
         scenariosRun: activeScenarios.length,
         results,
       });

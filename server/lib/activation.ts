@@ -256,8 +256,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   /** At most 1 IBKR trade per instrument type per day (ET); track same-run so we don't post twice in one scan. */
   const hasOptionToday = tradesCreatedToday.some((t) => t.instrumentType === "OPTION");
   const hasLetfToday = tradesCreatedToday.some((t) => t.instrumentType === "LEVERAGED_ETF");
+  const hasSharesToday = tradesCreatedToday.some((t) => t.instrumentType === "SHARES");
   let executedOptionThisRun = false;
   let executedLetfThisRun = false;
+  let executedSharesThisRun = false;
 
   const tickerGroups = new Map<string, Signal[]>();
   for (const sig of activeSignals) {
@@ -602,23 +604,19 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           const { isConnected } = await import("./ibkr");
           if (isConnected()) {
             const qualityOk = (sig.qualityScore ?? 0) > 80;
-            const skipShares = instrumentTypeForExecution === "SHARES";
             const wouldExceedOption =
               instrumentTypeForExecution === "OPTION" && (hasOptionToday || executedOptionThisRun);
             const wouldExceedLetf =
               instrumentTypeForExecution === "LEVERAGED_ETF" && (hasLetfToday || executedLetfThisRun);
+            const wouldExceedShares =
+              instrumentTypeForExecution === "SHARES" && (hasSharesToday || executedSharesThisRun);
 
             if (!qualityOk) {
               log(
                 `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} <= 80`,
                 "activation",
               );
-            } else if (skipShares) {
-              log(
-                `Skip IBKR execute for signal ${sig.id}: shares not traded`,
-                "activation",
-              );
-            } else if (wouldExceedOption || wouldExceedLetf) {
+            } else if (wouldExceedOption || wouldExceedLetf || wouldExceedShares) {
               log(
                 `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
                 "activation",
@@ -632,6 +630,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
               await executeTradeForSignal(sig.id, qty);
               if (instrumentTypeForExecution === "OPTION") executedOptionThisRun = true;
               else if (instrumentTypeForExecution === "LEVERAGED_ETF") executedLetfThisRun = true;
+              else if (instrumentTypeForExecution === "SHARES") executedSharesThisRun = true;
               log(
                 `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
                 "activation",

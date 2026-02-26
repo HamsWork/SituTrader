@@ -2,18 +2,22 @@ import { log } from "../log";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
 
 async function getWebhookUrl(
-  channel: "alerts" | "swings",
+  channel: "alerts" | "swings" | "shares",
 ): Promise<string | undefined> {
   const envKey =
     channel === "alerts"
       ? "DISCORD_GOAT_ALERTS_WEBHOOK"
-      : "DISCORD_GOAT_SWINGS_WEBHOOK";
+      : channel === "swings"
+        ? "DISCORD_GOAT_SWINGS_WEBHOOK"
+        : "DISCORD_GOAT_SHARES_WEBHOOK";
   try {
     const { storage } = await import("../storage");
     const settingKey =
       channel === "alerts"
         ? "discordGoatAlertsWebhook"
-        : "discordGoatSwingsWebhook";
+        : channel === "swings"
+          ? "discordGoatSwingsWebhook"
+          : "discordGoatSharesWebhook";
     const fromDb = await storage.getSetting(settingKey);
     return fromDb || process.env[envKey] || undefined;
   } catch {
@@ -257,6 +261,71 @@ export async function postLetfAlert(
   return sendWebhook(DISCORD_GOAT_SWINGS_URL, `@everyone`, [embed]);
 }
 
+export async function postSharesAlert(
+  signal: Signal,
+  trade?: IbkrTrade,
+  sharesWebhookUrl?: string,
+): Promise<boolean> {
+  const DISCORD_GOAT_SHARES_URL =
+    sharesWebhookUrl ?? (await getWebhookUrl("shares"));
+  if (!DISCORD_GOAT_SHARES_URL) return false;
+
+  const tp = signal.tradePlanJson as TradePlan;
+  if (!tp) return false;
+
+  const entryPrice = trade?.entryPrice ?? signal.entryPriceAtActivation ?? 0;
+  const stopPrice = trade?.stopPrice ?? signal.stopPrice ?? 0;
+  const stopPct =
+    entryPrice > 0
+      ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1)
+      : "?";
+
+  const t1Pct = fmtPct(entryPrice, tp.t1);
+  let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
+  if (tp.t2)
+    targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
+
+  let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
+  if (tp.t2) {
+    tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
+  }
+
+  const fields: DiscordField[] = [
+    {
+      name: "\u{1F7E2} Ticker",
+      value: `${signal.ticker}`,
+      inline: true,
+    },
+    {
+      name: "\u{1F4CA} Entry Price",
+      value: `$ ${entryPrice.toFixed(2)}`,
+      inline: true,
+    },
+    {
+      name: "\u{1F4C8} Instrument",
+      value: `Shares`,
+      inline: true,
+    },
+    { ...SPACER },
+    {
+      name: "\u{1F4DD} Trade Plan",
+      value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%), ${fmtPrice(entryPrice)}(+0%)`,
+      inline: false,
+    },
+    { ...SPACER },
+    { name: "\u{1F4B0} Take Profit Plan", value: tpPlanText, inline: false },
+  ];
+
+  const embed: DiscordEmbed = {
+    description: `**\u{1F6A8} ${signal.ticker} Shares Alert**`,
+    color: GREEN,
+    fields,
+    footer: { text: DISCLAIMER },
+  };
+
+  return sendWebhook(DISCORD_GOAT_SHARES_URL, `@everyone`, [embed]);
+}
+
 export async function postTradeUpdate(
   signal: Signal,
   trade: IbkrTrade,
@@ -265,9 +334,11 @@ export async function postTradeUpdate(
 ): Promise<boolean> {
   const isOption = trade.instrumentType === "OPTION";
   const isLetf = trade.instrumentType === "LEVERAGED_ETF";
+  const isShares = trade.instrumentType === "SHARES";
+  const channelKey = isOption ? "alerts" : isShares ? "shares" : "swings";
   const url =
     tradeUpdateWebhookUrl ??
-    (await getWebhookUrl(isOption ? "alerts" : "swings"));
+    (await getWebhookUrl(channelKey));
   if (!url) return false;
 
   const tp = signal.tradePlanJson as TradePlan;
