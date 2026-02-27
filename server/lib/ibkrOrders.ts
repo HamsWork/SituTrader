@@ -80,28 +80,32 @@ export async function executeTradeForSignal(
   });
 
   try {
+    const optionEntry = signal.optionEntryMark ?? null;
+    const letfEntry = signal.instrumentEntryPrice ?? null;
+    const sharesEntry = signal.entryPriceAtActivation ?? null;
+
     if (instrumentType === "OPTION") {
       await postOptionsAlert(signal, {
         ...trade,
-        entryPrice: signal.entryPriceAtActivation ?? null,
+        entryPrice: optionEntry,
         status: "PENDING",
       } as IbkrTrade);
     } else if (instrumentType === "LEVERAGED_ETF") {
       await postLetfAlert(signal, {
         ...trade,
-        entryPrice: signal.entryPriceAtActivation ?? null,
+        entryPrice: letfEntry,
         status: "PENDING",
       } as IbkrTrade);
     } else if (instrumentType === "SHARES") {
       await postSharesAlert(signal, {
         ...trade,
-        entryPrice: signal.entryPriceAtActivation ?? null,
+        entryPrice: sharesEntry,
         status: "PENDING",
       } as IbkrTrade);
     } else {
       await postOptionsAlert(signal, {
         ...trade,
-        entryPrice: signal.entryPriceAtActivation ?? null,
+        entryPrice: optionEntry,
         status: "PENDING",
       } as IbkrTrade);
     }
