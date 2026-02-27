@@ -170,20 +170,20 @@ export async function postOptionsAlert(
   const rightVal = optData?.candidate?.right ?? parsed.right;
   const right = rightVal === "C" ? "CALL" : rightVal === "P" ? "PUT" : "?";
   const optionPrice = signal.optionEntryMark ?? trade?.entryPrice ?? 0;
-  const entryPrice = trade?.entryPrice ?? signal.entryPriceAtActivation ?? 0;
+  const stockPrice = signal.entryPriceAtActivation ?? 0;
   const stopPrice = trade?.stopPrice ?? signal.stopPrice ?? 0;
 
-  const t1Pct = fmtPct(entryPrice, tp.t1);
+  const t1Pct = fmtPct(stockPrice, tp.t1);
   const stopPct =
-    entryPrice > 0
-      ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1)
+    stockPrice > 0
+      ? (((stopPrice - stockPrice) / stockPrice) * 100).toFixed(1)
       : "?";
 
   let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
   if (tp.t2)
-    targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
+    targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(stockPrice, tp.t2)})`;
 
-  const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
+  const t2Pct = tp.t2 ? fmtPct(stockPrice, tp.t2) : null;
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
     tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
@@ -197,7 +197,7 @@ export async function postOptionsAlert(
     },
     {
       name: "\u{1F4CA} Stock Price",
-      value: `$ ${entryPrice.toFixed(2)}`,
+      value: `$ ${stockPrice.toFixed(2)}`,
       inline: true,
     },
     { ...SPACER },
@@ -211,7 +211,7 @@ export async function postOptionsAlert(
     { ...SPACER },
     {
       name: "\u{1F4DD} Trade Plan",
-      value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%), ${fmtPrice(entryPrice)}(+0%)`,
+      value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%), ${fmtPrice(stockPrice)}(+0%)`,
       inline: false,
     },
     { ...SPACER },
