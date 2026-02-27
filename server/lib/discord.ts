@@ -140,9 +140,10 @@ export async function postOptionsAlert(
   if (tp.t2)
     targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
+  const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
+  let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
   }
 
   const fields: DiscordField[] = [
@@ -210,13 +211,15 @@ export async function postLetfAlert(
       ? (((stopPrice - entryPrice) / entryPrice) * 100).toFixed(1)
       : "?";
 
-  let targetsStr = `${fmtPrice(tp.t1)} (${fmtPct(entryPrice, tp.t1)})`;
+  const t1Pct = fmtPct(entryPrice, tp.t1);
+  let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
+  const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
   if (tp.t2)
-    targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
+    targetsStr += `, ${fmtPrice(tp.t2)} (${t2Pct})`;
 
-  let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
+  let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2)
-    tpPlanText += `\nTake Profit (2): At T2 take off remaining 50.0% of position.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off remaining 50.0% of position.`;
 
   const fields: DiscordField[] = [
     { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
@@ -285,9 +288,10 @@ export async function postSharesAlert(
   if (tp.t2)
     targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
+  const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
+  let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
   }
 
   const fields: DiscordField[] = [
@@ -429,11 +433,14 @@ export async function postTradeUpdate(
         if (t3) targetsLine += `, ${fmtPrice(t3)} (${fmtPct(entryPx, t3)})`;
       }
 
-      let tpPlanText = `Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.`;
+      const t1PctFill = entryPx > 0 ? fmtPct(entryPx, tpData?.t1 ?? 0) : "?";
+      const t2PctFill = tpData?.t2 && entryPx > 0 ? fmtPct(entryPx, tpData.t2) : null;
+      const t3PctFill = tpData?.t3 && entryPx > 0 ? fmtPct(entryPx, tpData.t3) : null;
+      let tpPlanText = `Take Profit (1): At ${t1PctFill} take off 50.0% of position and raise stop loss to break even.`;
       if (tpData?.t2)
-        tpPlanText += `\nTake Profit (2): At T2 take off 50.0% of remaining position.`;
+        tpPlanText += `\nTake Profit (2): At ${t2PctFill} take off 50.0% of remaining position.`;
       if (tpData?.t3)
-        tpPlanText += `\nTake Profit (3): At T3 take off 50.0% of remaining position.`;
+        tpPlanText += `\nTake Profit (3): At ${t3PctFill} take off 50.0% of remaining position.`;
 
       fields.push(
         { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
