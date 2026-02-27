@@ -563,11 +563,54 @@ export async function monitorActiveTrade(
   signal: Signal,
 ): Promise<{ event: string | null; updatedTrade: IbkrTrade | null }> {
   const trade = await storage.getIbkrTrade(tradeInput.id);
-  if (!trade || trade.status !== "FILLED")
-    return { event: null, updatedTrade: null };
+  if (!trade) return { event: null, updatedTrade: null };
 
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) return { event: null, updatedTrade: null };
+
+  if (trade.status === "PENDING" || trade.status === "REJECTED" || trade.status === "NOT_FILLED") {
+    const currentPrice = signal.entryPriceAtActivation ?? 0;
+    const stopPrice = signal.stopPrice ?? 0;
+    const isSell = tp.bias === "SELL";
+
+    if (currentPrice > 0 && stopPrice > 0) {
+      const stopped = isSell
+        ? currentPrice >= stopPrice
+        : currentPrice <= stopPrice;
+      if (stopped) {
+        await storage.updateIbkrTrade(trade.id, {
+          status: "CLOSED",
+          notes: `${trade.status} trade closed — underlying hit stop ($${stopPrice.toFixed(2)})`,
+          closedAt: new Date().toISOString(),
+          pnl: 0,
+        });
+        log(
+          `Trade ${trade.id} (${trade.status}) closed: underlying hit stop for signal ${signal.id}`,
+          "ibkr",
+        );
+        return { event: "STOP_HIT_NO_FILL", updatedTrade: await storage.getIbkrTrade(trade.id) };
+      }
+    }
+
+    if (signal.activationStatus === "INVALIDATED") {
+      await storage.updateIbkrTrade(trade.id, {
+        status: "CLOSED",
+        notes: `${trade.status} trade closed — signal invalidated`,
+        closedAt: new Date().toISOString(),
+        pnl: 0,
+      });
+      log(
+        `Trade ${trade.id} (${trade.status}) closed: signal ${signal.id} invalidated`,
+        "ibkr",
+      );
+      return { event: "SIGNAL_INVALIDATED", updatedTrade: await storage.getIbkrTrade(trade.id) };
+    }
+
+    return { event: null, updatedTrade: trade };
+  }
+
+  if (trade.status !== "FILLED")
+    return { event: null, updatedTrade: null };
 
   const instrumentType = trade.instrumentType || "OPTION";
   const optionTicker =
