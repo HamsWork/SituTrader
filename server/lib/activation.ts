@@ -255,14 +255,18 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
   } catch {}
 
-  /** At most 1 IBKR trade per instrument type per day (ET); track same-run so we don't post twice in one scan. */
-  const hasOptionToday = tradesCreatedToday.some(
+  /** At most 1 IBKR trade per instrument type per day (ET); track same-run so we don't post twice in one scan.
+   *  Only count trades that are actively working (PENDING/SUBMITTED) or successfully filled — REJECTED and NOT_FILLED don't block. */
+  const activeTodayTrades = tradesCreatedToday.filter(
+    (t) => t.status !== "REJECTED" && t.status !== "NOT_FILLED",
+  );
+  const hasOptionToday = activeTodayTrades.some(
     (t) => t.instrumentType === "OPTION",
   );
-  const hasLetfToday = tradesCreatedToday.some(
+  const hasLetfToday = activeTodayTrades.some(
     (t) => t.instrumentType === "LEVERAGED_ETF",
   );
-  const hasSharesToday = tradesCreatedToday.some(
+  const hasSharesToday = activeTodayTrades.some(
     (t) => t.instrumentType === "SHARES",
   );
   let executedOptionThisRun = false;
