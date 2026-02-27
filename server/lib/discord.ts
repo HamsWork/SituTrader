@@ -40,6 +40,30 @@ interface DiscordEmbed {
   timestamp?: string;
 }
 
+function formatExpiry(raw: string): string {
+  if (!raw || raw === "?") return "?";
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 8) {
+    return `${digits.slice(4, 6)}/${digits.slice(6, 8)}/${digits.slice(0, 4)}`;
+  }
+  if (digits.length === 6) {
+    return `${digits.slice(2, 4)}/${digits.slice(4, 6)}/20${digits.slice(0, 2)}`;
+  }
+  return raw;
+}
+
+function parseContractTicker(ticker: string | null | undefined): { strike: number | null; expiry: string | null; right: "C" | "P" | null } {
+  if (!ticker) return { strike: null, expiry: null, right: null };
+  const match = ticker.match(/(\d{6})([CP])(\d{8})$/);
+  if (!match) return { strike: null, expiry: null, right: null };
+  const [, dateStr, rightChar, strikeStr] = match;
+  return {
+    expiry: dateStr,
+    right: rightChar as "C" | "P",
+    strike: parseInt(strikeStr, 10) / 1000,
+  };
+}
+
 async function sendWebhook(
   url: string,
   content: string,
@@ -123,9 +147,12 @@ export async function postOptionsAlert(
   if (!tp) return false;
 
   const optData = signal.optionsJson as any;
-  const strike = optData?.candidate?.strike ?? "?";
-  const expiry = optData?.candidate?.expiry ?? "?";
-  const right = optData?.candidate?.right === "C" ? "CALL" : "PUT";
+  const parsed = parseContractTicker(signal.optionContractTicker || optData?.candidate?.contractSymbol);
+  const strike = optData?.candidate?.strike ?? parsed.strike ?? "?";
+  const rawExpiry = optData?.candidate?.expiry ?? parsed.expiry ?? "?";
+  const expiry = formatExpiry(String(rawExpiry));
+  const rightVal = optData?.candidate?.right ?? parsed.right;
+  const right = rightVal === "C" ? "CALL" : rightVal === "P" ? "PUT" : "?";
   const optionPrice = signal.optionEntryMark ?? trade?.entryPrice ?? 0;
   const entryPrice = trade?.entryPrice ?? signal.entryPriceAtActivation ?? 0;
   const stopPrice = trade?.stopPrice ?? signal.stopPrice ?? 0;
@@ -347,14 +374,12 @@ export async function postTradeUpdate(
 
   const tp = signal.tradePlanJson as TradePlan;
   const optData = signal.optionsJson as any;
-  const strike = optData?.candidate?.strike ?? "";
-  const expiry = optData?.candidate?.expiry ?? "";
-  const right =
-    optData?.candidate?.right === "C"
-      ? "CALL"
-      : optData?.candidate?.right === "P"
-        ? "PUT"
-        : "";
+  const parsedContract = parseContractTicker(signal.optionContractTicker || optData?.candidate?.contractSymbol);
+  const strike = optData?.candidate?.strike ?? parsedContract.strike ?? "?";
+  const rawExpiry = optData?.candidate?.expiry ?? parsedContract.expiry ?? "?";
+  const expiry = formatExpiry(String(rawExpiry));
+  const rightVal = optData?.candidate?.right ?? parsedContract.right;
+  const right = rightVal === "C" ? "CALL" : rightVal === "P" ? "PUT" : "?";
 
   const letfData = signal.leveragedEtfJson as any;
   const letfTicker = letfData?.ticker || trade.instrumentTicker || "";
@@ -387,7 +412,7 @@ export async function postTradeUpdate(
           inline: true,
         },
       );
-    } else if (strike && expiry) {
+    } else if (isOption) {
       fields.push(
         { name: "\u274C Expiration", value: `${expiry}`, inline: true },
         {
