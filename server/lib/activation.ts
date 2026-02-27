@@ -248,15 +248,23 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   const todayEt = new Date().toLocaleDateString("en-CA", {
     timeZone: "America/New_York",
   });
-  let tradesCreatedToday: Awaited<ReturnType<typeof storage.getIbkrTradesCreatedOnEtDate>> = [];
+  let tradesCreatedToday: Awaited<
+    ReturnType<typeof storage.getIbkrTradesCreatedOnEtDate>
+  > = [];
   try {
     tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
   } catch {}
 
   /** At most 1 IBKR trade per instrument type per day (ET); track same-run so we don't post twice in one scan. */
-  const hasOptionToday = tradesCreatedToday.some((t) => t.instrumentType === "OPTION");
-  const hasLetfToday = tradesCreatedToday.some((t) => t.instrumentType === "LEVERAGED_ETF");
-  const hasSharesToday = tradesCreatedToday.some((t) => t.instrumentType === "SHARES");
+  const hasOptionToday = tradesCreatedToday.some(
+    (t) => t.instrumentType === "OPTION",
+  );
+  const hasLetfToday = tradesCreatedToday.some(
+    (t) => t.instrumentType === "LEVERAGED_ETF",
+  );
+  const hasSharesToday = tradesCreatedToday.some(
+    (t) => t.instrumentType === "SHARES",
+  );
   let executedOptionThisRun = false;
   let executedLetfThisRun = false;
   let executedSharesThisRun = false;
@@ -338,15 +346,29 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 );
                 if (ibkrTrade) {
                   const { applyBeStop } = await import("./ibkrOrders");
-                  const success = await applyBeStop(ibkrTrade, sig, entryPrice, isSell);
+                  const success = await applyBeStop(
+                    ibkrTrade,
+                    sig,
+                    entryPrice,
+                    isSell,
+                  );
                   if (success) {
-                    log(`Activation BE: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`, "activation");
+                    log(
+                      `Activation BE: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`,
+                      "activation",
+                    );
                   } else {
-                    log(`Activation BE: IBKR not connected or trade not eligible for signal ${sig.id}`, "activation");
+                    log(
+                      `Activation BE: IBKR not connected or trade not eligible for signal ${sig.id}`,
+                      "activation",
+                    );
                   }
                 }
               } catch (beErr: any) {
-                log(`Activation BE: IBKR update failed for signal ${sig.id}: ${beErr.message}`, "activation");
+                log(
+                  `Activation BE: IBKR update failed for signal ${sig.id}: ${beErr.message}`,
+                  "activation",
+                );
               }
 
               await storage.updateSignalStopStage(
@@ -392,18 +414,32 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 if (ibkrTrade) {
                   const { applyTimeStop } = await import("./ibkrOrders");
                   const success = await applyTimeStop(
-                    ibkrTrade, sig, entryPrice, isSell,
-                    newStop, tightenedDist,
-                    stopCfg.timeStopTightenFactor, nowIso,
+                    ibkrTrade,
+                    sig,
+                    entryPrice,
+                    isSell,
+                    newStop,
+                    tightenedDist,
+                    stopCfg.timeStopTightenFactor,
+                    nowIso,
                   );
                   if (success) {
-                    log(`Activation TIME_STOP: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`, "activation");
+                    log(
+                      `Activation TIME_STOP: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`,
+                      "activation",
+                    );
                   } else {
-                    log(`Activation TIME_STOP: IBKR not connected or trade not eligible for signal ${sig.id}`, "activation");
+                    log(
+                      `Activation TIME_STOP: IBKR not connected or trade not eligible for signal ${sig.id}`,
+                      "activation",
+                    );
                   }
                 }
               } catch (tsErr: any) {
-                log(`Activation TIME_STOP: IBKR update failed for signal ${sig.id}: ${tsErr.message}`, "activation");
+                log(
+                  `Activation TIME_STOP: IBKR update failed for signal ${sig.id}: ${tsErr.message}`,
+                  "activation",
+                );
               }
 
               await storage.updateSignalStopStage(
@@ -496,7 +532,8 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       if (result.triggered && result.entryPrice) {
         /** Effective instrument type for this signal (may be updated to LEVERAGED_ETF below). */
         let instrumentTypeForExecution: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
-          (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") || "OPTION";
+          (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") ||
+          "OPTION";
 
         let stopPrice: number | undefined;
         if (tp.stopDistance && tp.stopDistance > 0) {
@@ -601,20 +638,27 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         });
 
         try {
-          const qualityOk = (sig.qualityScore ?? 0) >= 70;
+          const qualityOk = (sig.qualityScore ?? 0) >= 55;
           const wouldExceedOption =
-            instrumentTypeForExecution === "OPTION" && (hasOptionToday || executedOptionThisRun);
+            instrumentTypeForExecution === "OPTION" &&
+            (hasOptionToday || executedOptionThisRun);
           const wouldExceedLetf =
-            instrumentTypeForExecution === "LEVERAGED_ETF" && (hasLetfToday || executedLetfThisRun);
+            instrumentTypeForExecution === "LEVERAGED_ETF" &&
+            (hasLetfToday || executedLetfThisRun);
           const wouldExceedShares =
-            instrumentTypeForExecution === "SHARES" && (hasSharesToday || executedSharesThisRun);
+            instrumentTypeForExecution === "SHARES" &&
+            (hasSharesToday || executedSharesThisRun);
 
           if (!qualityOk) {
             log(
               `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} < 70`,
               "activation",
             );
-          } else if (wouldExceedOption || wouldExceedLetf || wouldExceedShares) {
+          } else if (
+            wouldExceedOption ||
+            wouldExceedLetf ||
+            wouldExceedShares
+          ) {
             log(
               `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
               "activation",
@@ -633,9 +677,12 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                   (await storage.getSetting("ibkrDefaultQuantity")) || "1",
                 ) || 1;
               await executeTradeForSignal(sig.id, qty);
-              if (instrumentTypeForExecution === "OPTION") executedOptionThisRun = true;
-              else if (instrumentTypeForExecution === "LEVERAGED_ETF") executedLetfThisRun = true;
-              else if (instrumentTypeForExecution === "SHARES") executedSharesThisRun = true;
+              if (instrumentTypeForExecution === "OPTION")
+                executedOptionThisRun = true;
+              else if (instrumentTypeForExecution === "LEVERAGED_ETF")
+                executedLetfThisRun = true;
+              else if (instrumentTypeForExecution === "SHARES")
+                executedSharesThisRun = true;
               log(
                 `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
                 "activation",

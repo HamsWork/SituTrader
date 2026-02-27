@@ -140,9 +140,10 @@ export async function postOptionsAlert(
   if (tp.t2)
     targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
+  const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
+  let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
   }
 
   const fields: DiscordField[] = [
@@ -285,9 +286,10 @@ export async function postSharesAlert(
   if (tp.t2)
     targetsStr += `, ${fmtPrice(tp.t2)} (${fmtPct(entryPrice, tp.t2)})`;
 
-  let tpPlanText = `Take Profit (1): At 10.0% take off 50.0% of position and raise stop loss to break even.`;
+  const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
+  let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At 20.0% take off 50.0% of remaining position.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
   }
 
   const fields: DiscordField[] = [
