@@ -108,14 +108,18 @@ export function startOptionMonitor() {
   log("Starting option price monitor...", "optionMonitor");
 
   async function tick() {
-    const now = Date.now();
-    const rth = isRTH();
-    const interval = rth ? RTH_INTERVAL : OFF_HOURS_INTERVAL;
+    try {
+      const now = Date.now();
+      const rth = isRTH();
+      const interval = rth ? RTH_INTERVAL : OFF_HOURS_INTERVAL;
 
-    if (now - lastTickMs < interval) return;
-    lastTickMs = now;
+      if (now - lastTickMs < interval) return;
+      lastTickMs = now;
 
-    await refreshOptionQuotesForActiveSignals();
+      await refreshOptionQuotesForActiveSignals();
+    } catch (err: any) {
+      log(`Option monitor tick error: ${err.message}`, "optionMonitor");
+    }
   }
 
   monitorInterval = setInterval(tick, 15_000);

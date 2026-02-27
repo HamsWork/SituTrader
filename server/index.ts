@@ -43,7 +43,8 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const jsonStr = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${jsonStr.length > 500 ? jsonStr.slice(0, 500) + "...[truncated]" : jsonStr}`;
       }
 
       log(logLine);
@@ -125,4 +126,13 @@ app.use((req, res, next) => {
   }
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+  process.on("uncaughtException", (err) => {
+    log(`UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}`, "crash-guard");
+  });
+  process.on("unhandledRejection", (reason: any) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? `\n${reason.stack}` : "";
+    log(`UNHANDLED REJECTION: ${msg}${stack}`, "crash-guard");
+  });
 })();

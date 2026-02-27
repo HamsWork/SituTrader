@@ -138,14 +138,18 @@ export function startLetfMonitor() {
   log("Starting LETF price monitor...", "letfMonitor");
 
   async function tick() {
-    const now = Date.now();
-    const rth = isRTH();
-    const interval = rth ? RTH_INTERVAL : OFF_HOURS_INTERVAL;
+    try {
+      const now = Date.now();
+      const rth = isRTH();
+      const interval = rth ? RTH_INTERVAL : OFF_HOURS_INTERVAL;
 
-    if (now - lastTickMs < interval) return;
-    lastTickMs = now;
+      if (now - lastTickMs < interval) return;
+      lastTickMs = now;
 
-    await refreshLetfQuotesForActiveSignals();
+      await refreshLetfQuotesForActiveSignals();
+    } catch (err: any) {
+      log(`LETF monitor tick error: ${err.message}`, "letfMonitor");
+    }
   }
 
   monitorInterval = setInterval(tick, 15_000);

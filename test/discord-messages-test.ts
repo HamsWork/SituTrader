@@ -2,12 +2,12 @@
  * Test script that posts all Discord message types to your webhooks.
  *
  * Usage:
- *   Set DISCORD_GOAT_ALERTS_WEBHOOK and/or DISCORD_GOAT_SWINGS_WEBHOOK in .env (or export them),
+ *   Set DISCORD_GOAT_ALERTS_WEBHOOK, DISCORD_GOAT_SWINGS_WEBHOOK, and/or DISCORD_GOAT_SHARES_WEBHOOK in .env (or export them),
  *   then run:
  *     npx tsx test/discord-messages-test.ts
  *
  *   Or with explicit URLs (no .env):
- *     DISCORD_GOAT_ALERTS_WEBHOOK=https://... DISCORD_GOAT_SWINGS_WEBHOOK=https://... npx tsx test/discord-messages-test.ts
+ *     DISCORD_GOAT_ALERTS_WEBHOOK=https://... DISCORD_GOAT_SWINGS_WEBHOOK=https://... DISCORD_GOAT_SHARES_WEBHOOK=https://... npx tsx test/discord-messages-test.ts
  *
  * Messages sent:
  *   - Options alert (alerts channel)
@@ -20,6 +20,7 @@ import {
   postOptionsAlert,
   postLetfAlert,
   postTradeUpdate,
+  postSharesAlert,
 } from "../server/lib/discord";
 import type { Signal, IbkrTrade } from "@shared/schema";
 
@@ -103,6 +104,14 @@ function createMockLetfSignal(): Signal {
   });
 }
 
+function createMockSharesSignal(): Signal {
+  return createMockSignal({
+    instrumentType: "SHARES",
+    instrumentTicker: "AAPL",
+    instrumentEntryPrice: 185.5,
+  });
+}
+
 function createMockTrade(overrides: Partial<IbkrTrade> = {}): IbkrTrade {
   const base: IbkrTrade = {
     id: 1,
@@ -144,10 +153,11 @@ function createMockTrade(overrides: Partial<IbkrTrade> = {}): IbkrTrade {
 async function runTest() {
   const alertsUrl = process.env.DISCORD_GOAT_ALERTS_WEBHOOK;
   const swingsUrl = process.env.DISCORD_GOAT_SWINGS_WEBHOOK;
+  const sharesUrl = process.env.DISCORD_GOAT_SHARES_WEBHOOK;
 
-  if (!alertsUrl && !swingsUrl) {
+  if (!alertsUrl && !swingsUrl && !sharesUrl) {
     console.error(
-      "Set at least one of DISCORD_GOAT_ALERTS_WEBHOOK or DISCORD_GOAT_SWINGS_WEBHOOK in .env (or environment)"
+      "Set at least one of DISCORD_GOAT_ALERTS_WEBHOOK, DISCORD_GOAT_SWINGS_WEBHOOK, or DISCORD_GOAT_SHARES_WEBHOOK in .env (or environment)"
     );
     process.exit(1);
   }
@@ -432,6 +442,71 @@ async function runTest() {
           }),
           "CLOSED",
           swingsUrl
+        ),
+    });
+  }
+
+  // --- Shares channel ---
+  if (sharesUrl) {
+    tests.push({
+      name: "Shares Alert",
+      fn: () => postSharesAlert(createMockSharesSignal(), undefined, sharesUrl),
+    });
+    tests.push({
+      name: "Trade Update FILLED (Shares)",
+      fn: () =>
+        postTradeUpdate(
+          createMockSharesSignal(),
+          createMockTrade({ instrumentType: "SHARES", instrumentTicker: "AAPL" }),
+          "FILLED",
+          sharesUrl
+        ),
+    });
+    tests.push({
+      name: "Trade Update TP1_HIT (Shares)",
+      fn: () =>
+        postTradeUpdate(
+          createMockSharesSignal(),
+          createMockTrade({
+            instrumentType: "SHARES",
+            instrumentTicker: "AAPL",
+            tp1FillPrice: 192,
+            stopPrice: 185.5,
+          }),
+          "TP1_HIT",
+          sharesUrl
+        ),
+    });
+    tests.push({
+      name: "Trade Update STOPPED_OUT (Shares)",
+      fn: () =>
+        postTradeUpdate(
+          createMockSharesSignal(),
+          createMockTrade({
+            instrumentType: "SHARES",
+            instrumentTicker: "AAPL",
+            exitPrice: 182,
+            status: "CLOSED",
+          }),
+          "STOPPED_OUT",
+          sharesUrl
+        ),
+    });
+    tests.push({
+      name: "Trade Update CLOSED profit (Shares)",
+      fn: () =>
+        postTradeUpdate(
+          createMockSharesSignal(),
+          createMockTrade({
+            instrumentType: "SHARES",
+            instrumentTicker: "AAPL",
+            exitPrice: 195,
+            pnl: 950,
+            rMultiple: 2.5,
+            status: "CLOSED",
+          }),
+          "CLOSED",
+          sharesUrl
         ),
     });
   }
