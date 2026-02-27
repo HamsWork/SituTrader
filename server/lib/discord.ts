@@ -135,7 +135,7 @@ function fmtPct(entry: number, target: number): string {
 }
 
 export async function postOptionsAlert(
-  signal: Signal,
+  signalInput: Signal,
   trade?: IbkrTrade,
   alertsWebhookUrl?: string,
 ): Promise<boolean> {
@@ -143,10 +143,26 @@ export async function postOptionsAlert(
     alertsWebhookUrl ?? (await getWebhookUrl("alerts"));
   if (!DISCORD_GOAT_ALERTS_URL) return false;
 
+  let signal = signalInput;
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) return false;
 
-  const optData = signal.optionsJson as any;
+  let optData = signal.optionsJson as any;
+  if (!optData?.candidate) {
+    try {
+      const { enrichPendingSignalsWithOptions } = await import("./options");
+      await enrichPendingSignalsWithOptions({ force: true });
+      const { storage } = await import("../storage");
+      const freshSigs = await storage.getSignals(undefined, 1000);
+      const freshSig = freshSigs.find(s => s.id === signal.id);
+      if (freshSig?.optionsJson) {
+        optData = freshSig.optionsJson as any;
+        signal = { ...signal, optionsJson: optData, optionContractTicker: freshSig.optionContractTicker ?? signal.optionContractTicker, optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark };
+      }
+    } catch (err: any) {
+      log(`postOptionsAlert: on-demand enrichment failed for signal ${signal.id}: ${err.message}`, "discord");
+    }
+  }
   const parsed = parseContractTicker(signal.optionContractTicker || optData?.candidate?.contractSymbol);
   const strike = optData?.candidate?.strike ?? parsed.strike ?? "?";
   const rawExpiry = optData?.candidate?.expiry ?? parsed.expiry ?? "?";
@@ -358,7 +374,7 @@ export async function postSharesAlert(
 }
 
 export async function postTradeUpdate(
-  signal: Signal,
+  signalInput: Signal,
   trade: IbkrTrade,
   event: string,
   tradeUpdateWebhookUrl?: string,
@@ -372,8 +388,24 @@ export async function postTradeUpdate(
     (await getWebhookUrl(channelKey));
   if (!url) return false;
 
+  let signal = signalInput;
   const tp = signal.tradePlanJson as TradePlan;
-  const optData = signal.optionsJson as any;
+  let optData = signal.optionsJson as any;
+  if (isOption && !optData?.candidate) {
+    try {
+      const { enrichPendingSignalsWithOptions } = await import("./options");
+      await enrichPendingSignalsWithOptions({ force: true });
+      const { storage } = await import("../storage");
+      const freshSigs = await storage.getSignals(undefined, 1000);
+      const freshSig = freshSigs.find(s => s.id === signal.id);
+      if (freshSig?.optionsJson) {
+        optData = freshSig.optionsJson as any;
+        signal = { ...signal, optionsJson: optData, optionContractTicker: freshSig.optionContractTicker ?? signal.optionContractTicker, optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark };
+      }
+    } catch (err: any) {
+      log(`postTradeUpdate: on-demand enrichment failed for signal ${signal.id}: ${err.message}`, "discord");
+    }
+  }
   const parsedContract = parseContractTicker(signal.optionContractTicker || optData?.candidate?.contractSymbol);
   const strike = optData?.candidate?.strike ?? parsedContract.strike ?? "?";
   const rawExpiry = optData?.candidate?.expiry ?? parsedContract.expiry ?? "?";
