@@ -231,6 +231,12 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
     }
 
     try {
+      await enrichPendingSignalsWithOptions();
+    } catch (err: any) {
+      log(`PreOpen: Options enrichment error: ${err.message}`, "scheduler");
+    }
+
+    try {
       const activationEvents = await runActivationScan();
       summary.signalsGenerated = activationEvents.length;
       for (const evt of activationEvents) {
@@ -273,6 +279,12 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
     }
 
     try {
+      await enrichPendingSignalsWithOptions();
+    } catch (err: any) {
+      log(`Live monitor: Options enrichment error: ${err.message}`, "scheduler");
+    }
+
+    try {
       const activationEvents = await runActivationScan();
       summary.activationEvents = activationEvents.length;
     } catch (err: any) {
@@ -284,12 +296,6 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
       summary.alertEvents = alertEvents.length;
     } catch (err: any) {
       log(`Live monitor: Alert error: ${err.message}`, "scheduler");
-    }
-
-    try {
-      await enrichPendingSignalsWithOptions();
-    } catch (err: any) {
-      log(`Live monitor: Options enrichment error: ${err.message}`, "scheduler");
     }
 
     try {
