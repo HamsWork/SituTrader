@@ -154,9 +154,35 @@ export async function executeTradeForSignal(
       status: "SUBMITTED",
     });
 
-    const result = (await promise) as any;
+    let result: any;
+    try {
+      result = await promise;
+    } catch (fillErr: any) {
+      log(
+        `Order ${orderId} for signal ${signalId} rejected/failed: ${fillErr.message}`,
+        "ibkr",
+      );
+      await storage.updateIbkrTrade(trade.id, {
+        status: "REJECTED",
+        notes: `Order rejected: ${fillErr.message}`,
+      });
+      return await storage.getIbkrTrade(trade.id);
+    }
 
-    const entryPrice = result.avgFillPrice > 0 ? result.avgFillPrice : null;
+    const entryPrice = result?.avgFillPrice > 0 ? result.avgFillPrice : null;
+
+    if (!entryPrice) {
+      log(
+        `Order ${orderId} for signal ${signalId} did not fill (no avgFillPrice)`,
+        "ibkr",
+      );
+      await storage.updateIbkrTrade(trade.id, {
+        status: "NOT_FILLED",
+        notes: "Order submitted but no fill price received",
+      });
+      return await storage.getIbkrTrade(trade.id);
+    }
+
     await storage.updateIbkrTrade(trade.id, {
       status: "FILLED",
       entryPrice,
