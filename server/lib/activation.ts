@@ -668,30 +668,22 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
               "activation",
             );
           } else {
-            const { isConnected } = await import("./ibkr");
-            if (!isConnected()) {
-              log(
-                `Skip IBKR execute for signal ${sig.id}: IBKR not connected`,
-                "activation",
-              );
-            } else {
-              const { executeTradeForSignal } = await import("./ibkrOrders");
-              const qty =
-                parseInt(
-                  (await storage.getSetting("ibkrDefaultQuantity")) || "1",
-                ) || 1;
-              await executeTradeForSignal(sig.id, qty);
-              if (instrumentTypeForExecution === "OPTION")
-                executedOptionThisRun = true;
-              else if (instrumentTypeForExecution === "LEVERAGED_ETF")
-                executedLetfThisRun = true;
-              else if (instrumentTypeForExecution === "SHARES")
-                executedSharesThisRun = true;
-              log(
-                `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
-                "activation",
-              );
-            }
+            const { executeTradeForSignal } = await import("./ibkrOrders");
+            const qty =
+              parseInt(
+                (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+              ) || 1;
+            await executeTradeForSignal(sig.id, qty);
+            if (instrumentTypeForExecution === "OPTION")
+              executedOptionThisRun = true;
+            else if (instrumentTypeForExecution === "LEVERAGED_ETF")
+              executedLetfThisRun = true;
+            else if (instrumentTypeForExecution === "SHARES")
+              executedSharesThisRun = true;
+            log(
+              `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
+              "activation",
+            );
           }
         } catch (autoErr: any) {
           log(
