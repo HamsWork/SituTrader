@@ -191,35 +191,42 @@ export async function executeTradeForSignal(
 
     if (entryPrice) {
       let stopContractPrice: number;
+      const underlyingEntry = signal.entryPriceAtActivation ?? 0;
+      const underlyingStop = signal.stopPrice ?? 0;
+      const stopDist = tp.stopDistance ?? Math.abs(underlyingStop - underlyingEntry);
+
       if (instrumentType === "OPTION") {
-        const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
-        const underlyingStop =
-          signal.stopPrice ??
-          (isBuy ? underlyingEntry * 0.98 : underlyingEntry * 1.02);
-        const riskPct =
+        const underlyingRiskPct =
           underlyingEntry > 0
             ? Math.abs(underlyingStop - underlyingEntry) / underlyingEntry
             : 0.025;
+        const delta = Math.min(Math.abs((signal.optionsJson as any)?.checks?.delta ?? 0.5), 1);
+        const optionStopMove = entryPrice * underlyingRiskPct * (delta > 0 ? 1 / delta : 2);
         stopContractPrice = isBuy
-          ? Math.max(0.01, Math.round(entryPrice * (1 - riskPct) * 100) / 100)
-          : Math.max(0.01, Math.round(entryPrice * (1 + riskPct) * 100) / 100);
+          ? Math.max(0.01, Math.round((entryPrice - optionStopMove) * 100) / 100)
+          : Math.max(0.01, Math.round((entryPrice + optionStopMove) * 100) / 100);
       } else if (instrumentType === "LEVERAGED_ETF") {
-        stopContractPrice = signal.stopPrice
-          ? calculateLetfStopPrice(
-              entryPrice,
-              signal.entryPriceAtActivation,
-              signal.stopPrice,
-              isBuy,
-            )
-          : isBuy
-            ? entryPrice * 0.97
-            : entryPrice * 1.03;
+        const letfJson = signal.leveragedEtfJson as any;
+        const leverage = letfJson?.leverage ?? 3;
+        stopContractPrice =
+          underlyingEntry > 0 && underlyingStop > 0
+            ? calculateLetfStopPrice(
+                entryPrice,
+                underlyingEntry,
+                underlyingStop,
+                isBuy,
+                leverage,
+              )
+            : isBuy
+              ? entryPrice * (1 - 0.01 * (letfJson?.leverage ?? 3))
+              : entryPrice * (1 + 0.01 * (letfJson?.leverage ?? 3));
       } else {
         stopContractPrice =
-          signal.stopPrice ??
-          (isBuy
-            ? entryPrice - (tp.stopDistance ?? entryPrice * 0.02)
-            : entryPrice + (tp.stopDistance ?? entryPrice * 0.02));
+          underlyingStop > 0
+            ? underlyingStop
+            : isBuy
+              ? entryPrice - (stopDist > 0 ? stopDist : entryPrice * 0.02)
+              : entryPrice + (stopDist > 0 ? stopDist : entryPrice * 0.02);
       }
 
       try {
@@ -248,18 +255,23 @@ export async function executeTradeForSignal(
         try {
           let tp1Price: number;
           if (instrumentType === "OPTION") {
-            const targetMove = Math.abs(
-              tp.t1 - (signal.entryPriceAtActivation ?? entryPrice),
-            );
-            const stopDist = tp.stopDistance ?? targetMove;
-            const rr = targetMove / stopDist;
-            tp1Price = Math.round(entryPrice * (1 + rr * 0.5) * 100) / 100;
+            const t1MovePct =
+              underlyingEntry > 0
+                ? Math.abs(tp.t1 - underlyingEntry) / underlyingEntry
+                : 0.05;
+            const delta = Math.min(Math.abs((signal.optionsJson as any)?.checks?.delta ?? 0.5), 1);
+            const optionTp1Move = entryPrice * t1MovePct * (delta > 0 ? 1 / delta : 2);
+            tp1Price = isBuy
+              ? Math.round((entryPrice + optionTp1Move) * 100) / 100
+              : Math.max(0.01, Math.round((entryPrice - optionTp1Move) * 100) / 100);
           } else if (instrumentType === "LEVERAGED_ETF") {
+            const letfJson = signal.leveragedEtfJson as any;
             tp1Price = calculateLetfTargetPrice(
               entryPrice,
-              signal.entryPriceAtActivation,
+              underlyingEntry || null,
               tp.t1,
               isBuy,
+              letfJson?.leverage ?? 3,
             );
           } else {
             tp1Price = tp.t1;
@@ -293,18 +305,23 @@ export async function executeTradeForSignal(
         try {
           let tp2Price: number;
           if (instrumentType === "OPTION") {
-            const targetMove2 = Math.abs(
-              tp.t2 - (signal.entryPriceAtActivation ?? entryPrice),
-            );
-            const stopDist2 = tp.stopDistance ?? targetMove2;
-            const rr2 = targetMove2 / stopDist2;
-            tp2Price = Math.round(entryPrice * (1 + rr2 * 0.5) * 100) / 100;
+            const t2MovePct =
+              underlyingEntry > 0
+                ? Math.abs(tp.t2 - underlyingEntry) / underlyingEntry
+                : 0.10;
+            const delta = Math.min(Math.abs((signal.optionsJson as any)?.checks?.delta ?? 0.5), 1);
+            const optionTp2Move = entryPrice * t2MovePct * (delta > 0 ? 1 / delta : 2);
+            tp2Price = isBuy
+              ? Math.round((entryPrice + optionTp2Move) * 100) / 100
+              : Math.max(0.01, Math.round((entryPrice - optionTp2Move) * 100) / 100);
           } else if (instrumentType === "LEVERAGED_ETF") {
+            const letfJson = signal.leveragedEtfJson as any;
             tp2Price = calculateLetfTargetPrice(
               entryPrice,
-              signal.entryPriceAtActivation,
+              underlyingEntry || null,
               tp.t2,
               isBuy,
+              letfJson?.leverage ?? 3,
             );
           } else {
             tp2Price = tp.t2;
@@ -516,12 +533,13 @@ function calculateLetfStopPrice(
   underlyingEntry: number | null,
   underlyingStop: number,
   isBuy: boolean,
+  leverage: number = 3,
 ): number {
   if (!underlyingEntry || underlyingEntry === 0)
-    return isBuy ? letfEntry * 0.97 : letfEntry * 1.03;
+    return isBuy ? letfEntry * (1 - 0.01 * leverage) : letfEntry * (1 + 0.01 * leverage);
   const underlyingMovePct =
     (underlyingStop - underlyingEntry) / underlyingEntry;
-  const letfStopEstimate = letfEntry * (1 + underlyingMovePct * 3);
+  const letfStopEstimate = letfEntry * (1 + underlyingMovePct * leverage);
   return Math.round(Math.max(0.01, letfStopEstimate) * 100) / 100;
 }
 
@@ -530,12 +548,13 @@ function calculateLetfTargetPrice(
   underlyingEntry: number | null,
   underlyingTarget: number,
   isBuy: boolean,
+  leverage: number = 3,
 ): number {
   if (!underlyingEntry || underlyingEntry === 0)
-    return isBuy ? letfEntry * 1.05 : letfEntry * 0.95;
+    return isBuy ? letfEntry * (1 + 0.02 * leverage) : letfEntry * (1 - 0.02 * leverage);
   const underlyingMovePct =
     (underlyingTarget - underlyingEntry) / underlyingEntry;
-  const letfTargetEstimate = letfEntry * (1 + underlyingMovePct * 3);
+  const letfTargetEstimate = letfEntry * (1 + underlyingMovePct * leverage);
   return Math.round(Math.max(0.01, letfTargetEstimate) * 100) / 100;
 }
 
