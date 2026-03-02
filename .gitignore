@@ -10,3 +10,5 @@ vite.config.ts.*
 .local/state/replit/*.db
 .cache/
 .evn
+.bar_cache.db-shm
+.bar_cache.db-wal
