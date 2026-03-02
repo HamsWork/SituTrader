@@ -4,12 +4,13 @@ import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
-  ibkrTrades, ibkrState, robustnessRuns,
+  ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
   type IbkrTrade, type IbkrState,
   type RobustnessRun, type InsertRobustnessRun,
+  type DiscordTradeLog, type InsertDiscordTradeLog,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -120,6 +121,9 @@ export interface IStorage {
   getRobustnessRuns(testType?: string): Promise<RobustnessRun[]>;
   getLatestRobustnessRun(testType: string): Promise<RobustnessRun | null>;
   getAllLatestRobustnessRuns(): Promise<RobustnessRun[]>;
+
+  insertDiscordTradeLog(data: InsertDiscordTradeLog): Promise<DiscordTradeLog>;
+  getDiscordTradeLogs(opts?: { limit?: number; offset?: number; event?: string; channel?: string; ticker?: string }): Promise<DiscordTradeLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -958,6 +962,24 @@ export class DatabaseStorage implements IStorage {
       }
     }
     return Array.from(latestByType.values());
+  }
+  async insertDiscordTradeLog(data: InsertDiscordTradeLog): Promise<DiscordTradeLog> {
+    const [result] = await db.insert(discordTradeLogs).values(data).returning();
+    return result;
+  }
+
+  async getDiscordTradeLogs(opts?: { limit?: number; offset?: number; event?: string; channel?: string; ticker?: string }): Promise<DiscordTradeLog[]> {
+    const conditions = [];
+    if (opts?.event) conditions.push(eq(discordTradeLogs.event, opts.event));
+    if (opts?.channel) conditions.push(eq(discordTradeLogs.channel, opts.channel));
+    if (opts?.ticker) conditions.push(eq(discordTradeLogs.ticker, opts.ticker));
+
+    const query = db.select().from(discordTradeLogs);
+    const withWhere = conditions.length > 0 ? query.where(and(...conditions)) : query;
+    return withWhere
+      .orderBy(desc(discordTradeLogs.id))
+      .limit(opts?.limit ?? 100)
+      .offset(opts?.offset ?? 0);
   }
 }
 

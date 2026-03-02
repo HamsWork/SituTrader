@@ -1431,6 +1431,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/discord-trades", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const event = req.query.event as string | undefined;
+      const channel = req.query.channel as string | undefined;
+      const ticker = req.query.ticker as string | undefined;
+      const logs = await storage.getDiscordTradeLogs({ limit, offset, event, channel, ticker });
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Discord Routes ──
 
   app.post("/api/discord/test-options", async (req, res) => {

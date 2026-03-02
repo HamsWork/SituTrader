@@ -455,6 +455,31 @@ export type RobustnessTestType = typeof ROBUSTNESS_TEST_TYPES[number];
 export const ROBUSTNESS_STATUSES = ["pending", "running", "completed", "failed", "insufficient_data"] as const;
 export type RobustnessStatus = typeof ROBUSTNESS_STATUSES[number];
 
+export const discordTradeLogs = pgTable("discord_trade_logs", {
+  id: serial("id").primaryKey(),
+  tradeId: integer("trade_id"),
+  signalId: integer("signal_id"),
+  event: text("event").notNull(),
+  channel: text("channel").notNull(),
+  instrumentType: text("instrument_type"),
+  instrumentTicker: text("instrument_ticker"),
+  ticker: text("ticker"),
+  entryPrice: real("entry_price"),
+  targetPrice: real("target_price"),
+  stopPrice: real("stop_price"),
+  exitPrice: real("exit_price"),
+  profitPct: real("profit_pct"),
+  embedJson: jsonb("embed_json"),
+  webhookStatus: text("webhook_status").notNull().default("sent"),
+  discordMessageId: text("discord_message_id"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDiscordTradeLogSchema = createInsertSchema(discordTradeLogs).omit({ id: true, createdAt: true });
+export type InsertDiscordTradeLog = z.infer<typeof insertDiscordTradeLogSchema>;
+export type DiscordTradeLog = typeof discordTradeLogs.$inferSelect;
+
 export interface ReliabilitySummary {
   overallGrade: string;
   overallScore: number;

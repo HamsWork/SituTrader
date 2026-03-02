@@ -9,10 +9,49 @@ import {
   getPositions,
   getAccountSummary,
 } from "./ibkr";
-import { fetchSnapshot } from "./polygon";
+import { fetchSnapshot, fetchOptionSnapshot } from "./polygon";
 import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./discord";
 import { log } from "../index";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
+
+function convertStockTargetsToInstrument(
+  stockEntry: number,
+  instrumentEntry: number,
+  stockT1: number | null,
+  stockT2: number | null,
+  stockStop: number | null,
+  delta: number | null,
+  leverage: number,
+  instrumentType: string,
+): { t1: number | null; t2: number | null; stop: number | null } {
+  if (instrumentType === "SHARES") {
+    return { t1: stockT1, t2: stockT2, stop: stockStop };
+  }
+
+  if (instrumentType === "OPTION" && delta != null && Math.abs(delta) > 0) {
+    const t1 = stockT1 != null ? instrumentEntry + (stockT1 - stockEntry) * delta : null;
+    const t2 = stockT2 != null ? instrumentEntry + (stockT2 - stockEntry) * delta : null;
+    const stop = stockStop != null ? instrumentEntry + (stockStop - stockEntry) * delta : null;
+    return {
+      t1: t1 != null ? Math.max(0.01, t1) : null,
+      t2: t2 != null ? Math.max(0.01, t2) : null,
+      stop: stop != null ? Math.max(0.01, stop) : null,
+    };
+  }
+
+  if (instrumentType === "LEVERAGED_ETF" && leverage > 0 && stockEntry > 0) {
+    const t1 = stockT1 != null ? instrumentEntry * (1 + leverage * (stockT1 - stockEntry) / stockEntry) : null;
+    const t2 = stockT2 != null ? instrumentEntry * (1 + leverage * (stockT2 - stockEntry) / stockEntry) : null;
+    const stop = stockStop != null ? instrumentEntry * (1 + leverage * (stockStop - stockEntry) / stockEntry) : null;
+    return {
+      t1: t1 != null ? Math.max(0.01, t1) : null,
+      t2: t2 != null ? Math.max(0.01, t2) : null,
+      stop: stop != null ? Math.max(0.01, stop) : null,
+    };
+  }
+
+  return { t1: null, t2: null, stop: null };
+}
 
 export async function executeTradeForSignal(
   signalId: number,
@@ -184,18 +223,53 @@ export async function executeTradeForSignal(
       return await storage.getIbkrTrade(trade.id);
     }
 
-    const underlyingStop = signal.stopPrice ?? 0;
+    const stockEntry = signal.entryPriceAtActivation ?? 0;
+    const stockStop = signal.stopPrice ?? 0;
+    const stockT1 = tp.t1 ?? null;
+    const stockT2 = tp.t2 ?? null;
+
+    let delta: number | null = null;
+    let leverage = 1;
+
+    if (instrumentType === "OPTION" && optionTicker) {
+      try {
+        const optSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
+        delta = optSnap?.delta ?? null;
+        if (delta != null) {
+          log(`Option delta for ${optionTicker}: ${delta.toFixed(3)}`, "ibkr");
+        }
+      } catch (err: any) {
+        log(`Failed to fetch option delta for ${optionTicker}: ${err.message}`, "ibkr");
+      }
+    }
+
+    if (instrumentType === "LEVERAGED_ETF") {
+      const letfJson = signal.leveragedEtfJson as any;
+      leverage = letfJson?.leverage ?? 1;
+    }
+
+    const instrTargets = convertStockTargetsToInstrument(
+      stockEntry,
+      entryPrice,
+      stockT1,
+      stockT2,
+      stockStop > 0 ? stockStop : null,
+      delta,
+      leverage,
+      instrumentType,
+    );
+
     await storage.updateIbkrTrade(trade.id, {
       status: "FILLED",
       entryPrice,
       filledAt: new Date().toISOString(),
-      stopPrice: underlyingStop > 0 ? underlyingStop : null,
-      target1Price: tp.t1 ?? null,
-      target2Price: tp.t2 ?? null,
+      stopPrice: instrTargets.stop,
+      target1Price: instrTargets.t1,
+      target2Price: instrTargets.t2,
     });
 
     log(
-      `Trade executed for signal ${signalId}: ${action} ${quantity} ${contract.symbol} filled at $${entryPrice} (stock: $${(signal.entryPriceAtActivation ?? 0).toFixed(2)}, stop: $${underlyingStop.toFixed(2)}, T1: $${(tp.t1 ?? 0).toFixed(2)}, T2: $${(tp.t2 ?? 0).toFixed(2)}) — TP/Stop tracked via stock price, market orders on trigger`,
+      `Trade executed for signal ${signalId}: ${action} ${quantity} ${contract.symbol} filled at $${entryPrice} (${instrumentType}, stock: $${stockEntry.toFixed(2)}, instrT1: $${(instrTargets.t1 ?? 0).toFixed(2)}, instrT2: $${(instrTargets.t2 ?? 0).toFixed(2)}, instrStop: $${(instrTargets.stop ?? 0).toFixed(2)}${delta != null ? `, delta: ${delta.toFixed(3)}` : ""}${leverage > 1 ? `, leverage: ${leverage}x` : ""})`,
       "ibkr",
     );
 
@@ -322,22 +396,37 @@ export async function monitorActiveTrade(
   const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
   const isBuy = trade.side === "BUY";
 
-  const snap = await fetchSnapshot(signal.ticker);
-  if (!snap || snap.lastPrice <= 0) return { event: null, updatedTrade: null };
-  const stockPrice = snap.lastPrice;
+  let instrumentPrice: number | null = null;
 
-  const stopLevel = trade.stopPrice ?? signal.stopPrice ?? 0;
-  const t1Level = trade.target1Price ?? tp.t1 ?? 0;
-  const t2Level = trade.target2Price ?? tp.t2 ?? 0;
-  const underlyingEntry = signal.entryPriceAtActivation ?? 0;
+  if (instrumentType === "OPTION" && optionTicker) {
+    try {
+      const optSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
+      if (optSnap && optSnap.bid != null && optSnap.ask != null && (optSnap.bid > 0 || optSnap.ask > 0)) {
+        instrumentPrice = (optSnap.bid + optSnap.ask) / 2;
+      }
+    } catch {}
+  } else if (instrumentType === "LEVERAGED_ETF" && instrumentTicker) {
+    const letfSnap = await fetchSnapshot(instrumentTicker);
+    instrumentPrice = letfSnap?.lastPrice ?? null;
+  } else {
+    const stockSnap = await fetchSnapshot(signal.ticker);
+    instrumentPrice = stockSnap?.lastPrice ?? null;
+  }
+
+  if (instrumentPrice == null || instrumentPrice <= 0) return { event: null, updatedTrade: null };
+
+  const stopLevel = trade.stopPrice ?? 0;
+  const t1Level = trade.target1Price ?? 0;
+  const t2Level = trade.target2Price ?? 0;
+  const beStopInstrument = trade.entryPrice ?? 0;
 
   if (trade.tpHitLevel === 0 && t1Level > 0) {
-    const tp1Hit = isBuy ? stockPrice >= t1Level : stockPrice <= t1Level;
+    const tp1Hit = isBuy ? instrumentPrice >= t1Level : instrumentPrice <= t1Level;
     if (tp1Hit) {
       const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
       const newRemaining = trade.originalQuantity - tp1Qty;
 
-      let tp1FillPrice = stockPrice;
+      let tp1FillPrice = instrumentPrice;
       try {
         if (isConnected()) {
           const { orderId, promise } = await placeMarketOrder(contract, closeAction, tp1Qty);
@@ -353,7 +442,6 @@ export async function monitorActiveTrade(
         ? (isBuy ? tp1FillPrice - trade.entryPrice : trade.entryPrice - tp1FillPrice) * tp1Qty
         : 0;
 
-      const beStopPrice = underlyingEntry > 0 ? underlyingEntry : null;
       await storage.updateIbkrTrade(trade.id, {
         tpHitLevel: 1,
         tp1FillPrice,
@@ -361,12 +449,12 @@ export async function monitorActiveTrade(
         tp1PnlRealized: tp1Pnl,
         remainingQuantity: newRemaining,
         pnl: tp1Pnl,
-        stopPrice: beStopPrice,
+        stopPrice: beStopInstrument > 0 ? beStopInstrument : null,
         stopMovedToBe: true,
       });
 
       log(
-        `TP1 hit for trade ${trade.id}: stock $${stockPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}, stop moved to BE $${(beStopPrice ?? 0).toFixed(2)}`,
+        `TP1 hit for trade ${trade.id}: ${instrumentType} price $${instrumentPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}, stop moved to BE $${beStopInstrument.toFixed(2)}`,
         "ibkr",
       );
 
@@ -377,11 +465,11 @@ export async function monitorActiveTrade(
   }
 
   if (trade.tpHitLevel === 1 && t2Level > 0) {
-    const tp2Hit = isBuy ? stockPrice >= t2Level : stockPrice <= t2Level;
+    const tp2Hit = isBuy ? instrumentPrice >= t2Level : instrumentPrice <= t2Level;
     if (tp2Hit) {
       const tp2Qty = trade.remainingQuantity;
 
-      let tp2FillPrice = stockPrice;
+      let tp2FillPrice = instrumentPrice;
       try {
         if (isConnected()) {
           const { orderId, promise } = await placeMarketOrder(contract, closeAction, tp2Qty);
@@ -401,9 +489,12 @@ export async function monitorActiveTrade(
       const totalPnlPct = trade.entryPrice
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
+      const instrStopDist = trade.entryPrice && stopLevel > 0
+        ? Math.abs(trade.entryPrice - stopLevel)
+        : (tp.stopDistance ?? 0);
       const rMultiple =
-        trade.entryPrice && tp.stopDistance
-          ? totalPnl / (tp.stopDistance * trade.originalQuantity)
+        trade.entryPrice && instrStopDist > 0
+          ? totalPnl / (instrStopDist * trade.originalQuantity)
           : null;
 
       await storage.updateIbkrTrade(trade.id, {
@@ -420,7 +511,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `TP2 hit for trade ${trade.id}: stock $${stockPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `TP2 hit for trade ${trade.id}: ${instrumentType} price $${instrumentPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
@@ -431,11 +522,11 @@ export async function monitorActiveTrade(
   }
 
   if (stopLevel > 0) {
-    const stopHit = isBuy ? stockPrice <= stopLevel : stockPrice >= stopLevel;
+    const stopHit = isBuy ? instrumentPrice <= stopLevel : instrumentPrice >= stopLevel;
     if (stopHit) {
       const stoppedQty = trade.remainingQuantity;
 
-      let exitFillPrice = stockPrice;
+      let exitFillPrice = instrumentPrice;
       try {
         if (isConnected()) {
           const { orderId, promise } = await placeMarketOrder(contract, closeAction, stoppedQty);
@@ -455,9 +546,12 @@ export async function monitorActiveTrade(
       const totalPnlPct = trade.entryPrice
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
+      const instrStopDist2 = trade.entryPrice && stopLevel > 0
+        ? Math.abs(trade.entryPrice - stopLevel)
+        : (tp.stopDistance ?? 0);
       const rMultiple =
-        trade.entryPrice && tp.stopDistance
-          ? totalPnl / (tp.stopDistance * trade.originalQuantity)
+        trade.entryPrice && instrStopDist2 > 0
+          ? totalPnl / (instrStopDist2 * trade.originalQuantity)
           : null;
 
       await storage.updateIbkrTrade(trade.id, {
@@ -471,7 +565,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `Stop hit for trade ${trade.id}: stock $${stockPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `Stop hit for trade ${trade.id}: ${instrumentType} price $${instrumentPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 

@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, Wallet, FlaskConical, Activity, FileSearch, Layers } from "lucide-react";
+import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, Wallet, FlaskConical, Activity, FileSearch, Layers, MessageSquare } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -19,6 +19,7 @@ const navItems = [
   { title: "Profit Windows", url: "/profit-windows", icon: Layers },
   { title: "Optimization", url: "/optimization", icon: FlaskConical },
   { title: "IBKR", url: "/ibkr", icon: Wallet },
+  { title: "Discord Trades", url: "/discord-trades", icon: MessageSquare },
   { title: "Guide", url: "/guide", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
   { title: "System Audit", url: "/audit", icon: FileSearch },

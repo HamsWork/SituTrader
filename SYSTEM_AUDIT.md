@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
-**Audit Date:** 2026-02-24  
-**Codebase Size:** ~22,400 lines of TypeScript/TSX across 72 source files  
+**Audit Date:** 2026-03-02  
+**Codebase Size:** ~23,500 lines of TypeScript/TSX across 73 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -96,19 +96,22 @@ Customizable filter profiles with: allowed setups, min tier, min quality score, 
 ### 2.10 `symbols` (4 columns)
 Watchlist symbols with enabled flag and watchlist membership.
 
-### 2.11 `app_settings` (3 columns)
+### 2.11 `discord_trade_logs` (17 columns)
+Audit trail for every Discord webhook post. Tracks event type (FILLED/TP1_HIT/TP2_HIT/STOPPED_OUT/etc), channel (alerts/swings/shares), instrument type/ticker, all prices shown in the embed (entry/target/stop/exit), profit %, full embed JSON payload, webhook status (sent/failed), Discord message ID, and foreign keys to `ibkr_trades` and `signals`.
+
+### 2.12 `app_settings` (3 columns)
 Key-value store for application-wide settings.
 
-### 2.12 `ibkr_state` (Single-row, 13 columns)
+### 2.13 `ibkr_state` (Single-row, 13 columns)
 IBKR connection state: connected flag, timestamps, account info (net liquidation, buying power, cash, P&L), and JSON arrays of current positions and orders.
 
-### 2.13 `time_to_hit_stats` (12 columns)
+### 2.14 `time_to_hit_stats` (12 columns)
 Time-to-hit probability distributions per ticker/setup: cumulative probabilities at 15/30/60/120/240/390 minutes, with median time.
 
-### 2.14 `backtest_jobs` (13 columns)
+### 2.15 `backtest_jobs` (13 columns)
 Background backtest worker job state. Tracks job lifecycle (pending/running/paused/completed/failed/cancelled), progress (completedCombos/totalCombos), setup types being processed, completed pairs array for checkpoint-based resumption, current ticker/setup, and error tracking.
 
-### 2.15 `robustness_runs` (9 columns)
+### 2.16 `robustness_runs` (9 columns)
 Tracks all robustness test executions with parameters, status, and summary metrics.
 
 | Key Columns | Purpose |
@@ -185,19 +188,21 @@ Lifecycle event detection and routing:
 
 **Exports:** `runAlerts()`
 
-### 3.6 Discord Integration (`server/lib/discord.ts` — 642 lines)
-Dual-channel webhook system:
+### 3.6 Discord Integration (`server/lib/discord.ts` — 888 lines)
+Triple-channel webhook system with instrument-price consistency:
 - **GOAT Alerts:** Options trades → `DISCORD_GOAT_ALERTS_WEBHOOK`
 - **GOAT Swings:** Leveraged ETF trades → `DISCORD_GOAT_SWINGS_WEBHOOK`
+- **GOAT Shares:** Shares trades → `DISCORD_GOAT_SHARES_WEBHOOK`
 - Color-coded embeds: GREEN (profit/TP hit), RED (stop/loss), GOLD (BE stop/RAISE_STOP, TIME_STOP)
 - Entry/TP1/TP2/Close lifecycle embeds with full P&L and R-multiple
-- **RAISE_STOP embed:** Sent when stop is raised to break-even, showing new stop level, risk reduction, and remaining TP2 target
-- LETF alerts show underlying stock prices for Entry/TP/Stop fields
-- Options alerts show strike/expiry/option price
+- All alerts use instrument prices consistently (option prices for options, LETF prices for LETFs, stock prices for shares)
+- Stock price shown as supplementary reference in LETF/option alerts
+- Every Discord post logged to `discord_trade_logs` table with full embed payload, webhook status, and Discord message ID
+- Webhook sends use `?wait=true` to capture Discord message IDs
 
-**Exports:** `postOptionsAlert()`, `postLetfAlert()`, `postTradeUpdate()`, `sendTestLetfAlert()`
+**Exports:** `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postTradeUpdate()`, `sendTestLetfAlert()`
 
-### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 791 lines)
+### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 720 lines)
 Full Interactive Brokers TWS/Gateway integration:
 
 **`ibkr.ts` exports:** `connectIBKR()`, `disconnectIBKR()`, `isConnected()`, `getPositions()`, `getAccountSummary()`, `getOrderStatus()`, `getNextOrderId()`, `makeContract()`, `placeMarketOrder()`, `placeLimitOrder()`, `placeStopOrder()`, `cancelOrder()`, `modifyStopPrice()`, `getIBApi()`
@@ -468,6 +473,7 @@ Backtest results and analysis interface.
 - `POST /api/ibkr/monitor` — Run trade monitor
 
 ### Discord
+- `GET /api/discord-trades` — Discord trade logs with filtering (channel, event, ticker)
 - `POST /api/discord/test-options` — Test options webhook
 - `POST /api/discord/test-letf` — Test LETF webhook
 

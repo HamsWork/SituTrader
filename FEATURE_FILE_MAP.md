@@ -97,19 +97,21 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
-## 8. Discord Alerts (Dual-Channel)
+## 8. Discord Alerts (Triple-Channel) & Discord Trades Page
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery |
+| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery; all alerts use instrument prices |
 | `server/lib/alerts.ts` | `runAlerts()` | Alert lifecycle detection and routing |
-| `shared/schema.ts` | `alert_state`, `next_alert_eligible_at` signal columns; `discord_alert_sent`, `discord_update_sent` trade columns | Alert state schema |
-| `server/storage.ts` | Signal/trade alert state updates | Persistence |
-| `server/routes.ts` | `POST /api/alerts/run`, `GET /api/alerts/events`, `POST /api/discord/test-options`, `POST /api/discord/test-letf` | API endpoints |
+| `shared/schema.ts` | `discord_trade_logs` table; `alert_state`, `next_alert_eligible_at` signal columns; `discord_alert_sent`, `discord_update_sent` trade columns | Alert state + audit log schema |
+| `server/storage.ts` | `insertDiscordTradeLog()`, `getDiscordTradeLogs()`, signal/trade alert state updates | Persistence |
+| `server/routes.ts` | `GET /api/discord-trades`, `POST /api/alerts/run`, `GET /api/alerts/events`, `POST /api/discord/test-options`, `POST /api/discord/test-letf` | API endpoints |
+| `client/src/pages/discord-trades.tsx` | `DiscordTradesPage` | Discord trade logs table with filters, expandable embed preview |
 
 **Channel Routing:**
 - `DISCORD_GOAT_ALERTS_WEBHOOK` → Options trades
 - `DISCORD_GOAT_SWINGS_WEBHOOK` → Leveraged ETF swing trades
+- `DISCORD_GOAT_SHARES_WEBHOOK` → Shares trades
 
 ---
 
@@ -330,7 +332,8 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/expectancy.ts` | Expectancy, Optimization |
 | `server/lib/activation.ts` | Activation, Stop Management |
 | `server/lib/alerts.ts` | Discord Alerts |
-| `server/lib/discord.ts` | Discord Alerts, IBKR Integration |
+| `server/lib/discord.ts` | Discord Alerts, Discord Trades, IBKR Integration |
+| `client/src/pages/discord-trades.tsx` | Discord Trades |
 | `server/lib/ibkr.ts` | IBKR Integration |
 | `server/lib/ibkrOrders.ts` | IBKR Integration, Stop Management |
 | `server/lib/polygon.ts` | Market Data, Universe, Options, Backtesting |

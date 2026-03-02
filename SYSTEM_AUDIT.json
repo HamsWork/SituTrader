@@ -1,14 +1,14 @@
 {
   "audit_metadata": {
-    "audit_date": "2026-02-24",
-    "codebase_lines": 22400,
-    "source_files": 72,
+    "audit_date": "2026-03-02",
+    "codebase_lines": 23500,
+    "source_files": 73,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
   },
   "database": {
     "orm": "drizzle-orm",
     "provider": "PostgreSQL (Neon-backed)",
-    "table_count": 16,
+    "table_count": 17,
     "tables": {
       "signals": {
         "columns": 40,
@@ -105,6 +105,12 @@
         "pk": "id (serial)",
         "purpose": "Track all robustness test executions with parameters, status, and summary metrics",
         "key_columns": ["testType", "scope", "parameters", "status", "summaryMetrics", "startedAt", "completedAt", "createdAt"]
+      },
+      "discord_trade_logs": {
+        "columns": 17,
+        "pk": "id (serial)",
+        "purpose": "Audit trail for every Discord webhook post, linked to trades and signals",
+        "key_columns": ["tradeId", "signalId", "event", "channel", "instrumentType", "instrumentTicker", "entryPrice", "targetPrice", "stopPrice", "exitPrice", "profitPct", "embedJson", "webhookStatus", "discordMessageId", "ticker", "createdAt"]
       }
     }
   },
@@ -163,6 +169,7 @@
       { "method": "POST", "path": "/api/ibkr/close/:tradeId", "purpose": "Close trade" },
       { "method": "GET", "path": "/api/ibkr/trades", "purpose": "Trade records" },
       { "method": "POST", "path": "/api/ibkr/monitor", "purpose": "Run trade monitor" },
+      { "method": "GET", "path": "/api/discord-trades", "purpose": "Discord trade logs with filtering (channel, event, ticker)" },
       { "method": "POST", "path": "/api/discord/test-options", "purpose": "Test options webhook" },
       { "method": "POST", "path": "/api/discord/test-letf", "purpose": "Test LETF webhook" },
       { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" },
