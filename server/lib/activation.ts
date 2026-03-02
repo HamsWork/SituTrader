@@ -417,27 +417,27 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 );
                 if (ibkrTrade) {
                   const { applyTimeStop } = await import("./ibkrOrders");
-                  const success = await applyTimeStop(
-                    ibkrTrade,
-                    sig,
-                    entryPrice,
-                    isSell,
-                    newStop,
-                    tightenedDist,
-                    stopCfg.timeStopTightenFactor,
-                    nowIso,
-                  );
-                  if (success) {
-                    log(
-                      `Activation TIME_STOP: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`,
-                      "activation",
-                    );
-                  } else {
-                    log(
-                      `Activation TIME_STOP: IBKR not connected or trade not eligible for signal ${sig.id}`,
-                      "activation",
-                    );
-                  }
+                  // const success = await applyTimeStop(
+                  //   ibkrTrade,
+                  //   sig,
+                  //   entryPrice,
+                  //   isSell,
+                  //   newStop,
+                  //   tightenedDist,
+                  //   stopCfg.timeStopTightenFactor,
+                  //   nowIso,
+                  // );
+                  // if (success) {
+                  //   log(
+                  //     `Activation TIME_STOP: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`,
+                  //     "activation",
+                  //   );
+                  // } else {
+                  //   log(
+                  //     `Activation TIME_STOP: IBKR not connected or trade not eligible for signal ${sig.id}`,
+                  //     "activation",
+                  //   );
+                  // }
                 }
               } catch (tsErr: any) {
                 log(
