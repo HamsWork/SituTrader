@@ -52,7 +52,11 @@ function formatExpiry(raw: string): string {
   return raw;
 }
 
-function parseContractTicker(ticker: string | null | undefined): { strike: number | null; expiry: string | null; right: "C" | "P" | null } {
+function parseContractTicker(ticker: string | null | undefined): {
+  strike: number | null;
+  expiry: string | null;
+  right: "C" | "P" | null;
+} {
   if (!ticker) return { strike: null, expiry: null, right: null };
   const match = ticker.match(/(\d{6})([CP])(\d{8})$/);
   if (!match) return { strike: null, expiry: null, right: null };
@@ -154,16 +158,27 @@ export async function postOptionsAlert(
       await enrichPendingSignalsWithOptions({ force: true });
       const { storage } = await import("../storage");
       const freshSigs = await storage.getSignals(undefined, 1000);
-      const freshSig = freshSigs.find(s => s.id === signal.id);
+      const freshSig = freshSigs.find((s) => s.id === signal.id);
       if (freshSig?.optionsJson) {
         optData = freshSig.optionsJson as any;
-        signal = { ...signal, optionsJson: optData, optionContractTicker: freshSig.optionContractTicker ?? signal.optionContractTicker, optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark };
+        signal = {
+          ...signal,
+          optionsJson: optData,
+          optionContractTicker:
+            freshSig.optionContractTicker ?? signal.optionContractTicker,
+          optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark,
+        };
       }
     } catch (err: any) {
-      log(`postOptionsAlert: on-demand enrichment failed for signal ${signal.id}: ${err.message}`, "discord");
+      log(
+        `postOptionsAlert: on-demand enrichment failed for signal ${signal.id}: ${err.message}`,
+        "discord",
+      );
     }
   }
-  const parsed = parseContractTicker(signal.optionContractTicker || optData?.candidate?.contractSymbol);
+  const parsed = parseContractTicker(
+    signal.optionContractTicker || optData?.candidate?.contractSymbol,
+  );
   const strike = optData?.candidate?.strike ?? parsed.strike ?? "?";
   const rawExpiry = optData?.candidate?.expiry ?? parsed.expiry ?? "?";
   const expiry = formatExpiry(String(rawExpiry));
@@ -257,8 +272,7 @@ export async function postLetfAlert(
   const t1Pct = fmtPct(entryPrice, tp.t1);
   let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
   const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
-  if (tp.t2)
-    targetsStr += `, ${fmtPrice(tp.t2)} (${t2Pct})`;
+  if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${t2Pct})`;
 
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2)
@@ -383,9 +397,7 @@ export async function postTradeUpdate(
   const isLetf = trade.instrumentType === "LEVERAGED_ETF";
   const isShares = trade.instrumentType === "SHARES";
   const channelKey = isOption ? "alerts" : isShares ? "shares" : "swings";
-  const url =
-    tradeUpdateWebhookUrl ??
-    (await getWebhookUrl(channelKey));
+  const url = tradeUpdateWebhookUrl ?? (await getWebhookUrl(channelKey));
   if (!url) return false;
 
   let signal = signalInput;
@@ -397,16 +409,27 @@ export async function postTradeUpdate(
       await enrichPendingSignalsWithOptions({ force: true });
       const { storage } = await import("../storage");
       const freshSigs = await storage.getSignals(undefined, 1000);
-      const freshSig = freshSigs.find(s => s.id === signal.id);
+      const freshSig = freshSigs.find((s) => s.id === signal.id);
       if (freshSig?.optionsJson) {
         optData = freshSig.optionsJson as any;
-        signal = { ...signal, optionsJson: optData, optionContractTicker: freshSig.optionContractTicker ?? signal.optionContractTicker, optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark };
+        signal = {
+          ...signal,
+          optionsJson: optData,
+          optionContractTicker:
+            freshSig.optionContractTicker ?? signal.optionContractTicker,
+          optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark,
+        };
       }
     } catch (err: any) {
-      log(`postTradeUpdate: on-demand enrichment failed for signal ${signal.id}: ${err.message}`, "discord");
+      log(
+        `postTradeUpdate: on-demand enrichment failed for signal ${signal.id}: ${err.message}`,
+        "discord",
+      );
     }
   }
-  const parsedContract = parseContractTicker(signal.optionContractTicker || optData?.candidate?.contractSymbol);
+  const parsedContract = parseContractTicker(
+    signal.optionContractTicker || optData?.candidate?.contractSymbol,
+  );
   const strike = optData?.candidate?.strike ?? parsedContract.strike ?? "?";
   const rawExpiry = optData?.candidate?.expiry ?? parsedContract.expiry ?? "?";
   const expiry = formatExpiry(String(rawExpiry));
@@ -491,8 +514,10 @@ export async function postTradeUpdate(
       }
 
       const t1PctFill = entryPx > 0 ? fmtPct(entryPx, tpData?.t1 ?? 0) : "?";
-      const t2PctFill = tpData?.t2 && entryPx > 0 ? fmtPct(entryPx, tpData.t2) : null;
-      const t3PctFill = tpData?.t3 && entryPx > 0 ? fmtPct(entryPx, tpData.t3) : null;
+      const t2PctFill =
+        tpData?.t2 && entryPx > 0 ? fmtPct(entryPx, tpData.t2) : null;
+      const t3PctFill =
+        tpData?.t3 && entryPx > 0 ? fmtPct(entryPx, tpData.t3) : null;
       let tpPlanText = `Take Profit (1): At ${t1PctFill} take off 50.0% of position and raise stop loss to break even.`;
       if (tpData?.t2)
         tpPlanText += `\nTake Profit (2): At ${t2PctFill} take off 50.0% of remaining position.`;
@@ -816,7 +841,7 @@ export async function postTradeUpdate(
         })();
 
       fields.push({
-        name: "\u{1F7E0} Ticker: ${signal.ticker}",
+        name: `\u{1F7E0} Ticker: ${signal.ticker}`,
         value: `\u200b`,
         inline: false,
       });
@@ -973,7 +998,7 @@ export async function postTradeUpdate(
           : "?";
 
       fields.push({
-        name: "\u{1F7E0} Ticker: ${signal.ticker}",
+        name: `\u{1F7E0} Ticker: ${signal.ticker}`,
         value: `\u200b`,
         inline: false,
       });
