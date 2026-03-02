@@ -333,10 +333,16 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
             tp.t1,
             isSell,
           );
-          const activeMinutes = sig.activatedTs
-            ? Math.floor(
-                (now.getTime() - new Date(sig.activatedTs).getTime()) / 60000,
-              )
+          const ibkrTradeForTiming = allIbkrTrades.find(
+            (t) => t.signalId === sig.id && t.status === "FILLED",
+          );
+          const timingAnchor = ibkrTradeForTiming?.filledAt
+            ? new Date(ibkrTradeForTiming.filledAt).getTime()
+            : sig.activatedTs
+              ? new Date(sig.activatedTs).getTime()
+              : 0;
+          const activeMinutes = timingAnchor > 0
+            ? Math.floor((now.getTime() - timingAnchor) / 60000)
             : 0;
 
           if (shouldApplyBE(stopCfg.stopMode) && sig.stopStage === "INITIAL") {
@@ -417,27 +423,27 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 );
                 if (ibkrTrade) {
                   const { applyTimeStop } = await import("./ibkrOrders");
-                  // const success = await applyTimeStop(
-                  //   ibkrTrade,
-                  //   sig,
-                  //   entryPrice,
-                  //   isSell,
-                  //   newStop,
-                  //   tightenedDist,
-                  //   stopCfg.timeStopTightenFactor,
-                  //   nowIso,
-                  // );
-                  // if (success) {
-                  //   log(
-                  //     `Activation TIME_STOP: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`,
-                  //     "activation",
-                  //   );
-                  // } else {
-                  //   log(
-                  //     `Activation TIME_STOP: IBKR not connected or trade not eligible for signal ${sig.id}`,
-                  //     "activation",
-                  //   );
-                  // }
+                  const success = await applyTimeStop(
+                    ibkrTrade,
+                    sig,
+                    entryPrice,
+                    isSell,
+                    newStop,
+                    tightenedDist,
+                    stopCfg.timeStopTightenFactor,
+                    nowIso,
+                  );
+                  if (success) {
+                    log(
+                      `Activation TIME_STOP: IBKR stop updated for trade ${ibkrTrade.id} (signal ${sig.id})`,
+                      "activation",
+                    );
+                  } else {
+                    log(
+                      `Activation TIME_STOP: trade not eligible for signal ${sig.id}`,
+                      "activation",
+                    );
+                  }
                 }
               } catch (tsErr: any) {
                 log(
