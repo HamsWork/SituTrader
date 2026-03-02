@@ -595,13 +595,9 @@ export async function postTradeUpdate(
       const stockEntry = signal.entryPriceAtActivation ?? entry;
       const tpData1 = signal.tradePlanJson as any;
       const stockTp1 = tpData1?.t1 ?? tp1Fill;
-      const profitPct = hasLetfInfo
-        ? stockEntry > 0
-          ? fmtPct(stockEntry, stockTp1)
-          : "?"
-        : entry > 0
-          ? fmtPct(entry, tp1Fill)
-          : "?";
+      const profitPct = stockEntry > 0
+        ? fmtPct(stockEntry, stockTp1)
+        : "?";
 
       fields.push({
         name: `\u{1F7E2} Ticker: ${signal.ticker}`,
@@ -611,8 +607,8 @@ export async function postTradeUpdate(
 
       pushInstrumentFields(fields, stockEntry);
 
-      const entryDisplay = hasLetfInfo ? stockEntry : entry;
-      const tp1Display = hasLetfInfo ? stockTp1 : tp1Fill;
+      const entryDisplay = stockEntry;
+      const tp1Display = stockTp1;
       fields.push(
         {
           name: "\u2705 Entry",
@@ -656,13 +652,9 @@ export async function postTradeUpdate(
       const tpData2 = signal.tradePlanJson as any;
       const stockTp2 = tpData2?.t2 ?? tp2Fill;
       const stockTp1forRisk = tpData2?.t1 ?? tp1Fill;
-      const profitPct = hasLetfInfo
-        ? stockEntry2 > 0
-          ? fmtPct(stockEntry2, stockTp2)
-          : "?"
-        : entry > 0
-          ? fmtPct(entry, tp2Fill)
-          : "?";
+      const profitPct = stockEntry2 > 0
+        ? fmtPct(stockEntry2, stockTp2)
+        : "?";
 
       fields.push({
         name: `\u{1F7E2} Ticker: ${signal.ticker}`,
@@ -672,9 +664,9 @@ export async function postTradeUpdate(
 
       pushInstrumentFields(fields, stockEntry2);
 
-      const entryDisp2 = hasLetfInfo ? stockEntry2 : entry;
-      const tp2Disp = hasLetfInfo ? stockTp2 : tp2Fill;
-      const tp1DispRisk = hasLetfInfo ? stockTp1forRisk : tp1Fill;
+      const entryDisp2 = stockEntry2;
+      const tp2Disp = stockTp2;
+      const tp1DispRisk = stockTp1forRisk;
       fields.push(
         {
           name: "\u2705 Entry",
@@ -716,13 +708,9 @@ export async function postTradeUpdate(
       const stockEntry3 = signal.entryPriceAtActivation ?? entry;
       const tpData3 = signal.tradePlanJson as any;
       const stockTp3 = tpData3?.t3 ?? exitPrice;
-      const profitPct = hasLetfInfo
-        ? stockEntry3 > 0
-          ? fmtPct(stockEntry3, stockTp3)
-          : "?"
-        : entry > 0
-          ? fmtPct(entry, exitPrice)
-          : "?";
+      const profitPct = stockEntry3 > 0
+        ? fmtPct(stockEntry3, stockTp3)
+        : "?";
 
       fields.push({
         name: `\u{1F7E2} Ticker: ${signal.ticker}`,
@@ -732,8 +720,8 @@ export async function postTradeUpdate(
 
       pushInstrumentFields(fields, stockEntry3);
 
-      const entryDisp3 = hasLetfInfo ? stockEntry3 : entry;
-      const tp3Disp = hasLetfInfo ? stockTp3 : exitPrice;
+      const entryDisp3 = stockEntry3;
+      const tp3Disp = stockTp3;
       fields.push(
         {
           name: "\u2705 Entry",
@@ -913,13 +901,9 @@ export async function postTradeUpdate(
       const exitPrice = trade.exitPrice ?? 0;
       const stockEntryStop = signal.entryPriceAtActivation ?? entry;
       const stockStopPx = signal.stopPrice ?? exitPrice;
-      const lossPct = hasLetfInfo
-        ? stockEntryStop > 0
-          ? fmtPct(stockEntryStop, stockStopPx)
-          : "?"
-        : entry > 0
-          ? fmtPct(entry, exitPrice)
-          : "?";
+      const lossPct = stockEntryStop > 0
+        ? fmtPct(stockEntryStop, stockStopPx)
+        : "?";
 
       fields.push({
         name: `\u{1F6D1} Ticker: ${signal.ticker}`,
@@ -929,8 +913,8 @@ export async function postTradeUpdate(
 
       pushInstrumentFields(fields, stockEntryStop);
 
-      const entryDispStop = hasLetfInfo ? stockEntryStop : entry;
-      const stopDispPx = hasLetfInfo ? stockStopPx : exitPrice;
+      const entryDispStop = stockEntryStop;
+      const stopDispPx = stockStopPx;
       fields.push(
         {
           name: "\u2705 Entry",
@@ -989,13 +973,9 @@ export async function postTradeUpdate(
       const stockEntryBE = signal.entryPriceAtActivation ?? entry;
       const tpDataBE = signal.tradePlanJson as any;
       const stockTp1BE = tpDataBE?.t1 ?? tp1Fill;
-      const tp1Pct = hasLetfInfo
-        ? stockEntryBE > 0
-          ? fmtPct(stockEntryBE, stockTp1BE)
-          : "?"
-        : entry > 0
-          ? fmtPct(entry, tp1Fill)
-          : "?";
+      const tp1Pct = stockEntryBE > 0
+        ? fmtPct(stockEntryBE, stockTp1BE)
+        : "?";
 
       fields.push({
         name: `\u{1F7E0} Ticker: ${signal.ticker}`,
@@ -1005,8 +985,8 @@ export async function postTradeUpdate(
 
       pushInstrumentFields(fields, stockEntryBE);
 
-      const entryDispBE = hasLetfInfo ? stockEntryBE : entry;
-      const beStopDisp = hasLetfInfo ? stockEntryBE : exitPrice;
+      const entryDispBE = stockEntryBE;
+      const beStopDisp = stockEntryBE;
       fields.push(
         {
           name: "\u2705 Entry",
@@ -1053,11 +1033,10 @@ export async function postTradeUpdate(
       color = trade.pnl && trade.pnl > 0 ? GREEN : RED;
       const emoji = trade.pnl && trade.pnl > 0 ? "\u{1F4B0}" : "\u{1F4C9}";
       heading = `**${emoji} ${signal.ticker}${letfLabel} Trade Closed**`;
-      const pnlPct = hasLetfInfo
-        ? "\u2014"
-        : entry > 0 && exitPrice > 0
-          ? fmtPct(entry, exitPrice)
-          : "\u2014";
+      const stockExitPrice = trade.exitPrice ?? 0;
+      const pnlPct = stockEntryClosed > 0 && stockExitPrice > 0
+        ? fmtPct(stockEntryClosed, stockExitPrice)
+        : "\u2014";
 
       fields.push({
         name: `${trade.pnl && trade.pnl > 0 ? "\u{1F7E2}" : "\u{1F6D1}"} Ticker: ${signal.ticker}`,
@@ -1067,7 +1046,7 @@ export async function postTradeUpdate(
 
       pushInstrumentFields(fields, stockEntryClosed);
 
-      const entryDispClosed = hasLetfInfo ? stockEntryClosed : entry;
+      const entryDispClosed = stockEntryClosed;
       fields.push(
         {
           name: "\u2705 Entry",
