@@ -4,14 +4,12 @@ import {
   isConnected,
   makeContract,
   placeMarketOrder,
-  placeStopOrder,
-  placeLimitOrder,
   cancelOrder,
-  modifyStopPrice,
   getOrderStatus,
   getPositions,
   getAccountSummary,
 } from "./ibkr";
+import { fetchSnapshot } from "./polygon";
 import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./discord";
 import { log } from "../index";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
@@ -186,177 +184,18 @@ export async function executeTradeForSignal(
       return await storage.getIbkrTrade(trade.id);
     }
 
+    const underlyingStop = signal.stopPrice ?? 0;
     await storage.updateIbkrTrade(trade.id, {
       status: "FILLED",
       entryPrice,
       filledAt: new Date().toISOString(),
+      stopPrice: underlyingStop > 0 ? underlyingStop : null,
+      target1Price: tp.t1 ?? null,
+      target2Price: tp.t2 ?? null,
     });
 
-    if (entryPrice) {
-      let stopContractPrice: number;
-      const underlyingEntry = signal.entryPriceAtActivation ?? 0;
-      const underlyingStop = signal.stopPrice ?? 0;
-      const stopDist = tp.stopDistance ?? Math.abs(underlyingStop - underlyingEntry);
-
-      if (instrumentType === "OPTION") {
-        const underlyingRiskPct =
-          underlyingEntry > 0
-            ? Math.abs(underlyingStop - underlyingEntry) / underlyingEntry
-            : 0.025;
-        const delta = Math.min(Math.abs((signal.optionsJson as any)?.checks?.delta ?? 0.5), 1);
-        const optionStopMove = entryPrice * underlyingRiskPct * (delta > 0 ? 1 / delta : 2);
-        stopContractPrice = isBuy
-          ? Math.max(0.01, Math.round((entryPrice - optionStopMove) * 100) / 100)
-          : Math.max(0.01, Math.round((entryPrice + optionStopMove) * 100) / 100);
-      } else if (instrumentType === "LEVERAGED_ETF") {
-        const letfJson = signal.leveragedEtfJson as any;
-        const leverage = letfJson?.leverage ?? 3;
-        stopContractPrice =
-          underlyingEntry > 0 && underlyingStop > 0
-            ? calculateLetfStopPrice(
-                entryPrice,
-                underlyingEntry,
-                underlyingStop,
-                isBuy,
-                leverage,
-              )
-            : isBuy
-              ? entryPrice * (1 - 0.01 * (letfJson?.leverage ?? 3))
-              : entryPrice * (1 + 0.01 * (letfJson?.leverage ?? 3));
-      } else {
-        stopContractPrice =
-          underlyingStop > 0
-            ? underlyingStop
-            : isBuy
-              ? entryPrice - (stopDist > 0 ? stopDist : entryPrice * 0.02)
-              : entryPrice + (stopDist > 0 ? stopDist : entryPrice * 0.02);
-      }
-
-      try {
-        const stopResult = await placeStopOrder(
-          contract,
-          closeAction,
-          quantity,
-          stopContractPrice,
-        );
-        await storage.updateIbkrTrade(trade.id, {
-          ibkrStopOrderId: stopResult.orderId,
-          stopPrice: stopContractPrice,
-        });
-        log(
-          `Bracket: stop placed at $${stopContractPrice.toFixed(2)} (order #${stopResult.orderId})`,
-          "ibkr",
-        );
-      } catch (err: any) {
-        log(
-          `Failed to place stop order for trade ${trade.id}: ${err.message}`,
-          "ibkr",
-        );
-      }
-
-      if (tp.t1 && tp1Qty > 0) {
-        try {
-          let tp1Price: number;
-          if (instrumentType === "OPTION") {
-            const t1MovePct =
-              underlyingEntry > 0
-                ? Math.abs(tp.t1 - underlyingEntry) / underlyingEntry
-                : 0.05;
-            const delta = Math.min(Math.abs((signal.optionsJson as any)?.checks?.delta ?? 0.5), 1);
-            const optionTp1Move = entryPrice * t1MovePct * (delta > 0 ? 1 / delta : 2);
-            tp1Price = isBuy
-              ? Math.round((entryPrice + optionTp1Move) * 100) / 100
-              : Math.max(0.01, Math.round((entryPrice - optionTp1Move) * 100) / 100);
-          } else if (instrumentType === "LEVERAGED_ETF") {
-            const letfJson = signal.leveragedEtfJson as any;
-            tp1Price = calculateLetfTargetPrice(
-              entryPrice,
-              underlyingEntry || null,
-              tp.t1,
-              isBuy,
-              letfJson?.leverage ?? 3,
-            );
-          } else {
-            tp1Price = tp.t1;
-          }
-
-          const tp1Result = await placeLimitOrder(
-            contract,
-            closeAction,
-            tp1Qty,
-            tp1Price,
-          );
-          tp1Result.promise.catch((err: any) => {
-            log(`TP1 order ${tp1Result.orderId} rejected by broker: ${err.message}`, "ibkr");
-          });
-          await storage.updateIbkrTrade(trade.id, {
-            ibkrTp1OrderId: tp1Result.orderId,
-          });
-          log(
-            `Bracket: TP1 limit placed for ${tp1Qty} @ $${tp1Price.toFixed(2)} (order #${tp1Result.orderId})`,
-            "ibkr",
-          );
-        } catch (err: any) {
-          log(
-            `Failed to place TP1 order for trade ${trade.id}: ${err.message}`,
-            "ibkr",
-          );
-        }
-      }
-
-      if (tp.t2 && tp2Qty > 0) {
-        try {
-          let tp2Price: number;
-          if (instrumentType === "OPTION") {
-            const t2MovePct =
-              underlyingEntry > 0
-                ? Math.abs(tp.t2 - underlyingEntry) / underlyingEntry
-                : 0.10;
-            const delta = Math.min(Math.abs((signal.optionsJson as any)?.checks?.delta ?? 0.5), 1);
-            const optionTp2Move = entryPrice * t2MovePct * (delta > 0 ? 1 / delta : 2);
-            tp2Price = isBuy
-              ? Math.round((entryPrice + optionTp2Move) * 100) / 100
-              : Math.max(0.01, Math.round((entryPrice - optionTp2Move) * 100) / 100);
-          } else if (instrumentType === "LEVERAGED_ETF") {
-            const letfJson = signal.leveragedEtfJson as any;
-            tp2Price = calculateLetfTargetPrice(
-              entryPrice,
-              underlyingEntry || null,
-              tp.t2,
-              isBuy,
-              letfJson?.leverage ?? 3,
-            );
-          } else {
-            tp2Price = tp.t2;
-          }
-
-          const tp2Result = await placeLimitOrder(
-            contract,
-            closeAction,
-            tp2Qty,
-            tp2Price,
-          );
-          tp2Result.promise.catch((err: any) => {
-            log(`TP2 order ${tp2Result.orderId} rejected by broker: ${err.message}`, "ibkr");
-          });
-          await storage.updateIbkrTrade(trade.id, {
-            ibkrTp2OrderId: tp2Result.orderId,
-          });
-          log(
-            `Bracket: TP2 limit placed for ${tp2Qty} @ $${tp2Price.toFixed(2)} (order #${tp2Result.orderId})`,
-            "ibkr",
-          );
-        } catch (err: any) {
-          log(
-            `Failed to place TP2 order for trade ${trade.id}: ${err.message}`,
-            "ibkr",
-          );
-        }
-      }
-    }
-
     log(
-      `Trade executed for signal ${signalId}: ${action} ${quantity} ${contract.symbol} filled at $${entryPrice}`,
+      `Trade executed for signal ${signalId}: ${action} ${quantity} ${contract.symbol} filled at $${entryPrice} (stock: $${(signal.entryPriceAtActivation ?? 0).toFixed(2)}, stop: $${underlyingStop.toFixed(2)}, T1: $${(tp.t1 ?? 0).toFixed(2)}, T2: $${(tp.t2 ?? 0).toFixed(2)}) — TP/Stop tracked via stock price, market orders on trigger`,
       "ibkr",
     );
 
@@ -377,44 +216,16 @@ export async function applyBeStop(
   entryPrice: number,
   isSell: boolean,
 ): Promise<boolean> {
-  if (!ibkrTrade.ibkrStopOrderId || ibkrTrade.stopMovedToBe) return false;
-  if (!isConnected()) return false;
+  if (ibkrTrade.stopMovedToBe) return false;
 
-  const instrumentType = ibkrTrade.instrumentType || "OPTION";
-  const optionTicker =
-    signal.optionContractTicker ||
-    (signal.optionsJson as any)?.candidate?.contractSymbol;
-  const instrumentTicker =
-    signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
-  const contract = makeContract(
-    instrumentType,
-    signal.ticker,
-    instrumentTicker,
-    optionTicker,
-  );
-  const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
+  const beStopPrice = signal.entryPriceAtActivation ?? entryPrice;
 
-  let beStopPrice = entryPrice;
-  if (
-    (instrumentType === "OPTION" || instrumentType === "LEVERAGED_ETF") &&
-    ibkrTrade.entryPrice
-  ) {
-    beStopPrice = ibkrTrade.entryPrice;
-  }
-
-  await modifyStopPrice(
-    ibkrTrade.ibkrStopOrderId,
-    contract,
-    closeAction,
-    ibkrTrade.remainingQuantity,
-    beStopPrice,
-  );
   await storage.updateIbkrTrade(ibkrTrade.id, {
     stopPrice: beStopPrice,
     stopMovedToBe: true,
   });
   log(
-    `applyBeStop: IBKR stop modified to $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id})`,
+    `applyBeStop: stop moved to BE $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id}) — will trigger market close on hit`,
     "ibkr",
   );
 
@@ -447,57 +258,9 @@ export async function applyTimeStop(
   tightenFactor: number,
   nowIso: string,
 ): Promise<boolean> {
-  if (!ibkrTrade.ibkrStopOrderId) return false;
-  if (!isConnected()) return false;
-
-  const instrumentType = ibkrTrade.instrumentType || "OPTION";
-  const optionTicker =
-    signal.optionContractTicker ||
-    (signal.optionsJson as any)?.candidate?.contractSymbol;
-  const instrumentTicker =
-    signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
-  const contract = makeContract(
-    instrumentType,
-    signal.ticker,
-    instrumentTicker,
-    optionTicker,
-  );
-  const closeAction: "BUY" | "SELL" = isSell ? "BUY" : "SELL";
-
-  let ibkrNewStop = newUnderlyingStop;
-  if (instrumentType === "OPTION" && ibkrTrade.entryPrice) {
-    const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
-    const riskPct =
-      underlyingEntry > 0 ? tightenedDist / underlyingEntry : 0.025;
-    ibkrNewStop = isSell
-      ? Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 + riskPct)) * 100) /
-        100
-      : Math.round(Math.max(0.01, ibkrTrade.entryPrice * (1 - riskPct)) * 100) /
-        100;
-  } else if (instrumentType === "LEVERAGED_ETF" && ibkrTrade.entryPrice) {
-    const underlyingEntry = signal.entryPriceAtActivation ?? entryPrice;
-    if (underlyingEntry > 0) {
-      const underlyingMovePct =
-        (newUnderlyingStop - underlyingEntry) / underlyingEntry;
-      ibkrNewStop =
-        Math.round(
-          Math.max(0.01, ibkrTrade.entryPrice * (1 + underlyingMovePct * 3)) *
-            100,
-        ) / 100;
-    }
-  }
-
-  await modifyStopPrice(
-    ibkrTrade.ibkrStopOrderId,
-    contract,
-    closeAction,
-    ibkrTrade.remainingQuantity,
-    ibkrNewStop,
-  );
-
   const oldIbkrStop = ibkrTrade.stopPrice;
   await storage.updateIbkrTrade(ibkrTrade.id, {
-    stopPrice: ibkrNewStop,
+    stopPrice: newUnderlyingStop,
     detailsJson: {
       ...((ibkrTrade.detailsJson as any) ?? {}),
       oldStopPrice: oldIbkrStop,
@@ -508,7 +271,7 @@ export async function applyTimeStop(
     },
   });
   log(
-    `applyTimeStop: IBKR stop tightened to $${ibkrNewStop.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id}, underlying stop $${newUnderlyingStop.toFixed(2)})`,
+    `applyTimeStop: stop tightened to $${newUnderlyingStop.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id}) — will trigger market close on hit`,
     "ibkr",
   );
 
@@ -529,36 +292,6 @@ export async function applyTimeStop(
   }
 
   return true;
-}
-
-function calculateLetfStopPrice(
-  letfEntry: number,
-  underlyingEntry: number | null,
-  underlyingStop: number,
-  isBuy: boolean,
-  leverage: number = 3,
-): number {
-  if (!underlyingEntry || underlyingEntry === 0)
-    return isBuy ? letfEntry * (1 - 0.01 * leverage) : letfEntry * (1 + 0.01 * leverage);
-  const underlyingMovePct =
-    (underlyingStop - underlyingEntry) / underlyingEntry;
-  const letfStopEstimate = letfEntry * (1 + underlyingMovePct * leverage);
-  return Math.round(Math.max(0.01, letfStopEstimate) * 100) / 100;
-}
-
-function calculateLetfTargetPrice(
-  letfEntry: number,
-  underlyingEntry: number | null,
-  underlyingTarget: number,
-  isBuy: boolean,
-  leverage: number = 3,
-): number {
-  if (!underlyingEntry || underlyingEntry === 0)
-    return isBuy ? letfEntry * (1 + 0.02 * leverage) : letfEntry * (1 - 0.02 * leverage);
-  const underlyingMovePct =
-    (underlyingTarget - underlyingEntry) / underlyingEntry;
-  const letfTargetEstimate = letfEntry * (1 + underlyingMovePct * leverage);
-  return Math.round(Math.max(0.01, letfTargetEstimate) * 100) / 100;
 }
 
 export async function monitorActiveTrade(
@@ -587,20 +320,40 @@ export async function monitorActiveTrade(
     optionTicker,
   );
   const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
+  const isBuy = trade.side === "BUY";
 
-  if (trade.ibkrTp1OrderId && trade.tpHitLevel === 0) {
-    const tp1Status = getOrderStatus(trade.ibkrTp1OrderId);
-    if (tp1Status?.status === "Filled") {
-      const tp1FillPrice = tp1Status.avgFillPrice;
+  const snap = await fetchSnapshot(signal.ticker);
+  if (!snap || snap.lastPrice <= 0) return { event: null, updatedTrade: null };
+  const stockPrice = snap.lastPrice;
+
+  const stopLevel = trade.stopPrice ?? signal.stopPrice ?? 0;
+  const t1Level = trade.target1Price ?? tp.t1 ?? 0;
+  const t2Level = trade.target2Price ?? tp.t2 ?? 0;
+  const underlyingEntry = signal.entryPriceAtActivation ?? 0;
+
+  if (trade.tpHitLevel === 0 && t1Level > 0) {
+    const tp1Hit = isBuy ? stockPrice >= t1Level : stockPrice <= t1Level;
+    if (tp1Hit) {
       const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
-      const tp1Pnl = trade.entryPrice
-        ? (trade.side === "BUY"
-            ? tp1FillPrice - trade.entryPrice
-            : trade.entryPrice - tp1FillPrice) * tp1Qty
-        : 0;
-
       const newRemaining = trade.originalQuantity - tp1Qty;
 
+      let tp1FillPrice = stockPrice;
+      try {
+        if (isConnected()) {
+          const { orderId, promise } = await placeMarketOrder(contract, closeAction, tp1Qty);
+          const result = await promise;
+          if (result?.avgFillPrice > 0) tp1FillPrice = result.avgFillPrice;
+          log(`TP1 market close order filled: ${tp1Qty} @ $${tp1FillPrice.toFixed(2)} (order #${orderId})`, "ibkr");
+        }
+      } catch (err: any) {
+        log(`TP1 market close order failed for trade ${trade.id}: ${err.message}`, "ibkr");
+      }
+
+      const tp1Pnl = trade.entryPrice
+        ? (isBuy ? tp1FillPrice - trade.entryPrice : trade.entryPrice - tp1FillPrice) * tp1Qty
+        : 0;
+
+      const beStopPrice = underlyingEntry > 0 ? underlyingEntry : null;
       await storage.updateIbkrTrade(trade.id, {
         tpHitLevel: 1,
         tp1FillPrice,
@@ -608,55 +361,40 @@ export async function monitorActiveTrade(
         tp1PnlRealized: tp1Pnl,
         remainingQuantity: newRemaining,
         pnl: tp1Pnl,
+        stopPrice: beStopPrice,
+        stopMovedToBe: true,
       });
 
       log(
-        `TP1 filled for trade ${trade.id}: ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}`,
+        `TP1 hit for trade ${trade.id}: stock $${stockPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}, stop moved to BE $${(beStopPrice ?? 0).toFixed(2)}`,
         "ibkr",
       );
 
-      if (trade.ibkrStopOrderId && trade.entryPrice && !trade.stopMovedToBe) {
-        try {
-          await modifyStopPrice(
-            trade.ibkrStopOrderId,
-            contract,
-            closeAction,
-            newRemaining,
-            trade.entryPrice,
-          );
-          await storage.updateIbkrTrade(trade.id, {
-            stopPrice: trade.entryPrice,
-            stopMovedToBe: true,
-          });
-          log(
-            `Stop moved to BE ($${trade.entryPrice.toFixed(2)}) for trade ${trade.id} after TP1 fill`,
-            "ibkr",
-          );
-        } catch (err: any) {
-          log(
-            `Failed to move stop to BE for trade ${trade.id}: ${err.message}`,
-            "ibkr",
-          );
-        }
-      }
-
       const updatedTrade = await storage.getIbkrTrade(trade.id);
-      if (updatedTrade) {
-        await postTradeUpdate(signal, updatedTrade, "TP1_HIT");
-      }
+      if (updatedTrade) await postTradeUpdate(signal, updatedTrade, "TP1_HIT");
       return { event: "TP1_HIT", updatedTrade };
     }
   }
 
-  if (trade.ibkrTp2OrderId && trade.tpHitLevel === 1) {
-    const tp2Status = getOrderStatus(trade.ibkrTp2OrderId);
-    if (tp2Status?.status === "Filled") {
-      const tp2FillPrice = tp2Status.avgFillPrice;
+  if (trade.tpHitLevel === 1 && t2Level > 0) {
+    const tp2Hit = isBuy ? stockPrice >= t2Level : stockPrice <= t2Level;
+    if (tp2Hit) {
       const tp2Qty = trade.remainingQuantity;
+
+      let tp2FillPrice = stockPrice;
+      try {
+        if (isConnected()) {
+          const { orderId, promise } = await placeMarketOrder(contract, closeAction, tp2Qty);
+          const result = await promise;
+          if (result?.avgFillPrice > 0) tp2FillPrice = result.avgFillPrice;
+          log(`TP2 market close order filled: ${tp2Qty} @ $${tp2FillPrice.toFixed(2)} (order #${orderId})`, "ibkr");
+        }
+      } catch (err: any) {
+        log(`TP2 market close order failed for trade ${trade.id}: ${err.message}`, "ibkr");
+      }
+
       const tp2Pnl = trade.entryPrice
-        ? (trade.side === "BUY"
-            ? tp2FillPrice - trade.entryPrice
-            : trade.entryPrice - tp2FillPrice) * tp2Qty
+        ? (isBuy ? tp2FillPrice - trade.entryPrice : trade.entryPrice - tp2FillPrice) * tp2Qty
         : 0;
 
       const totalPnl = (trade.tp1PnlRealized ?? 0) + tp2Pnl;
@@ -667,12 +405,6 @@ export async function monitorActiveTrade(
         trade.entryPrice && tp.stopDistance
           ? totalPnl / (tp.stopDistance * trade.originalQuantity)
           : null;
-
-      if (trade.ibkrStopOrderId) {
-        try {
-          await cancelOrder(trade.ibkrStopOrderId);
-        } catch {}
-      }
 
       await storage.updateIbkrTrade(trade.id, {
         tpHitLevel: 2,
@@ -688,27 +420,35 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `TP2 filled for trade ${trade.id}: all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `TP2 hit for trade ${trade.id}: stock $${stockPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
       const updatedTrade = await storage.getIbkrTrade(trade.id);
-      if (updatedTrade) {
-        await postTradeUpdate(signal, updatedTrade, "TP2_HIT");
-      }
+      if (updatedTrade) await postTradeUpdate(signal, updatedTrade, "TP2_HIT");
       return { event: "TP2_HIT", updatedTrade };
     }
   }
 
-  if (trade.ibkrStopOrderId) {
-    const stopStatus = getOrderStatus(trade.ibkrStopOrderId);
-    if (stopStatus?.status === "Filled") {
-      const exitPrice = stopStatus.avgFillPrice;
+  if (stopLevel > 0) {
+    const stopHit = isBuy ? stockPrice <= stopLevel : stockPrice >= stopLevel;
+    if (stopHit) {
       const stoppedQty = trade.remainingQuantity;
+
+      let exitFillPrice = stockPrice;
+      try {
+        if (isConnected()) {
+          const { orderId, promise } = await placeMarketOrder(contract, closeAction, stoppedQty);
+          const result = await promise;
+          if (result?.avgFillPrice > 0) exitFillPrice = result.avgFillPrice;
+          log(`Stop market close order filled: ${stoppedQty} @ $${exitFillPrice.toFixed(2)} (order #${orderId})`, "ibkr");
+        }
+      } catch (err: any) {
+        log(`Stop market close order failed for trade ${trade.id}: ${err.message}`, "ibkr");
+      }
+
       const stopPnl = trade.entryPrice
-        ? (trade.side === "BUY"
-            ? exitPrice - trade.entryPrice
-            : trade.entryPrice - exitPrice) * stoppedQty
+        ? (isBuy ? exitFillPrice - trade.entryPrice : trade.entryPrice - exitFillPrice) * stoppedQty
         : 0;
 
       const totalPnl = (trade.tp1PnlRealized ?? 0) + stopPnl;
@@ -720,20 +460,9 @@ export async function monitorActiveTrade(
           ? totalPnl / (tp.stopDistance * trade.originalQuantity)
           : null;
 
-      if (trade.ibkrTp1OrderId && trade.tpHitLevel === 0) {
-        try {
-          await cancelOrder(trade.ibkrTp1OrderId);
-        } catch {}
-      }
-      if (trade.ibkrTp2OrderId && trade.tpHitLevel < 2) {
-        try {
-          await cancelOrder(trade.ibkrTp2OrderId);
-        } catch {}
-      }
-
       await storage.updateIbkrTrade(trade.id, {
         status: "CLOSED",
-        exitPrice,
+        exitPrice: exitFillPrice,
         remainingQuantity: 0,
         pnl: totalPnl,
         pnlPct: totalPnlPct,
@@ -742,16 +471,13 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `Stop filled for trade ${trade.id}: closed ${stoppedQty} @ $${exitPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `Stop hit for trade ${trade.id}: stock $${stockPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
-      const eventType =
-        trade.tpHitLevel > 0 ? "STOPPED_OUT_AFTER_TP" : "STOPPED_OUT";
+      const eventType = trade.tpHitLevel > 0 ? "STOPPED_OUT_AFTER_TP" : "STOPPED_OUT";
       const updatedTrade = await storage.getIbkrTrade(trade.id);
-      if (updatedTrade) {
-        await postTradeUpdate(signal, updatedTrade, eventType);
-      }
+      if (updatedTrade) await postTradeUpdate(signal, updatedTrade, eventType);
       return { event: eventType, updatedTrade };
     }
   }

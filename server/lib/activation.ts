@@ -642,7 +642,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         });
 
         try {
-          const qualityOk = (sig.qualityScore ?? 0) >= 55;
+          const qualityOk = (sig.qualityScore ?? 0) >= 80;
           const wouldExceedOption =
             instrumentTypeForExecution === "OPTION" &&
             (hasOptionToday || executedOptionThisRun);
