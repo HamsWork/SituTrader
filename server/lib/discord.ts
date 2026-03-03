@@ -469,12 +469,12 @@ export async function postTradeUpdate(
     if (hasLetfInfo) {
       fields.push(
         {
-          name: "\u{1F4B9} Leveraged ETF",
+          name: "\u{1F4B9} LETF",
           value: letfDisplayLabel,
           inline: true,
         },
         {
-          name: "\u{1F4B5} Leveraged ETF Entry",
+          name: "\u{1F4B5} LETF Entry",
           value: trade.entryPrice
             ? `$ ${trade.entryPrice.toFixed(2)}`
             : "Pending",
