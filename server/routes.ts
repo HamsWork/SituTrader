@@ -2998,13 +2998,29 @@ export async function registerRoutes(
 
   app.post("/api/backtests/backfill-activation", async (req, res) => {
     try {
+      const batchSize = parseInt(req.query.batch as string) || 200;
       const allBacktests = await storage.getBacktests();
       let enriched = 0;
       let skipped = 0;
+      let processed = 0;
+      let remaining = 0;
+      let apiFetches = 0;
+      let activatedCount = 0;
+      let notActivatedCount = 0;
 
       for (const bt of allBacktests) {
+        if (processed >= batchSize) {
+          const leftDetails = (bt.details as any[] | null) ?? [];
+          const leftUndef = leftDetails.filter((dd: any) => dd.triggered && dd.activated === undefined).length;
+          remaining += leftUndef;
+          continue;
+        }
+
         const details = bt.details as any[] | null;
         if (!details || details.length === 0) { skipped++; continue; }
+
+        const needsWork = details.some((dd: any) => dd.triggered && dd.activated === undefined);
+        if (!needsWork) { skipped++; continue; }
 
         let modified = false;
         const updatedDetails = [];
@@ -3015,9 +3031,18 @@ export async function registerRoutes(
             continue;
           }
 
+          if (processed >= batchSize) {
+            updatedDetails.push(d);
+            remaining++;
+            continue;
+          }
+
+          processed++;
+
           let intradayBars: any[] = await storage.getIntradayBars(bt.ticker, d.date, "5");
           if (intradayBars.length === 0) {
             try {
+              apiFetches++;
               const cachedBars = await fetchIntradayBarsCached(bt.ticker, d.date, d.date, "5");
               if (cachedBars.length > 0) {
                 intradayBars = cachedBars.map((b: any) => ({
@@ -3029,6 +3054,7 @@ export async function registerRoutes(
           }
           if (intradayBars.length === 0) {
             updatedDetails.push({ ...d, activated: false });
+            notActivatedCount++;
             modified = true;
             continue;
           }
@@ -3059,9 +3085,12 @@ export async function registerRoutes(
               activationPrice: result.entryPrice,
               activationTs: result.triggerTs,
             });
+            if (result.triggered) activatedCount++;
+            else notActivatedCount++;
             modified = true;
           } catch {
             updatedDetails.push({ ...d, activated: false });
+            notActivatedCount++;
             modified = true;
           }
         }
@@ -3074,7 +3103,20 @@ export async function registerRoutes(
         }
       }
 
-      res.json({ ok: true, enriched, skipped, total: allBacktests.length });
+      const done = remaining === 0;
+
+      res.json({
+        ok: true,
+        enriched,
+        skipped,
+        processed,
+        remaining,
+        apiFetches,
+        activatedCount,
+        notActivatedCount,
+        done,
+        total: allBacktests.length,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
