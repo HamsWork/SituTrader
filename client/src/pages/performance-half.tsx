@@ -108,6 +108,7 @@ interface PerformanceHalfData {
   deltaPnl: number;
   deltaPct: number;
   activated: ActivatedData;
+  marketHours: ActivatedData;
   t1Curve: CurvePoint[];
   splitCurve: CurvePoint[];
   trades: SplitTrade[];
@@ -158,6 +159,21 @@ export default function PerformanceHalfPage() {
         trade: i + 1,
         t1Only: act.t1Curve[i]?.cumPnl ?? null,
         splitHalf: act.splitCurve[i]?.cumPnl ?? null,
+      });
+    }
+    return merged;
+  }, [data]);
+
+  const marketHoursCurve = useMemo(() => {
+    if (!data?.marketHours) return [];
+    const mkt = data.marketHours;
+    const maxLen = Math.max(mkt.t1Curve.length, mkt.splitCurve.length);
+    const merged: any[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      merged.push({
+        trade: i + 1,
+        t1Only: mkt.t1Curve[i]?.cumPnl ?? null,
+        splitHalf: mkt.splitCurve[i]?.cumPnl ?? null,
       });
     }
     return merged;
@@ -544,6 +560,187 @@ export default function PerformanceHalfPage() {
                       <div className="h-64" data-testid="chart-activated-equity">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={activatedCurve}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="trade" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} label={{ value: "Trade #", position: "insideBottom", offset: -2, fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                            <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v: number) => `$${v}`} />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "hsl(var(--card))",
+                                border: "1px solid hsl(var(--border))",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                              }}
+                              formatter={(value: number, name: string) => [
+                                `$${value?.toFixed(2) ?? "—"}`,
+                                name === "t1Only" ? "T1-Only" : "Split ½",
+                              ]}
+                              labelFormatter={(label: number) => `Trade #${label}`}
+                            />
+                            <Legend formatter={(value: string) => value === "t1Only" ? "T1-Only" : "Split ½"} />
+                            <Line type="monotone" dataKey="t1Only" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} connectNulls />
+                            <Line type="monotone" dataKey="splitHalf" stroke="hsl(270 70% 56%)" strokeWidth={2} dot={false} strokeDasharray="6 3" connectNulls />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                </>
+                )}
+              </>
+            );
+          })()}
+
+          {data.marketHours && (() => {
+            const mkt = data.marketHours;
+            const mktT1 = mkt.t1OnlySummary;
+            const mktSp = mkt.splitSummary;
+            const mktWinner = mktSp.totalPnl > mktT1.totalPnl ? "SPLIT" : "T1_ONLY";
+            return (
+              <>
+                <div className="flex items-center gap-3 pt-2">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Market Hours Only — 9:30 AM – 4:00 PM ET</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+
+                {mkt.totalResolvedTrades === 0 ? (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <Activity className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground" data-testid="text-mkt-empty">No market hours trades found</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                <>
+
+                <Card className={`border-2 ${mktWinner === "SPLIT" ? "border-purple-500/40" : "border-emerald-500/40"}`}>
+                  <CardContent className="pt-4 pb-4 px-5">
+                    <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+                      <div className="text-center">
+                        <div className="text-xs text-muted-foreground mb-1">T1-Only P&L</div>
+                        <div className={`text-2xl font-bold font-mono ${mktT1.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`} data-testid="text-mkt-t1-pnl">
+                          {mktT1.totalPnl >= 0 ? "+" : ""}${mktT1.totalPnl.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{mktT1.roiOnCapital}% ROI</div>
+                      </div>
+
+                      <div className="text-center text-muted-foreground">
+                        <div className="text-xs mb-1">vs</div>
+                        <div className={`text-lg font-bold font-mono ${mkt.deltaPnl >= 0 ? "text-purple-500" : "text-orange-500"}`} data-testid="text-mkt-delta">
+                          {mkt.deltaPnl >= 0 ? "+" : ""}${mkt.deltaPnl.toLocaleString()}
+                          <span className="text-xs ml-1">({mkt.deltaPct >= 0 ? "+" : ""}{mkt.deltaPct}%)</span>
+                        </div>
+                      </div>
+
+                      <div className="text-center">
+                        <div className="text-xs text-muted-foreground mb-1">Split ½ P&L</div>
+                        <div className={`text-2xl font-bold font-mono ${mktSp.totalPnl >= 0 ? "text-purple-500" : "text-red-500 dark:text-red-400"}`} data-testid="text-mkt-split-pnl">
+                          {mktSp.totalPnl >= 0 ? "+" : ""}${mktSp.totalPnl.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{mktSp.roiOnCapital}% ROI</div>
+                      </div>
+
+                      <div className="ml-auto text-right space-y-1">
+                        <div className="text-xs text-muted-foreground">{mkt.totalResolvedTrades.toLocaleString()} RTH trades</div>
+                        <div className="text-xs text-muted-foreground">Halfway Hit Rate: <span className="font-mono font-medium text-foreground">{mkt.halfwayHitRate}%</span></div>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${mktWinner === "SPLIT" ? "bg-purple-500/10 text-purple-600 border-purple-500/20" : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"}`}
+                          data-testid="badge-mkt-winner"
+                        >
+                          {mktWinner === "SPLIT" ? "Split ½ Wins" : "T1-Only Wins"}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Target className="w-4 h-4" />
+                        T1-Only (Market Hours)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Win Rate</div>
+                          <div className="text-lg font-bold font-mono" data-testid="text-mkt-t1-wr">{mktT1.winRate}%</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Avg P&L</div>
+                          <div className={`text-lg font-bold font-mono ${mktT1.avgPnlPerTrade >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                            {mktT1.avgPnlPerTrade >= 0 ? "+" : ""}${mktT1.avgPnlPerTrade.toFixed(2)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Edge</div>
+                          <div className={`text-lg font-bold font-mono ${mktT1.edgePct >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                            {mktT1.edgePct >= 0 ? "+" : ""}{mktT1.edgePct}%
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                        <span>{mktT1.wins}W / {mktT1.losses}L</span>
+                        <span>${mktT1.capitalRequired.toLocaleString()} req</span>
+                        <span>{mktT1.avgDailyTrades} avg/day</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <ArrowRightLeft className="w-4 h-4" />
+                        Split ½ (Market Hours)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Win Rate</div>
+                          <div className="text-lg font-bold font-mono" data-testid="text-mkt-split-wr">{mktSp.winRate}%</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Avg P&L</div>
+                          <div className={`text-lg font-bold font-mono ${mktSp.avgPnlPerTrade >= 0 ? "text-purple-500" : "text-red-500"}`}>
+                            {mktSp.avgPnlPerTrade >= 0 ? "+" : ""}${mktSp.avgPnlPerTrade.toFixed(2)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Edge</div>
+                          <div className={`text-lg font-bold font-mono ${mktSp.edgePct >= 0 ? "text-purple-500" : "text-red-500"}`}>
+                            {mktSp.edgePct >= 0 ? "+" : ""}{mktSp.edgePct}%
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                        <span>{mktSp.wins}W{(mktSp.partials ?? 0) > 0 ? ` / ${mktSp.partials}P` : ""} / {mktSp.losses}L</span>
+                        <span>${mktSp.capitalRequired.toLocaleString()} req</span>
+                        <span>{mktSp.avgDailyTrades} avg/day</span>
+                        <span>{mkt.halfwayHitRate}% halfway hit</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Market Hours Equity Curve</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      RTH trades only (9:30–16:00 ET): <span className="text-emerald-500">T1-Only</span> vs <span className="text-purple-500">Split ½</span>
+                    </p>
+                  </CardHeader>
+                  <CardContent className="p-2">
+                    {marketHoursCurve.length === 0 ? (
+                      <div className="h-64 flex items-center justify-center text-xs text-muted-foreground">No market hours trades</div>
+                    ) : (
+                      <div className="h-64" data-testid="chart-mkt-equity">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={marketHoursCurve}>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                             <XAxis dataKey="trade" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} label={{ value: "Trade #", position: "insideBottom", offset: -2, fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
                             <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v: number) => `$${v}`} />

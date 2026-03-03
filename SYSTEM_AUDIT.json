@@ -402,8 +402,8 @@
       {
         "route": "/performance-half",
         "file": "client/src/pages/performance-half.tsx",
-        "lines": 718,
-        "purpose": "Split ½ take-profit study: 50% at halfway, 50% at T1 vs T1-only comparison with Activated Only channel"
+        "lines": 915,
+        "purpose": "Split ½ take-profit study: 50% at halfway, 50% at T1 vs T1-only comparison with Activated Only and Market Hours channels"
       },
       {
         "route": "/optimization",

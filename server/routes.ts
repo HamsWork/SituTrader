@@ -2404,6 +2404,18 @@ export async function registerRoutes(
       const splitResults: any[] = [];
       const activatedT1Results: any[] = [];
       const activatedSplitResults: any[] = [];
+      const mktHoursT1Results: any[] = [];
+      const mktHoursSplitResults: any[] = [];
+
+      const isWithinRTH = (ts: string | null | undefined): boolean => {
+        if (!ts) return false;
+        const dt = new Date(ts);
+        const etOffset = -5;
+        const utcH = dt.getUTCHours();
+        const utcM = dt.getUTCMinutes();
+        const etMinutes = ((utcH + etOffset + 24) % 24) * 60 + utcM;
+        return etMinutes >= 570 && etMinutes <= 960;
+      };
 
       const signalDateKeys = new Set<string>();
 
@@ -2494,6 +2506,8 @@ export async function registerRoutes(
         };
         t1OnlyResults.push(t1Row);
         if (wasActivated) activatedT1Results.push(t1Row);
+        const sigInRTH = isHit ? isWithinRTH(sig.hitTs as string | null) : true;
+        if (sigInRTH) mktHoursT1Results.push(t1Row);
 
         const halfShares = Math.floor(shares / 2);
         const remainShares = shares - halfShares;
@@ -2555,6 +2569,7 @@ export async function registerRoutes(
         };
         splitResults.push(splitRow);
         if (wasActivated) activatedSplitResults.push(splitRow);
+        if (sigInRTH) mktHoursSplitResults.push(splitRow);
       }
 
       const seenBacktestKeys = new Set<string>();
@@ -2612,8 +2627,11 @@ export async function registerRoutes(
           }
 
           const id = btIdCounter--;
+          const btInRTH = d.hit
+            ? (d.timeToHitMin == null || (d.timeToHitMin >= 0 && d.timeToHitMin <= 390))
+            : true;
 
-          t1OnlyResults.push({
+          const btT1Row = {
             signalId: id,
             ticker: bt.ticker,
             setupType: bt.setupType,
@@ -2629,7 +2647,9 @@ export async function registerRoutes(
             pnlPct: Math.round((t1Pnl / actualInvested) * 10000) / 100,
             outcome: t1Outcome,
             source: "backtest",
-          });
+          };
+          t1OnlyResults.push(btT1Row);
+          if (btInRTH) mktHoursT1Results.push(btT1Row);
 
           const halfShares = Math.floor(shares / 2);
           const remainShares = shares - halfShares;
@@ -2667,7 +2687,7 @@ export async function registerRoutes(
             }
           }
 
-          splitResults.push({
+          const btSplitRow = {
             signalId: id,
             ticker: bt.ticker,
             setupType: bt.setupType,
@@ -2687,7 +2707,9 @@ export async function registerRoutes(
             outcome: splitOutcome,
             halfwayHit,
             source: "backtest",
-          });
+          };
+          splitResults.push(btSplitRow);
+          if (btInRTH) mktHoursSplitResults.push(btSplitRow);
         }
       }
 
@@ -2760,21 +2782,29 @@ export async function registerRoutes(
 
       activatedT1Results.sort((a, b) => a.date.localeCompare(b.date));
       activatedSplitResults.sort((a, b) => a.date.localeCompare(b.date));
+      mktHoursT1Results.sort((a, b) => a.date.localeCompare(b.date));
+      mktHoursSplitResults.sort((a, b) => a.date.localeCompare(b.date));
 
       const filteredT1 = filterByPeriod(t1OnlyResults, period);
       const filteredSplit = filterByPeriod(splitResults, period);
       const filteredActT1 = filterByPeriod(activatedT1Results, period);
       const filteredActSplit = filterByPeriod(activatedSplitResults, period);
+      const filteredMktT1 = filterByPeriod(mktHoursT1Results, period);
+      const filteredMktSplit = filterByPeriod(mktHoursSplitResults, period);
 
       const t1Curve = buildCurve(filteredT1);
       const splitCurve = buildCurve(filteredSplit);
       const actT1Curve = buildCurve(filteredActT1);
       const actSplitCurve = buildCurve(filteredActSplit);
+      const mktT1Curve = buildCurve(filteredMktT1);
+      const mktSplitCurve = buildCurve(filteredMktSplit);
 
       const t1Summary = buildSummary(filteredT1);
       const splitSummary = buildSummary(filteredSplit);
       const actT1Summary = buildSummary(filteredActT1);
       const actSplitSummary = buildSummary(filteredActSplit);
+      const mktT1Summary = buildSummary(filteredMktT1);
+      const mktSplitSummary = buildSummary(filteredMktSplit);
 
       const halfwayHitCount = filteredSplit.filter(t => t.halfwayHit).length;
       const halfwayHitRate = filteredSplit.length > 0
@@ -2784,6 +2814,11 @@ export async function registerRoutes(
       const actHalfwayHitCount = filteredActSplit.filter(t => t.halfwayHit).length;
       const actHalfwayHitRate = filteredActSplit.length > 0
         ? Math.round((actHalfwayHitCount / filteredActSplit.length) * 1000) / 10
+        : 0;
+
+      const mktHalfwayHitCount = filteredMktSplit.filter(t => t.halfwayHit).length;
+      const mktHalfwayHitRate = filteredMktSplit.length > 0
+        ? Math.round((mktHalfwayHitCount / filteredMktSplit.length) * 1000) / 10
         : 0;
 
       const totalFilteredTrades = filteredSplit.length;
@@ -2813,6 +2848,19 @@ export async function registerRoutes(
             : 0,
           t1Curve: sampleCurve(actT1Curve),
           splitCurve: sampleCurve(actSplitCurve),
+        },
+        marketHours: {
+          totalResolvedTrades: mktHoursSplitResults.length,
+          halfwayHitCount: mktHalfwayHitCount,
+          halfwayHitRate: mktHalfwayHitRate,
+          t1OnlySummary: mktT1Summary,
+          splitSummary: mktSplitSummary,
+          deltaPnl: Math.round((mktSplitSummary.totalPnl - mktT1Summary.totalPnl) * 100) / 100,
+          deltaPct: mktT1Summary.totalPnl !== 0
+            ? Math.round(((mktSplitSummary.totalPnl - mktT1Summary.totalPnl) / Math.abs(mktT1Summary.totalPnl)) * 10000) / 100
+            : 0,
+          t1Curve: sampleCurve(mktT1Curve),
+          splitCurve: sampleCurve(mktSplitCurve),
         },
         t1Curve: sampleCurve(t1Curve),
         splitCurve: sampleCurve(splitCurve),
