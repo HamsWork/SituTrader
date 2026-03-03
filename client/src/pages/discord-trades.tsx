@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, Fragment } from "react";
+import { useState, useRef, useCallback, Fragment } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, MessageSquare, ChevronDown, ChevronRight, Save, RotateCcw, Eye, Info } from "lucide-react";
+import { Loader2, MessageSquare, ChevronDown, ChevronRight, Save, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { DiscordTradeLog, EmbedTemplate } from "@shared/schema";
@@ -278,10 +278,11 @@ function EmbedTemplatesTab() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [editJson, setEditJson] = useState<string>("");
   const [editName, setEditName] = useState<string>("");
-  const [showVars, setShowVars] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
   const [eventFilter, setEventFilter] = useState<string>("all");
+  const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: templates, isLoading } = useQuery<EmbedTemplate[]>({
     queryKey: ["/api/embed-templates"],
@@ -341,11 +342,26 @@ function EmbedTemplatesTab() {
     },
   });
 
+  const fetchPreview = useCallback(async (json: string) => {
+    try {
+      const parsed = JSON.parse(json);
+      setPreviewLoading(true);
+      const res = await apiRequest("POST", "/api/embed-templates/preview", { embedJson: parsed });
+      const data = await res.json();
+      setPreviewData(data);
+    } catch {
+      setPreviewData(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
   const selectTemplate = (t: EmbedTemplate) => {
     setSelectedId(t.id);
-    setEditJson(JSON.stringify(t.embedJson, null, 2));
+    const json = JSON.stringify(t.embedJson, null, 2);
+    setEditJson(json);
     setEditName(t.templateName);
-    setPreviewData(null);
+    fetchPreview(json);
   };
 
   const handleSave = () => {
@@ -358,14 +374,18 @@ function EmbedTemplatesTab() {
     }
   };
 
-  const handlePreview = async () => {
+  const handleJsonChange = (val: string) => {
+    setEditJson(val);
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
+    previewDebounceRef.current = setTimeout(() => fetchPreview(val), 600);
+  };
+
+  const insertVariable = (varKey: string) => {
     try {
-      const parsed = JSON.parse(editJson);
-      const res = await apiRequest("POST", "/api/embed-templates/preview", { embedJson: parsed });
-      const data = await res.json();
-      setPreviewData(data);
-    } catch (err: any) {
-      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+      navigator.clipboard.writeText(varKey);
+      toast({ title: `Copied ${varKey}`, description: "Paste it into the JSON where you need it" });
+    } catch {
+      toast({ title: varKey, description: "Copy this variable into your JSON" });
     }
   };
 
@@ -402,12 +422,7 @@ function EmbedTemplatesTab() {
       <div className="col-span-4 space-y-3">
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Templates ({templates.length})</CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => setShowVars(!showVars)} data-testid="button-toggle-vars">
-                <Info className="w-4 h-4" />
-              </Button>
-            </div>
+            <CardTitle className="text-sm font-medium">Templates ({templates.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex gap-2">
@@ -477,30 +492,12 @@ function EmbedTemplatesTab() {
       </div>
 
       <div className="col-span-8 space-y-3">
-        {showVars && variables && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Available Variables</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-1 text-xs">
-                {Object.entries(variables).map(([key, desc]) => (
-                  <div key={key} className="flex gap-2">
-                    <code className="text-primary font-mono bg-muted px-1 rounded whitespace-nowrap">{key}</code>
-                    <span className="text-muted-foreground truncate">{desc}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {selectedId ? (
           <>
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Edit Template</CardTitle>
+                  <CardTitle className="text-sm font-medium">Live Preview</CardTitle>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -511,15 +508,6 @@ function EmbedTemplatesTab() {
                     >
                       <RotateCcw className="w-3 h-3 mr-1" />
                       Reset
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePreview}
-                      data-testid="button-preview-template"
-                    >
-                      <Eye className="w-3 h-3 mr-1" />
-                      Preview
                     </Button>
                     <Button
                       size="sm"
@@ -533,6 +521,51 @@ function EmbedTemplatesTab() {
                   </div>
                 </div>
               </CardHeader>
+              <CardContent>
+                {previewLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mr-2" />
+                    <span className="text-sm text-muted-foreground">Updating preview...</span>
+                  </div>
+                ) : previewData ? (
+                  <EmbedPreview embed={previewData} />
+                ) : (
+                  <div className="text-sm text-muted-foreground py-4 text-center">
+                    Preview will appear here as you edit
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {variables && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Insert Variable</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(variables).map(([key, desc]) => (
+                      <Badge
+                        key={key}
+                        variant="outline"
+                        className="cursor-pointer text-xs font-mono gap-1 px-2 py-1"
+                        onClick={() => insertVariable(key)}
+                        title={desc}
+                        data-testid={`var-btn-${key.replace(/[{}]/g, "")}`}
+                      >
+                        {key}
+                        <span className="text-muted-foreground text-[10px] font-sans hidden lg:inline">{desc}</span>
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Embed JSON</CardTitle>
+              </CardHeader>
               <CardContent className="space-y-3">
                 <div>
                   <label className="text-xs text-muted-foreground">Template Name</label>
@@ -544,27 +577,15 @@ function EmbedTemplatesTab() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-muted-foreground">Embed JSON</label>
                   <Textarea
                     value={editJson}
-                    onChange={(e) => setEditJson(e.target.value)}
-                    className="font-mono text-xs min-h-[300px]"
+                    onChange={(e) => handleJsonChange(e.target.value)}
+                    className="font-mono text-xs min-h-[350px]"
                     data-testid="textarea-embed-json"
                   />
                 </div>
               </CardContent>
             </Card>
-
-            {previewData && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Preview (sample data)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <EmbedPreview embed={previewData} />
-                </CardContent>
-              </Card>
-            )}
           </>
         ) : (
           <Card>
