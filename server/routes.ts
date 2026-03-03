@@ -12,7 +12,7 @@ import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from 
 import { generateTradePlan } from "./lib/tradeplan";
 import { runBacktest, computeAndStoreTimeToHitStats } from "./lib/backtest";
 import { runAlerts } from "./lib/alerts";
-import { runActivationScan } from "./lib/activation";
+import { runActivationScan, checkEntryTrigger } from "./lib/activation";
 import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
 import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy";
 import { log } from "./index";
@@ -2631,6 +2631,12 @@ export async function registerRoutes(
             ? (d.timeToHitMin == null || (d.timeToHitMin >= 0 && d.timeToHitMin <= 390))
             : true;
 
+          const btActivated = d.activated === true;
+          let btEntryForActivated = entryPrice;
+          if (btActivated && d.activationPrice && d.activationPrice > 0) {
+            btEntryForActivated = d.activationPrice;
+          }
+
           const btT1Row = {
             signalId: id,
             ticker: bt.ticker,
@@ -2650,6 +2656,46 @@ export async function registerRoutes(
           };
           t1OnlyResults.push(btT1Row);
           if (btInRTH) mktHoursT1Results.push(btT1Row);
+
+          if (btActivated) {
+            const actEntry = btEntryForActivated;
+            const actShares = Math.floor(capitalPerTrade / actEntry);
+            if (actShares > 0) {
+              const actInvested = actShares * actEntry;
+              let actT1Pnl: number;
+              let actT1Exit: number;
+              let actT1Outcome: string;
+              if (d.hit) {
+                actT1Exit = magnetPrice;
+                actT1Pnl = bias === "BUY"
+                  ? (actT1Exit - actEntry) * actShares
+                  : (actEntry - actT1Exit) * actShares;
+                actT1Outcome = "HIT_T1";
+              } else {
+                const actStopDist = actEntry * 0.01;
+                actT1Exit = bias === "BUY" ? actEntry - actStopDist : actEntry + actStopDist;
+                actT1Pnl = -actStopDist * actShares;
+                actT1Outcome = "STOPPED";
+              }
+              activatedT1Results.push({
+                signalId: id,
+                ticker: bt.ticker,
+                setupType: bt.setupType,
+                direction: bias === "BUY" ? "BULLISH" : "BEARISH",
+                bias,
+                instrumentType: "SHARES",
+                date: d.date,
+                entryPrice: Math.round(actEntry * 100) / 100,
+                exitPrice: Math.round(actT1Exit * 100) / 100,
+                shares: actShares,
+                invested: Math.round(actInvested * 100) / 100,
+                pnlDollar: Math.round(actT1Pnl * 100) / 100,
+                pnlPct: Math.round((actT1Pnl / actInvested) * 10000) / 100,
+                outcome: actT1Outcome,
+                source: "backtest",
+              });
+            }
+          }
 
           const halfShares = Math.floor(shares / 2);
           const remainShares = shares - halfShares;
@@ -2710,6 +2756,73 @@ export async function registerRoutes(
           };
           splitResults.push(btSplitRow);
           if (btInRTH) mktHoursSplitResults.push(btSplitRow);
+
+          if (btActivated) {
+            const actEntry = btEntryForActivated;
+            const actShares = Math.floor(capitalPerTrade / actEntry);
+            if (actShares > 0) {
+              const actInvested = actShares * actEntry;
+              const actHalfShares = Math.floor(actShares / 2);
+              const actRemainShares = actShares - actHalfShares;
+              const actHalfwayPrice = bias === "BUY"
+                ? actEntry + (magnetPrice - actEntry) / 2
+                : actEntry - (actEntry - magnetPrice) / 2;
+
+              let actSplitPnl: number;
+              let actSplitOutcome: string;
+              let actHalfwayHit = false;
+
+              if (d.hit) {
+                const halfLeg = bias === "BUY"
+                  ? (actHalfwayPrice - actEntry) * actHalfShares
+                  : (actEntry - actHalfwayPrice) * actHalfShares;
+                const remainLeg = bias === "BUY"
+                  ? (magnetPrice - actEntry) * actRemainShares
+                  : (actEntry - magnetPrice) * actRemainShares;
+                actSplitPnl = halfLeg + remainLeg;
+                actSplitOutcome = "HIT_T1";
+                actHalfwayHit = true;
+              } else {
+                const mfeVal = d.mfe || 0;
+                const mfeAbs = mfeVal * actEntry;
+                const halfDist = Math.abs(actHalfwayPrice - actEntry);
+                if (mfeAbs >= halfDist && halfDist > 0) {
+                  actHalfwayHit = true;
+                  const halfLeg = bias === "BUY"
+                    ? (actHalfwayPrice - actEntry) * actHalfShares
+                    : (actEntry - actHalfwayPrice) * actHalfShares;
+                  actSplitPnl = halfLeg;
+                  actSplitOutcome = "PARTIAL";
+                } else {
+                  const actStopDist = actEntry * 0.01;
+                  actSplitPnl = -actStopDist * actShares;
+                  actSplitOutcome = "STOPPED";
+                }
+              }
+
+              activatedSplitResults.push({
+                signalId: id,
+                ticker: bt.ticker,
+                setupType: bt.setupType,
+                direction: bias === "BUY" ? "BULLISH" : "BEARISH",
+                bias,
+                instrumentType: "SHARES",
+                date: d.date,
+                entryPrice: Math.round(actEntry * 100) / 100,
+                halfwayPrice: Math.round(actHalfwayPrice * 100) / 100,
+                t1Price: Math.round(magnetPrice * 100) / 100,
+                shares: actShares,
+                halfShares: actHalfShares,
+                remainShares: actRemainShares,
+                invested: Math.round(actInvested * 100) / 100,
+                pnlDollar: Math.round(actSplitPnl * 100) / 100,
+                pnlPct: Math.round((actSplitPnl / actInvested) * 10000) / 100,
+                outcome: actSplitOutcome,
+                halfwayHit: actHalfwayHit,
+                source: "backtest",
+              });
+            }
+          }
         }
       }
 
@@ -2867,6 +2980,90 @@ export async function registerRoutes(
         trades: paginatedTrades,
         pagination: { page, pageSize, totalFilteredTrades, totalPages },
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/backtests/backfill-activation", async (req, res) => {
+    try {
+      const allBacktests = await storage.getBacktests();
+      let enriched = 0;
+      let skipped = 0;
+
+      for (const bt of allBacktests) {
+        const details = bt.details as any[] | null;
+        if (!details || details.length === 0) { skipped++; continue; }
+
+        let modified = false;
+        const updatedDetails = [];
+
+        for (const d of details) {
+          if (!d.triggered || d.activated !== undefined) {
+            updatedDetails.push(d);
+            continue;
+          }
+
+          let intradayBars: any[] = await storage.getIntradayBars(bt.ticker, d.date, "5");
+          if (intradayBars.length === 0) {
+            try {
+              const cachedBars = await fetchIntradayBarsCached(bt.ticker, d.date, d.date, "5");
+              if (cachedBars.length > 0) {
+                intradayBars = cachedBars.map((b: any) => ({
+                  ts: new Date(b.t).toISOString(),
+                  open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
+                }));
+              }
+            } catch {}
+          }
+          if (intradayBars.length === 0) {
+            updatedDetails.push({ ...d, activated: false });
+            modified = true;
+            continue;
+          }
+
+          const ePrice = d.entryPrice || (intradayBars[0]?.open ?? 0);
+          const bias: "BUY" | "SELL" = d.magnetPrice >= ePrice ? "BUY" : "SELL";
+          const syntheticTP = {
+            bias,
+            t1: d.magnetPrice,
+            stopDistance: ePrice * 0.01,
+            riskReward: 0,
+            entryTrigger: "",
+            invalidation: "",
+            notes: "",
+          };
+
+          try {
+            const result = checkEntryTrigger(
+              intradayBars.map((b: any) => ({
+                ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
+              })),
+              syntheticTP,
+              "conservative",
+            );
+            updatedDetails.push({
+              ...d,
+              activated: result.triggered,
+              activationPrice: result.entryPrice,
+              activationTs: result.triggerTs,
+            });
+            modified = true;
+          } catch {
+            updatedDetails.push({ ...d, activated: false });
+            modified = true;
+          }
+        }
+
+        if (modified) {
+          await storage.updateBacktestDetails(bt.id, updatedDetails);
+          enriched++;
+        } else {
+          skipped++;
+        }
+      }
+
+      res.json({ ok: true, enriched, skipped, total: allBacktests.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

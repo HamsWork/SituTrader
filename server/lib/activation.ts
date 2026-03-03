@@ -35,7 +35,7 @@ function computeEntryTriggerPrice(
   return isSell ? prevBar.low : prevBar.high;
 }
 
-function checkEntryTrigger(
+export function checkEntryTrigger(
   bars: Array<{
     ts: string;
     open: number;

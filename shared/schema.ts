@@ -552,6 +552,9 @@ export interface BacktestDetail {
   mfe?: number;
   magnetPrice: number;
   entryPrice?: number;
+  activated?: boolean;
+  activationPrice?: number;
+  activationTs?: string;
 }
 
 export interface OptionsCandidate {

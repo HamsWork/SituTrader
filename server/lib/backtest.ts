@@ -1,9 +1,10 @@
 import { storage } from "../storage";
 import { detectAllSetups, type SetupResult } from "./rules";
 import { validateMagnetTouch, computeMAEMFE, filterRTHBars } from "./validate";
+import { checkEntryTrigger } from "./activation";
 import { fetchIntradayBarsCached } from "./polygon";
 import { formatDate } from "./calendar";
-import type { BacktestDetail, Backtest, TimeToHitStat } from "@shared/schema";
+import type { BacktestDetail, Backtest, TimeToHitStat, TradePlan } from "@shared/schema";
 import { log } from "../index";
 
 export async function runBacktest(
@@ -105,6 +106,31 @@ export async function runBacktest(
       if (result.timeToHitMin !== undefined) timesToHit.push(result.timeToHitMin);
     }
 
+    let activated = false;
+    let activationPrice: number | undefined;
+    let activationTs: string | undefined;
+    try {
+      const syntheticTradePlan: TradePlan = {
+        bias: setup.direction.includes("up") ? "BUY" : "SELL",
+        t1: setup.magnetPrice,
+        stopDistance: entryPrice * 0.01,
+        riskReward: 0,
+        entryTrigger: "",
+        invalidation: "",
+        notes: "",
+      };
+      const triggerResult = checkEntryTrigger(
+        intradayBarsData.map(b => ({
+          ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
+        })),
+        syntheticTradePlan,
+        "conservative",
+      );
+      activated = triggerResult.triggered;
+      activationPrice = triggerResult.entryPrice;
+      activationTs = triggerResult.triggerTs;
+    } catch {}
+
     details.push({
       date: setup.asofDate,
       triggered: true,
@@ -114,6 +140,9 @@ export async function runBacktest(
       mfe,
       magnetPrice: setup.magnetPrice,
       entryPrice,
+      activated,
+      activationPrice,
+      activationTs,
     });
   }
 

@@ -54,6 +54,7 @@ export interface IStorage {
 
   upsertBacktest(bt: Omit<Backtest, "id" | "createdAt">): Promise<Backtest>;
   getBacktests(): Promise<Backtest[]>;
+  updateBacktestDetails(id: number, details: any[]): Promise<void>;
 
   createBacktestJob(job: Omit<BacktestJob, "id" | "createdAt" | "updatedAt">): Promise<BacktestJob>;
   getActiveBacktestJob(): Promise<BacktestJob | null>;
@@ -453,6 +454,10 @@ export class DatabaseStorage implements IStorage {
 
   async getBacktests(): Promise<Backtest[]> {
     return db.select().from(backtests).orderBy(desc(backtests.createdAt));
+  }
+
+  async updateBacktestDetails(id: number, details: any[]): Promise<void> {
+    await db.update(backtests).set({ details }).where(eq(backtests.id, id));
   }
 
   async createBacktestJob(job: Omit<BacktestJob, "id" | "createdAt" | "updatedAt">): Promise<BacktestJob> {

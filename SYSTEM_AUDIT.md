@@ -323,7 +323,7 @@ Wouter-based routing with sidebar navigation:
 | `/settings` | Settings | 985 |
 | `/optimization` | Optimization | 1,002 |
 | `/performance` | Performance | 596 |
-| `/performance-half` | Performance ½ Study | 915 |
+| `/performance-half` | Performance ½ Study | 950 |
 | `/symbol/:ticker` | Symbol Detail | 560 |
 | `/backtest` | Backtest | 647 |
 | `/ibkr` | IBKR Dashboard | 401 |
@@ -491,6 +491,7 @@ Backtest results and analysis interface.
 ### Performance
 - `GET /api/performance/analysis` — P&L analytics with time window params
 - `GET /api/performance-half/analysis` — Split ½ study: 50% at halfway, 50% at T1 vs T1-only comparison
+- `POST /api/backtests/backfill-activation` — Enriches existing backtest details with activation simulation data
 
 ### Reliability & Robustness
 - `GET /api/analysis/reliability` — Compute and return reliability summary with 10-gate scoring

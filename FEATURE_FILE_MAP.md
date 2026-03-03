@@ -200,7 +200,7 @@ This document maps every major feature to the specific files and key functions/e
 - Dual equity curve overlay (T1-Only green solid vs Split ½ purple dashed)
 - Trade history with halfway price, T1 price, ½ Hit status, and PARTIAL outcome
 - MFE-based halfway hit detection for missed trades
-- Activated Only channel: filters to signals with RTH activation (activatedTs, IBKR trade, or activationStatus ACTIVE/INVALIDATED), with separate comparison banner, model cards, and equity curve
+- Activated Only channel: filters to trades where the conservative entry trigger (breakout + retest) fired. For backtests, uses simulated activation via `checkEntryTrigger` against intraday bars; for live signals, uses activatedTs/activationStatus. Backfill endpoint enriches existing backtests with activation data
 - Market Hours channel: filters to trades resolved during RTH (9:30 AM – 4:00 PM ET) using hitTs for live signals and timeToHitMin for backtests, with separate comparison banner, model cards, and equity curve
 - Period filter (30/60/90/120 days) scopes all sections
 - Period-scoped summaries and curves (30d/60d/90d/91+/Total)

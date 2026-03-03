@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -37,7 +38,11 @@ import {
   Target,
   DollarSign,
   ArrowRightLeft,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import { SETUP_LABELS, type SetupType } from "@shared/schema";
 
 interface SplitTrade {
@@ -126,12 +131,28 @@ export default function PerformanceHalfPage() {
   const [page, setPage] = useState(1);
   const pageSize = 100;
 
+  const { toast } = useToast();
+
   const { data, isLoading } = useQuery<PerformanceHalfData>({
     queryKey: ["/api/performance-half/analysis", capital, periodFilter, page],
     queryFn: async () => {
       const res = await fetch(`/api/performance-half/analysis?capital=${capital}&period=${periodFilter}&page=${page}&pageSize=${pageSize}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
+    },
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/backtests/backfill-activation");
+      return res.json();
+    },
+    onSuccess: (result: any) => {
+      toast({ title: "Backfill Complete", description: `Enriched ${result.enriched} backtests with activation data. Refresh to see updated results.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/performance-half/analysis"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Backfill Failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -424,10 +445,24 @@ export default function PerformanceHalfPage() {
                   <Card>
                     <CardContent className="p-8 text-center">
                       <Activity className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground" data-testid="text-activated-empty">No activated trades resolved yet</p>
+                      <p className="text-sm text-muted-foreground" data-testid="text-activated-empty">No activated trades found</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        This section tracks signals that triggered entry during RTH. Data will populate as activated trades resolve to hit or miss.
+                        Existing backtests may not have activation data yet. Run the backfill to enrich them with entry trigger simulation.
                       </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => backfillMutation.mutate()}
+                        disabled={backfillMutation.isPending}
+                        data-testid="button-backfill-activation"
+                      >
+                        {backfillMutation.isPending ? (
+                          <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Backfilling...</>
+                        ) : (
+                          <><RefreshCw className="w-3 h-3 mr-1" /> Backfill Activation Data</>
+                        )}
+                      </Button>
                     </CardContent>
                   </Card>
                 ) : (
