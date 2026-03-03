@@ -339,7 +339,7 @@ The primary interface. Features:
 - Signal detail expansion with trade plan and quality breakdown
 - Quick actions: scan, rescore, activate checks
 
-### 5.3 Performance (`client/src/pages/performance.tsx` — 665 lines)
+### 5.3 Performance (`client/src/pages/performance.tsx` — 932 lines)
 P&L analytics with exclusive time windows:
 - Lookback periods: 30 days, 31–60 days, 61–90 days, Total
 - Equity curve chart (Recharts)
@@ -348,6 +348,7 @@ P&L analytics with exclusive time windows:
 - Full trade history table with sorting
 - KPI cards: capital required, ROI, win rate, best/worst trades
 - Activated Only toggle: filters to trades that moved On Deck → Active during market hours
+- ROI Insights panel (collapsible): setup rankings with activated win rates and lift, quality score breakdown, top tickers for best setup, avoid list, 1-trade-per-day recommendation
 
 ### 5.4 Optimization (`client/src/pages/optimization.tsx` — 1,002 lines)
 Intelligence dashboard for setup grading:

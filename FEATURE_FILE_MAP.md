@@ -183,6 +183,9 @@ This document maps every major feature to the specific files and key functions/e
 - Instrument breakdown (Options/Shares/LETF)
 - Trade history table with sorting
 - Activated Only toggle (filters to On Deck → Active trades only)
+- ROI Insights panel: setup rankings, quality score breakdown, top tickers, avoid list, 1-trade recommendation
+
+**ROI Insights API:** `GET /api/performance/roi-insights`
 
 ---
 

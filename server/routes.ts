@@ -2364,6 +2364,138 @@ export async function registerRoutes(
     }
   });
 
+  // ── Performance ROI Insights ──
+
+  app.get("/api/performance/roi-insights", async (req, res) => {
+    try {
+      const allBacktests = await storage.getBacktests();
+
+      const bySetup: Record<string, { wins: number; losses: number; count: number; actWins: number; actLosses: number; actCount: number }> = {};
+      const byTicker: Record<string, { wins: number; losses: number; count: number; actWins: number; actLosses: number; actCount: number }> = {};
+      const bySetupTicker: Record<string, { wins: number; losses: number; count: number }> = {};
+      const byQS: Record<string, { wins: number; losses: number; count: number }> = {};
+
+      const qsBuckets = [
+        { label: "90-100", lo: 90, hi: 101 },
+        { label: "80-89", lo: 80, hi: 90 },
+        { label: "70-79", lo: 70, hi: 80 },
+        { label: "60-69", lo: 60, hi: 70 },
+        { label: "50-59", lo: 50, hi: 60 },
+        { label: "0-49", lo: 0, hi: 50 },
+      ];
+
+      for (const bt of allBacktests) {
+        const details = bt.details as any[] | null;
+        if (!details) continue;
+        const s = bt.setupType;
+        const tick = bt.ticker;
+        const qs = Math.round((bt.hitRate ?? 0.5) * 100);
+
+        if (!bySetup[s]) bySetup[s] = { wins: 0, losses: 0, count: 0, actWins: 0, actLosses: 0, actCount: 0 };
+        if (!byTicker[tick]) byTicker[tick] = { wins: 0, losses: 0, count: 0, actWins: 0, actLosses: 0, actCount: 0 };
+
+        for (const d of details) {
+          if (!d.triggered) continue;
+          const hit = !!d.hit;
+          const activated = d.activated === true;
+
+          bySetup[s].count++;
+          byTicker[tick].count++;
+          if (hit) { bySetup[s].wins++; byTicker[tick].wins++; }
+          else { bySetup[s].losses++; byTicker[tick].losses++; }
+
+          if (activated) {
+            bySetup[s].actCount++;
+            byTicker[tick].actCount++;
+            if (hit) { bySetup[s].actWins++; byTicker[tick].actWins++; }
+            else { bySetup[s].actLosses++; byTicker[tick].actLosses++; }
+
+            const stKey = `${s}|${tick}`;
+            if (!bySetupTicker[stKey]) bySetupTicker[stKey] = { wins: 0, losses: 0, count: 0 };
+            bySetupTicker[stKey].count++;
+            if (hit) bySetupTicker[stKey].wins++;
+            else bySetupTicker[stKey].losses++;
+
+            for (const bucket of qsBuckets) {
+              if (qs >= bucket.lo && qs < bucket.hi) {
+                if (!byQS[bucket.label]) byQS[bucket.label] = { wins: 0, losses: 0, count: 0 };
+                byQS[bucket.label].count++;
+                if (hit) byQS[bucket.label].wins++;
+                else byQS[bucket.label].losses++;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      const setupRankings = Object.entries(bySetup)
+        .map(([setup, b]) => ({
+          setup,
+          totalTrades: b.count,
+          winRate: b.count > 0 ? Math.round(b.wins / b.count * 1000) / 10 : 0,
+          activatedTrades: b.actCount,
+          activatedWinRate: b.actCount > 0 ? Math.round(b.actWins / b.actCount * 1000) / 10 : 0,
+          lift: b.actCount > 0 && b.count > 0 ? Math.round((b.actWins / b.actCount - b.wins / b.count) * 1000) / 10 : 0,
+        }))
+        .sort((a, b) => b.activatedWinRate - a.activatedWinRate);
+
+      const bestSetup = setupRankings.length > 0 ? setupRankings[0].setup : null;
+
+      const topTickers = Object.entries(bySetupTicker)
+        .filter(([key, b]) => key.startsWith(`${bestSetup}|`) && b.count >= 30)
+        .map(([key, b]) => ({
+          ticker: key.split("|")[1],
+          setup: bestSetup!,
+          trades: b.count,
+          winRate: Math.round(b.wins / b.count * 1000) / 10,
+          wins: b.wins,
+          losses: b.losses,
+        }))
+        .sort((a, b) => b.winRate - a.winRate)
+        .slice(0, 20);
+
+      const avoidTickers = Object.entries(byTicker)
+        .filter(([_, b]) => b.actCount >= 50)
+        .map(([tick, b]) => ({
+          ticker: tick,
+          trades: b.actCount,
+          winRate: Math.round(b.actWins / b.actCount * 1000) / 10,
+        }))
+        .sort((a, b) => a.winRate - b.winRate)
+        .slice(0, 10);
+
+      const qualityScoreBreakdown = qsBuckets
+        .filter(bucket => byQS[bucket.label]?.count > 0)
+        .map(bucket => {
+          const b = byQS[bucket.label];
+          return {
+            range: bucket.label,
+            trades: b.count,
+            winRate: Math.round(b.wins / b.count * 1000) / 10,
+            wins: b.wins,
+            losses: b.losses,
+          };
+        });
+
+      const totalActivated = Object.values(bySetup).reduce((s, b) => s + b.actCount, 0);
+      const totalActivatedWins = Object.values(bySetup).reduce((s, b) => s + b.actWins, 0);
+
+      res.json({
+        totalBacktestTrades: Object.values(bySetup).reduce((s, b) => s + b.count, 0),
+        totalActivatedTrades: totalActivated,
+        overallActivatedWinRate: totalActivated > 0 ? Math.round(totalActivatedWins / totalActivated * 1000) / 10 : 0,
+        setupRankings,
+        bestSetup,
+        topTickers,
+        avoidTickers,
+        qualityScoreBreakdown,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Performance ½ — Split Take-Profit Study ──
 
   app.get("/api/performance-half/analysis", async (req, res) => {
