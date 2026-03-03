@@ -185,6 +185,7 @@
       { "method": "POST", "path": "/api/discord/test-options", "purpose": "Test options webhook" },
       { "method": "POST", "path": "/api/discord/test-letf", "purpose": "Test LETF webhook" },
       { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" },
+      { "method": "GET", "path": "/api/performance-half/analysis", "purpose": "Split ½ study: 50% at halfway, 50% at T1 vs T1-only" },
       { "method": "POST", "path": "/api/backtest/jobs/start", "purpose": "Start backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/pause", "purpose": "Pause backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/resume", "purpose": "Resume backtest worker" },
@@ -397,6 +398,12 @@
         "file": "client/src/pages/performance.tsx",
         "lines": 596,
         "purpose": "P&L analytics with exclusive time windows"
+      },
+      {
+        "route": "/performance-half",
+        "file": "client/src/pages/performance-half.tsx",
+        "lines": 502,
+        "purpose": "Split ½ take-profit study: 50% at halfway, 50% at T1 vs T1-only comparison"
       },
       {
         "route": "/optimization",

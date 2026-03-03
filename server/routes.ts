@@ -2353,6 +2353,434 @@ export async function registerRoutes(
     }
   });
 
+  // ── Performance ½ — Split Take-Profit Study ──
+
+  app.get("/api/performance-half/analysis", async (req, res) => {
+    try {
+      const allSignals = await storage.getSignals(undefined, 10000);
+      const allTrades = await storage.getAllIbkrTrades();
+      const allBacktests = await storage.getBacktests();
+
+      const capitalPerTrade = parseFloat(req.query.capital as string) || 1000;
+      const now = new Date();
+
+      const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
+
+      const activeProfile = await storage.getActiveProfile();
+
+      let setupStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
+      try {
+        const overallStats = await storage.getOverallSetupExpectancy();
+        for (const s of overallStats) {
+          if (!s.ticker) {
+            setupStatsMap.set(s.setupType, {
+              sampleSize: s.sampleSize,
+              winRate: s.winRate,
+              expectancyR: s.expectancyR,
+            });
+          }
+        }
+      } catch {}
+
+      const matchesProfile = (sig: any): boolean => {
+        if (!activeProfile) return true;
+        if (!activeProfile.allowedSetups.includes(sig.setupType)) return false;
+        const sigTierRank = TIER_RANK[sig.tier] ?? 3;
+        const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
+        if (sigTierRank > minTierRank) return false;
+        if (sig.qualityScore < activeProfile.minQualityScore) return false;
+        const stat = setupStatsMap.get(sig.setupType);
+        if (stat) {
+          if (activeProfile.minSampleSize > 0 && stat.sampleSize < activeProfile.minSampleSize) return false;
+          if (activeProfile.minHitRate > 0 && stat.winRate < activeProfile.minHitRate) return false;
+          if (activeProfile.minExpectancyR > 0 && stat.expectancyR < activeProfile.minExpectancyR) return false;
+        } else if (activeProfile.minSampleSize > 0 || activeProfile.minHitRate > 0 || activeProfile.minExpectancyR > 0) {
+          return false;
+        }
+        return true;
+      };
+
+      const t1OnlyResults: any[] = [];
+      const splitResults: any[] = [];
+
+      const signalDateKeys = new Set<string>();
+
+      for (const sig of allSignals) {
+        const tp = sig.tradePlanJson as any;
+        if (!tp) continue;
+
+        const isHit = sig.status === "hit";
+        const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
+        if (!isHit && !isMiss) continue;
+
+        if (!matchesProfile(sig)) continue;
+
+        const stopDist = tp.stopDistance || 0;
+        const bias = tp.bias as string | undefined;
+
+        let entryPrice: number;
+        if (sig.entryPriceAtActivation && sig.entryPriceAtActivation > 0) {
+          entryPrice = sig.entryPriceAtActivation;
+        } else if (sig.stopPrice && sig.stopPrice > 0 && stopDist > 0) {
+          entryPrice = bias === "BUY"
+            ? sig.stopPrice + stopDist
+            : sig.stopPrice - stopDist;
+        } else if (tp.riskReward && stopDist > 0 && sig.magnetPrice > 0) {
+          entryPrice = bias === "BUY"
+            ? sig.magnetPrice - (tp.riskReward * stopDist)
+            : sig.magnetPrice + (tp.riskReward * stopDist);
+        } else {
+          continue;
+        }
+
+        if (entryPrice <= 0) continue;
+
+        const shares = Math.floor(capitalPerTrade / entryPrice);
+        if (shares <= 0) continue;
+        const actualInvested = shares * entryPrice;
+
+        const signalDate = sig.hitTs
+          ? new Date(sig.hitTs).toISOString().slice(0, 10)
+          : sig.targetDate;
+
+        signalDateKeys.add(`${sig.ticker}:${sig.setupType}:${signalDate}`);
+
+        const t1Price = tp.t1 || sig.magnetPrice;
+        const halfwayPrice = bias === "BUY"
+          ? entryPrice + (t1Price - entryPrice) / 2
+          : entryPrice - (entryPrice - t1Price) / 2;
+
+        let t1Pnl = 0;
+        let t1Exit: number | null = null;
+        let t1Outcome = "MISS";
+        if (isHit && t1Price) {
+          t1Exit = t1Price;
+          const diff = bias === "BUY"
+            ? (t1Exit - entryPrice) * shares
+            : (entryPrice - t1Exit) * shares;
+          t1Pnl = diff;
+          t1Outcome = "HIT_T1";
+        } else if (isMiss) {
+          const sd = stopDist || (entryPrice * 0.02);
+          t1Exit = bias === "BUY" ? entryPrice - sd : entryPrice + sd;
+          t1Pnl = -sd * shares;
+          t1Outcome = "STOPPED";
+        }
+
+        t1OnlyResults.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          setupType: sig.setupType,
+          direction: sig.direction,
+          bias: bias || sig.direction,
+          instrumentType: sig.instrumentType || "OPTION",
+          date: signalDate,
+          entryPrice: Math.round(entryPrice * 100) / 100,
+          exitPrice: t1Exit ? Math.round(t1Exit * 100) / 100 : null,
+          shares,
+          invested: Math.round(actualInvested * 100) / 100,
+          pnlDollar: Math.round(t1Pnl * 100) / 100,
+          pnlPct: Math.round((t1Pnl / actualInvested) * 10000) / 100,
+          outcome: t1Outcome,
+          source: "signal",
+        });
+
+        const halfShares = Math.floor(shares / 2);
+        const remainShares = shares - halfShares;
+
+        let splitPnl = 0;
+        let splitOutcome = "MISS";
+        let halfwayHit = false;
+
+        if (isHit) {
+          const halfLegPnl = bias === "BUY"
+            ? (halfwayPrice - entryPrice) * halfShares
+            : (entryPrice - halfwayPrice) * halfShares;
+          const remainLegPnl = bias === "BUY"
+            ? (t1Price - entryPrice) * remainShares
+            : (entryPrice - t1Price) * remainShares;
+          splitPnl = halfLegPnl + remainLegPnl;
+          splitOutcome = "HIT_T1";
+          halfwayHit = true;
+        } else if (isMiss) {
+          const sd = stopDist || (entryPrice * 0.02);
+          const mfe = (sig as any).mfe || 0;
+          const mfeAbsolute = mfe * entryPrice;
+          const halfwayDist = Math.abs(halfwayPrice - entryPrice);
+
+          if (mfeAbsolute >= halfwayDist && halfwayDist > 0) {
+            halfwayHit = true;
+            const halfLegPnl = bias === "BUY"
+              ? (halfwayPrice - entryPrice) * halfShares
+              : (entryPrice - halfwayPrice) * halfShares;
+            const remainLegPnl = -sd * remainShares;
+            splitPnl = halfLegPnl + remainLegPnl;
+            splitOutcome = "PARTIAL";
+          } else {
+            splitPnl = -sd * shares;
+            splitOutcome = "STOPPED";
+          }
+        }
+
+        splitResults.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          setupType: sig.setupType,
+          direction: sig.direction,
+          bias: bias || sig.direction,
+          instrumentType: sig.instrumentType || "OPTION",
+          date: signalDate,
+          entryPrice: Math.round(entryPrice * 100) / 100,
+          halfwayPrice: Math.round(halfwayPrice * 100) / 100,
+          t1Price: Math.round(t1Price * 100) / 100,
+          shares,
+          halfShares,
+          remainShares,
+          invested: Math.round(actualInvested * 100) / 100,
+          pnlDollar: Math.round(splitPnl * 100) / 100,
+          pnlPct: Math.round((splitPnl / actualInvested) * 10000) / 100,
+          outcome: splitOutcome,
+          halfwayHit,
+          source: "signal",
+        });
+      }
+
+      const seenBacktestKeys = new Set<string>();
+      const latestBacktests = new Map<string, typeof allBacktests[0]>();
+      for (const bt of allBacktests) {
+        const key = `${bt.ticker}:${bt.setupType}`;
+        const existing = latestBacktests.get(key);
+        if (!existing || bt.id > existing.id) {
+          latestBacktests.set(key, bt);
+        }
+      }
+
+      let btIdCounter = -1;
+      for (const bt of latestBacktests.values()) {
+        const details = bt.details as any[] | null;
+        if (!details) continue;
+
+        for (const d of details) {
+          if (!d.triggered) continue;
+          if (!d.entryPrice || d.entryPrice <= 0) continue;
+          if (!d.date) continue;
+
+          const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
+          if (signalDateKeys.has(dateKey)) continue;
+          if (seenBacktestKeys.has(dateKey)) continue;
+          seenBacktestKeys.add(dateKey);
+
+          const entryPrice = d.entryPrice;
+          const magnetPrice = d.magnetPrice;
+          const bias = magnetPrice >= entryPrice ? "BUY" : "SELL";
+          const stopDist = entryPrice * 0.01;
+
+          const shares = Math.floor(capitalPerTrade / entryPrice);
+          if (shares <= 0) continue;
+          const actualInvested = shares * entryPrice;
+
+          const halfwayPrice = bias === "BUY"
+            ? entryPrice + (magnetPrice - entryPrice) / 2
+            : entryPrice - (entryPrice - magnetPrice) / 2;
+
+          let t1Pnl: number;
+          let t1Outcome: string;
+          let t1ExitPrice: number;
+          if (d.hit) {
+            t1ExitPrice = magnetPrice;
+            const diff = bias === "BUY"
+              ? (t1ExitPrice - entryPrice) * shares
+              : (entryPrice - t1ExitPrice) * shares;
+            t1Pnl = diff;
+            t1Outcome = "HIT_T1";
+          } else {
+            t1ExitPrice = bias === "BUY" ? entryPrice - stopDist : entryPrice + stopDist;
+            t1Pnl = -stopDist * shares;
+            t1Outcome = "STOPPED";
+          }
+
+          const id = btIdCounter--;
+
+          t1OnlyResults.push({
+            signalId: id,
+            ticker: bt.ticker,
+            setupType: bt.setupType,
+            direction: bias === "BUY" ? "BULLISH" : "BEARISH",
+            bias,
+            instrumentType: "SHARES",
+            date: d.date,
+            entryPrice: Math.round(entryPrice * 100) / 100,
+            exitPrice: Math.round(t1ExitPrice * 100) / 100,
+            shares,
+            invested: Math.round(actualInvested * 100) / 100,
+            pnlDollar: Math.round(t1Pnl * 100) / 100,
+            pnlPct: Math.round((t1Pnl / actualInvested) * 10000) / 100,
+            outcome: t1Outcome,
+            source: "backtest",
+          });
+
+          const halfShares = Math.floor(shares / 2);
+          const remainShares = shares - halfShares;
+
+          let splitPnl: number;
+          let splitOutcome: string;
+          let halfwayHit = false;
+
+          if (d.hit) {
+            const halfLegPnl = bias === "BUY"
+              ? (halfwayPrice - entryPrice) * halfShares
+              : (entryPrice - halfwayPrice) * halfShares;
+            const remainLegPnl = bias === "BUY"
+              ? (magnetPrice - entryPrice) * remainShares
+              : (entryPrice - magnetPrice) * remainShares;
+            splitPnl = halfLegPnl + remainLegPnl;
+            splitOutcome = "HIT_T1";
+            halfwayHit = true;
+          } else {
+            const mfe = d.mfe || 0;
+            const mfeAbsolute = mfe * entryPrice;
+            const halfwayDist = Math.abs(halfwayPrice - entryPrice);
+
+            if (mfeAbsolute >= halfwayDist && halfwayDist > 0) {
+              halfwayHit = true;
+              const halfLegPnl = bias === "BUY"
+                ? (halfwayPrice - entryPrice) * halfShares
+                : (entryPrice - halfwayPrice) * halfShares;
+              const remainLegPnl = -stopDist * remainShares;
+              splitPnl = halfLegPnl + remainLegPnl;
+              splitOutcome = "PARTIAL";
+            } else {
+              splitPnl = -stopDist * shares;
+              splitOutcome = "STOPPED";
+            }
+          }
+
+          splitResults.push({
+            signalId: id,
+            ticker: bt.ticker,
+            setupType: bt.setupType,
+            direction: bias === "BUY" ? "BULLISH" : "BEARISH",
+            bias,
+            instrumentType: "SHARES",
+            date: d.date,
+            entryPrice: Math.round(entryPrice * 100) / 100,
+            halfwayPrice: Math.round(halfwayPrice * 100) / 100,
+            t1Price: Math.round(magnetPrice * 100) / 100,
+            shares,
+            halfShares,
+            remainShares,
+            invested: Math.round(actualInvested * 100) / 100,
+            pnlDollar: Math.round(splitPnl * 100) / 100,
+            pnlPct: Math.round((splitPnl / actualInvested) * 10000) / 100,
+            outcome: splitOutcome,
+            halfwayHit,
+            source: "backtest",
+          });
+        }
+      }
+
+      t1OnlyResults.sort((a, b) => a.date.localeCompare(b.date));
+      splitResults.sort((a, b) => a.date.localeCompare(b.date));
+
+      const buildCurve = (trades: any[]) => {
+        let cumPnl = 0;
+        return trades.map((t, i) => {
+          cumPnl += t.pnlDollar;
+          return { trade: i + 1, date: t.date, ticker: t.ticker, pnl: Math.round(t.pnlDollar * 100) / 100, cumPnl: Math.round(cumPnl * 100) / 100 };
+        });
+      };
+
+      const buildSummary = (trades: any[]) => {
+        const totalTrades = trades.length;
+        const wins = trades.filter(t => t.outcome === "HIT_T1").length;
+        const partials = trades.filter(t => t.outcome === "PARTIAL").length;
+        const losses = trades.filter(t => t.outcome === "STOPPED").length;
+        const totalPnl = trades.reduce((s, t) => s + t.pnlDollar, 0);
+        const totalInvested = trades.reduce((s, t) => s + t.invested, 0);
+        const maxConcurrent = Math.min(totalTrades, 10);
+        const capitalRequired = maxConcurrent * capitalPerTrade;
+        const winRate = totalTrades > 0 ? wins / totalTrades : 0;
+        const avgPnl = totalTrades > 0 ? totalPnl / totalTrades : 0;
+        return {
+          totalTrades,
+          wins,
+          partials,
+          losses,
+          totalPnl: Math.round(totalPnl * 100) / 100,
+          totalInvested: Math.round(totalInvested * 100) / 100,
+          capitalRequired,
+          winRate: Math.round(winRate * 1000) / 10,
+          avgPnlPerTrade: Math.round(avgPnl * 100) / 100,
+          roiOnCapital: capitalRequired > 0 ? Math.round((totalPnl / capitalRequired) * 10000) / 100 : 0,
+          edgePct: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
+        };
+      };
+
+      const maxCurvePoints = 500;
+      const sampleCurve = (curve: any[]) => {
+        if (curve.length <= maxCurvePoints) return curve;
+        const step = Math.ceil(curve.length / maxCurvePoints);
+        return curve.filter((_, i) => i % step === 0 || i === curve.length - 1);
+      };
+
+      const period = parseInt(req.query.period as string ?? "4");
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize as string) || 100));
+
+      const cutoff30 = new Date(now); cutoff30.setDate(cutoff30.getDate() - 30);
+      const cutoff60 = new Date(now); cutoff60.setDate(cutoff60.getDate() - 60);
+      const cutoff90 = new Date(now); cutoff90.setDate(cutoff90.getDate() - 90);
+      const c30 = cutoff30.toISOString().slice(0, 10);
+      const c60 = cutoff60.toISOString().slice(0, 10);
+      const c90 = cutoff90.toISOString().slice(0, 10);
+
+      const filterByPeriod = (trades: any[], p: number) => {
+        if (p === 0) return trades.filter(t => t.date >= c30);
+        if (p === 1) return trades.filter(t => t.date >= c60 && t.date < c30);
+        if (p === 2) return trades.filter(t => t.date >= c90 && t.date < c60);
+        if (p === 3) return trades.filter(t => t.date < c90);
+        return trades;
+      };
+
+      const filteredT1 = filterByPeriod(t1OnlyResults, period);
+      const filteredSplit = filterByPeriod(splitResults, period);
+
+      const t1Curve = buildCurve(filteredT1);
+      const splitCurve = buildCurve(filteredSplit);
+
+      const t1Summary = buildSummary(filteredT1);
+      const splitSummary = buildSummary(filteredSplit);
+
+      const halfwayHitCount = filteredSplit.filter(t => t.halfwayHit).length;
+      const halfwayHitRate = filteredSplit.length > 0
+        ? Math.round((halfwayHitCount / filteredSplit.length) * 1000) / 10
+        : 0;
+
+      const totalFilteredTrades = filteredSplit.length;
+      const totalPages = Math.ceil(totalFilteredTrades / pageSize);
+      const paginatedTrades = [...filteredSplit].sort((a, b) => b.date.localeCompare(a.date)).slice((page - 1) * pageSize, page * pageSize);
+
+      res.json({
+        capitalPerTrade,
+        totalResolvedTrades: splitResults.length,
+        halfwayHitCount,
+        halfwayHitRate,
+        t1OnlySummary: t1Summary,
+        splitSummary,
+        deltaPnl: Math.round((splitSummary.totalPnl - t1Summary.totalPnl) * 100) / 100,
+        deltaPct: t1Summary.totalPnl !== 0
+          ? Math.round(((splitSummary.totalPnl - t1Summary.totalPnl) / Math.abs(t1Summary.totalPnl)) * 10000) / 100
+          : 0,
+        t1Curve: sampleCurve(t1Curve),
+        splitCurve: sampleCurve(splitCurve),
+        trades: paginatedTrades,
+        pagination: { page, pageSize, totalFilteredTrades, totalPages },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Profit Windows (Multi-Instrument Performance) ──
 
   app.get("/api/performance/profit-windows", async (req, res) => {

@@ -185,6 +185,25 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
+## 13b. Performance ½ Study (Split Take-Profit)
+
+| File | Key Exports | Role |
+|---|---|---|
+| `client/src/pages/performance-half.tsx` | PerformanceHalfPage component | Split ½ study comparison page |
+| `server/routes.ts` | `GET /api/performance-half/analysis` | Split ½ analytics endpoint |
+| `client/src/components/app-sidebar.tsx` | Sidebar nav entry | Navigation link |
+| `client/src/App.tsx` | Route `/performance-half` | Route registration |
+
+**Features mapped:**
+- Compares T1-Only (100% exit at T1) vs Split ½ (50% at halfway, 50% at T1)
+- Comparison banner with delta P&L and winner badge
+- Dual equity curve overlay (T1-Only green solid vs Split ½ blue dashed)
+- Trade history with halfway price, T1 price, ½ Hit status, and PARTIAL outcome
+- MFE-based halfway hit detection for missed trades
+- Period-scoped summaries and curves (30d/60d/90d/91+/Total)
+
+---
+
 ## 14. Optimization Dashboard
 
 | File | Key Exports | Role |
@@ -358,6 +377,7 @@ This document maps every major feature to the specific files and key functions/e
 | `server/jobs/backtestWorker.ts` | Backtesting (bulk worker) |
 | `client/src/pages/dashboard.tsx` | Dashboard, Signals, Profiles, Activation |
 | `client/src/pages/performance.tsx` | Performance Analytics |
+| `client/src/pages/performance-half.tsx` | Performance ½ Study (Split TP) |
 | `client/src/pages/profit-windows.tsx` | Multi-Instrument Profit Windows |
 | `server/lib/profitWindows.ts` | Profit Windows (computation engine) |
 | `client/src/pages/optimization.tsx` | Optimization, Expectancy, Testing & Robustness |
