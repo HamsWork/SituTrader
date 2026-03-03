@@ -233,6 +233,9 @@ export class DatabaseStorage implements IStorage {
       )
     );
     if (existing.length > 0) {
+      const ex = existing[0];
+      const wasActivated = ex.activationStatus === "ACTIVE" || ex.activationStatus === "INVALIDATED";
+      const preserveActivation = wasActivated && (signal.activationStatus === "NOT_ACTIVE" || !signal.activationStatus);
       await db.update(signals)
         .set({
           magnetPrice: signal.magnetPrice,
@@ -249,12 +252,14 @@ export class DatabaseStorage implements IStorage {
           alertState: signal.alertState,
           nextAlertEligibleAt: signal.nextAlertEligibleAt,
           qualityBreakdown: signal.qualityBreakdown,
-          activationStatus: signal.activationStatus,
-          activatedTs: signal.activatedTs,
-          entryPriceAtActivation: signal.entryPriceAtActivation,
+          activationStatus: preserveActivation ? ex.activationStatus : signal.activationStatus,
+          activatedTs: preserveActivation ? ex.activatedTs : signal.activatedTs,
+          entryPriceAtActivation: preserveActivation ? ex.entryPriceAtActivation : signal.entryPriceAtActivation,
         })
-        .where(eq(signals.id, existing[0].id));
-      return { ...existing[0], ...signal };
+        .where(eq(signals.id, ex.id));
+      return { ...ex, ...signal,
+        ...(preserveActivation ? { activationStatus: ex.activationStatus, activatedTs: ex.activatedTs, entryPriceAtActivation: ex.entryPriceAtActivation } : {}),
+      };
     }
     const [result] = await db.insert(signals).values(signal).returning();
     return result;

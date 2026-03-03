@@ -185,7 +185,7 @@ Monitors intraday price action for entry triggers:
 
 ### 3.5 Alert Engine (`server/lib/alerts.ts` — 281 lines)
 Lifecycle event detection and routing:
-- Events: NEW_SIGNAL, APPROACHING, HIT_T1, HIT_T2, MISS, ACTIVATED
+- Events: NEW_SIGNAL, APPROACHING, HIT_T1, MISS, ACTIVATED
 - Tier-based routing: A+ and A tier signals get priority alerts
 - Rate limiting via `next_alert_eligible_at` timestamp
 - Integrates with Discord dual-channel system
