@@ -489,9 +489,9 @@ export default function PerformanceHalfPage() {
               <h3 className="text-sm font-medium mb-2">Study Methodology</h3>
               <div className="text-xs text-muted-foreground space-y-1">
                 <p><strong>T1-Only:</strong> 100% of shares exit at T1 (magnet price). If stopped, full position exits at stop.</p>
-                <p><strong>Split ½:</strong> 50% of shares exit at the halfway point between entry and T1. Remaining 50% rides to T1 (if hit) or exits at stop (if miss). On a miss, if MFE (max favorable excursion) reached the halfway point, the 50% halfway profit is booked and remaining 50% takes the stop loss.</p>
+                <p><strong>Split ½:</strong> 50% of shares exit at the halfway point between entry and T1. Once halfway is hit, stop moves to break-even on remaining shares. Remaining 50% rides to T1 (if hit) or exits at break-even (if miss). If halfway is never reached, full position takes the stop loss.</p>
                 <p><strong>Halfway price:</strong> Entry + (T1 - Entry) / 2 for longs, Entry - (Entry - T1) / 2 for shorts.</p>
-                <p><strong>PARTIAL outcome:</strong> Halfway TP hit (50% profit booked) but T1 missed (remaining 50% stopped out).</p>
+                <p><strong>PARTIAL outcome:</strong> Halfway TP hit (50% profit booked), stop raised to break-even. T1 missed, so remaining 50% exits at break-even ($0 P&L on that leg).</p>
               </div>
             </CardContent>
           </Card>

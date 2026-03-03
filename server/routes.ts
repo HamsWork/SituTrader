@@ -2513,7 +2513,7 @@ export async function registerRoutes(
             const halfLegPnl = bias === "BUY"
               ? (halfwayPrice - entryPrice) * halfShares
               : (entryPrice - halfwayPrice) * halfShares;
-            const remainLegPnl = -sd * remainShares;
+            const remainLegPnl = 0;
             splitPnl = halfLegPnl + remainLegPnl;
             splitOutcome = "PARTIAL";
           } else {
@@ -2646,7 +2646,7 @@ export async function registerRoutes(
               const halfLegPnl = bias === "BUY"
                 ? (halfwayPrice - entryPrice) * halfShares
                 : (entryPrice - halfwayPrice) * halfShares;
-              const remainLegPnl = -stopDist * remainShares;
+              const remainLegPnl = 0;
               splitPnl = halfLegPnl + remainLegPnl;
               splitOutcome = "PARTIAL";
             } else {
