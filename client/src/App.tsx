@@ -19,6 +19,7 @@ import DiscordTradesPage from "@/pages/discord-trades";
 import SystemAuditPage from "@/pages/system-audit";
 import ProfitWindowsPage from "@/pages/profit-windows";
 import PerformanceHalfPage from "@/pages/performance-half";
+import ROIInsightsPage from "@/pages/roi-insights";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/optimization" component={OptimizationPage} />
       <Route path="/performance" component={PerformancePage} />
       <Route path="/performance-half" component={PerformanceHalfPage} />
+      <Route path="/roi-insights" component={ROIInsightsPage} />
       <Route path="/profit-windows" component={ProfitWindowsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ibkr" component={IbkrDashboard} />

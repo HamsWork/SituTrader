@@ -45,12 +45,6 @@ import {
   Activity,
   ArrowUpRight,
   ArrowDownRight,
-  Trophy,
-  ShieldAlert,
-  Star,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { SETUP_LABELS, type SetupType } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
@@ -135,56 +129,12 @@ interface PerformanceData {
   pagination: Pagination;
 }
 
-interface SetupRanking {
-  setup: string;
-  totalTrades: number;
-  winRate: number;
-  activatedTrades: number;
-  activatedWinRate: number;
-  lift: number;
-}
-
-interface TopTicker {
-  ticker: string;
-  setup: string;
-  trades: number;
-  winRate: number;
-  wins: number;
-  losses: number;
-}
-
-interface AvoidTicker {
-  ticker: string;
-  trades: number;
-  winRate: number;
-}
-
-interface QSBreakdown {
-  range: string;
-  trades: number;
-  winRate: number;
-  wins: number;
-  losses: number;
-}
-
-interface ROIInsightsData {
-  totalBacktestTrades: number;
-  totalActivatedTrades: number;
-  overallActivatedWinRate: number;
-  setupRankings: SetupRanking[];
-  bestSetup: string | null;
-  topTickers: TopTicker[];
-  avoidTickers: AvoidTicker[];
-  qualityScoreBreakdown: QSBreakdown[];
-}
-
 export default function PerformancePage() {
   const [capital, setCapital] = useState(1000);
   const [periodFilter, setPeriodFilter] = useState<number>(4);
   const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
   const [activatedOnly, setActivatedOnly] = useState(false);
   const [page, setPage] = useState(1);
-  const [showInsights, setShowInsights] = useState(false);
   const pageSize = 100;
 
   const { data, isLoading, isFetching } = useQuery<PerformanceData>({
@@ -194,16 +144,6 @@ export default function PerformancePage() {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-  });
-
-  const { data: roiData } = useQuery<ROIInsightsData>({
-    queryKey: ["/api/performance/roi-insights"],
-    queryFn: async () => {
-      const res = await fetch("/api/performance/roi-insights");
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-    enabled: showInsights,
   });
 
   const activePeriod = useMemo(() => {
@@ -721,212 +661,6 @@ export default function PerformancePage() {
         </>
       )}
 
-      {!isLoading && data && data.totalResolvedTrades > 0 && (
-        <Card>
-          <CardHeader
-            className="cursor-pointer select-none"
-            onClick={() => setShowInsights(v => !v)}
-            data-testid="toggle-roi-insights"
-          >
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-amber-500" />
-                ROI Insights — Backtest Edge Analysis
-              </CardTitle>
-              {showInsights ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Data-driven setup rankings, top tickers, quality score breakdown, and avoid list from full backtest history
-            </p>
-          </CardHeader>
-          {showInsights && (
-            <CardContent className="space-y-6">
-              {!roiData ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-20" />
-                  <Skeleton className="h-40" />
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-lg border p-3 text-center">
-                      <div className="text-xs text-muted-foreground">Backtest Trades</div>
-                      <div className="text-lg font-bold font-mono" data-testid="text-total-bt-trades">{roiData.totalBacktestTrades.toLocaleString()}</div>
-                    </div>
-                    <div className="rounded-lg border p-3 text-center">
-                      <div className="text-xs text-muted-foreground">Activated Trades</div>
-                      <div className="text-lg font-bold font-mono" data-testid="text-total-act-trades">{roiData.totalActivatedTrades.toLocaleString()}</div>
-                    </div>
-                    <div className="rounded-lg border p-3 text-center">
-                      <div className="text-xs text-muted-foreground">Activated Win Rate</div>
-                      <div className={`text-lg font-bold font-mono ${roiData.overallActivatedWinRate >= 50 ? "text-emerald-500" : "text-red-500"}`} data-testid="text-act-wr">
-                        {roiData.overallActivatedWinRate}%
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                      <BarChart3 className="w-3.5 h-3.5" />
-                      Setup Rankings
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Setup</TableHead>
-                            <TableHead className="text-right">Total</TableHead>
-                            <TableHead className="text-right">WR</TableHead>
-                            <TableHead className="text-right">Activated</TableHead>
-                            <TableHead className="text-right">Act WR</TableHead>
-                            <TableHead className="text-right">Lift</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {roiData.setupRankings.map((sr, i) => (
-                            <TableRow key={sr.setup} className={sr.setup === roiData.bestSetup ? "bg-emerald-500/5" : ""} data-testid={`row-setup-${sr.setup}`}>
-                              <TableCell className="font-medium flex items-center gap-1.5">
-                                {i === 0 && <Star className="w-3.5 h-3.5 text-amber-500" />}
-                                <Badge variant="outline" className="text-[10px]">
-                                  {SETUP_LABELS[sr.setup as SetupType] ?? sr.setup}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-sm">{sr.totalTrades.toLocaleString()}</TableCell>
-                              <TableCell className="text-right font-mono text-sm">{sr.winRate}%</TableCell>
-                              <TableCell className="text-right font-mono text-sm">{sr.activatedTrades.toLocaleString()}</TableCell>
-                              <TableCell className={`text-right font-mono text-sm font-medium ${sr.activatedWinRate >= 50 ? "text-emerald-500" : "text-red-500"}`}>
-                                {sr.activatedWinRate}%
-                              </TableCell>
-                              <TableCell className={`text-right font-mono text-sm ${sr.lift >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                                {sr.lift >= 0 ? "+" : ""}{sr.lift}%
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                      <Target className="w-3.5 h-3.5" />
-                      Quality Score Breakdown (Activated Trades)
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-                      {roiData.qualityScoreBreakdown.map(qs => (
-                        <div key={qs.range} className="rounded-lg border p-2.5 text-center" data-testid={`card-qs-${qs.range}`}>
-                          <div className="text-[10px] text-muted-foreground uppercase">QS {qs.range}</div>
-                          <div className={`text-base font-bold font-mono ${qs.winRate >= 50 ? "text-emerald-500" : "text-red-500"}`}>
-                            {qs.winRate}%
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">{qs.trades.toLocaleString()} trades</div>
-                          <div className="text-[10px] text-muted-foreground">{qs.wins}W / {qs.losses}L</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                        <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                        Top Tickers — {SETUP_LABELS[roiData.bestSetup as SetupType] ?? roiData.bestSetup} (65%+ WR, 30+ trades)
-                      </h3>
-                      <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Ticker</TableHead>
-                              <TableHead className="text-right">Trades</TableHead>
-                              <TableHead className="text-right">Win Rate</TableHead>
-                              <TableHead className="text-right">W/L</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {roiData.topTickers.map((tt, i) => (
-                              <TableRow key={tt.ticker} data-testid={`row-top-${tt.ticker}`}>
-                                <TableCell className="font-medium">
-                                  <div className="flex items-center gap-1.5">
-                                    {i < 3 && <Trophy className={`w-3 h-3 ${i === 0 ? "text-amber-500" : i === 1 ? "text-zinc-400" : "text-amber-700"}`} />}
-                                    {tt.ticker}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm">{tt.trades}</TableCell>
-                                <TableCell className="text-right font-mono text-sm font-medium text-emerald-500">{tt.winRate}%</TableCell>
-                                <TableCell className="text-right font-mono text-xs text-muted-foreground">{tt.wins}W / {tt.losses}L</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
-                        Avoid List — Worst Tickers (50+ activated trades)
-                      </h3>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Ticker</TableHead>
-                              <TableHead className="text-right">Trades</TableHead>
-                              <TableHead className="text-right">Win Rate</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {roiData.avoidTickers.map(at => (
-                              <TableRow key={at.ticker} data-testid={`row-avoid-${at.ticker}`}>
-                                <TableCell className="font-medium flex items-center gap-1.5">
-                                  <ShieldAlert className="w-3 h-3 text-red-500" />
-                                  {at.ticker}
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-sm">{at.trades}</TableCell>
-                                <TableCell className="text-right font-mono text-sm font-medium text-red-500">{at.winRate}%</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-2 flex items-center gap-1.5">
-                      <Star className="w-3.5 h-3.5" />
-                      1-Trade-Per-Day Recommendation
-                    </h3>
-                    <ul className="text-xs text-muted-foreground space-y-1.5">
-                      <li>
-                        <span className="font-medium text-foreground">Best Setup:</span>{" "}
-                        {roiData.bestSetup ? (SETUP_LABELS[roiData.bestSetup as SetupType] ?? roiData.bestSetup) : "N/A"} — highest activated win rate at{" "}
-                        {roiData.setupRankings[0]?.activatedWinRate ?? 0}% across {roiData.setupRankings[0]?.activatedTrades.toLocaleString() ?? 0} trades
-                      </li>
-                      <li>
-                        <span className="font-medium text-foreground">Priority Tickers:</span>{" "}
-                        {roiData.topTickers.slice(0, 5).map(t => t.ticker).join(", ")} (all 65%+ win rate on 30+ trades)
-                      </li>
-                      <li>
-                        <span className="font-medium text-foreground">Quality Score:</span>{" "}
-                        Target QS 50+ — trades below 50 show significantly lower win rates
-                      </li>
-                      <li>
-                        <span className="font-medium text-foreground">Filter:</span>{" "}
-                        Activated Only — confirmed entry trigger during market hours
-                      </li>
-                      <li>
-                        <span className="font-medium text-foreground">Avoid:</span>{" "}
-                        {roiData.avoidTickers.slice(0, 5).map(t => t.ticker).join(", ")} — consistently below 40% win rate
-                      </li>
-                    </ul>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          )}
-        </Card>
-      )}
     </div>
   );
 }

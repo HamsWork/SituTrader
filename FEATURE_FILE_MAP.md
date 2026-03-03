@@ -183,9 +183,24 @@ This document maps every major feature to the specific files and key functions/e
 - Instrument breakdown (Options/Shares/LETF)
 - Trade history table with sorting
 - Activated Only toggle (filters to On Deck → Active trades only)
-- ROI Insights panel: setup rankings, quality score breakdown, top tickers, avoid list, 1-trade recommendation
 
-**ROI Insights API:** `GET /api/performance/roi-insights`
+---
+
+## 13c. ROI Insights
+
+| File | Key Exports | Role |
+|---|---|---|
+| `client/src/pages/roi-insights.tsx` | ROI Insights page component | Backtest edge analysis, strategy simulation |
+| `server/routes.ts` | `GET /api/performance/roi-insights` | Setup rankings, top/avoid tickers, strategy P&L |
+
+**Features mapped:**
+- Setup rankings with activated win rates and lift
+- Recommended strategy P&L (best setup + top tickers + activated trades)
+- Strategy equity curve and daily P&L charts
+- Quality score breakdown by bucket
+- Top tickers / avoid list tables
+- 1-trade-per-day selection guide
+- Filterable by setup type
 
 ---
 
