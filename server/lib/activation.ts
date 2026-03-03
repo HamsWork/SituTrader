@@ -561,71 +561,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         );
 
         const opts = sig.optionsJson as OptionsData | null;
-        const optionTradable = opts?.tradable === true;
         const contractTicker =
           sig.optionContractTicker || opts?.candidate?.contractSymbol;
 
-        if (instrumentTypeForExecution === "OPTION" && !optionTradable) {
-          const failReason = opts?.checks?.reasonIfFail ?? "unknown";
-          log(
-            `Option NOT tradable for ${ticker} signal ${sig.id} (reason: ${failReason}), checking fallback...`,
-            "activation",
-          );
-
-          let fellBackToLetf = false;
-          if (hasLeveragedEtfMapping(ticker)) {
-            try {
-              const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
-              if (suggestion) {
-                const triggerMs = result.triggerTs
-                  ? new Date(result.triggerTs).getTime()
-                  : Date.now();
-                let letfEntry = await fetchStockPriceAtTime(
-                  suggestion.ticker,
-                  triggerMs,
-                );
-                if (letfEntry == null) {
-                  const letfQuote = await fetchStockNbbo(suggestion.ticker);
-                  letfEntry = letfQuote?.mid ?? null;
-                }
-                await storage.updateSignalLeveragedEtf(sig.id, suggestion);
-                await storage.updateSignalInstrument(
-                  sig.id,
-                  "LEVERAGED_ETF",
-                  suggestion.ticker,
-                  letfEntry,
-                );
-                instrumentTypeForExecution = "LEVERAGED_ETF";
-                fellBackToLetf = true;
-                log(
-                  `Fallback: Option untradable → LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"}`,
-                  "activation",
-                );
-              }
-            } catch (err: any) {
-              log(
-                `Fallback LETF selection failed for signal ${sig.id}: ${err.message}`,
-                "activation",
-              );
-            }
-          }
-
-          if (!fellBackToLetf) {
-            instrumentTypeForExecution = "SHARES";
-            await storage.updateSignalInstrument(
-              sig.id,
-              "SHARES",
-              ticker,
-              result.entryPrice,
-            );
-            log(
-              `Fallback: Option untradable, no LETF → SHARES for ${ticker} signal ${sig.id}, entry $${result.entryPrice.toFixed(2)}`,
-              "activation",
-            );
-          }
-        }
-
-        if (optionTradable && contractTicker) {
+        if (contractTicker) {
           try {
             const triggerMs = result.triggerTs
               ? new Date(result.triggerTs).getTime()
@@ -658,8 +597,8 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         }
 
         if (
-          instrumentTypeForExecution === "OPTION" &&
           hasLeveragedEtfMapping(ticker) &&
+          (!sig.instrumentType || sig.instrumentType === "OPTION") &&
           !sig.instrumentTicker
         ) {
           try {
