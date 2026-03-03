@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
-**Audit Date:** 2026-03-02  
-**Codebase Size:** ~23,500 lines of TypeScript/TSX across 73 source files  
+**Audit Date:** 2026-03-03  
+**Codebase Size:** ~24,200 lines of TypeScript/TSX across 75 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -27,13 +27,14 @@
 │  optionMonitor.ts · letfMonitor.ts · backtest.ts · calendar.ts     │
 │  confidence.ts · tradeplan.ts · validate.ts · profitWindows.ts     │
 │  reliability.ts · barCache/ (SQLite persistent bar cache)          │
+│  embedTemplateDefaults.ts · embedTemplateEngine.ts                 │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SCHEDULER & WORKERS (server/jobs/)            │
 │  scheduler.ts (241 lines) · jobFunctions.ts (307 lines)           │
 │  backtestWorker.ts (174 lines) · node-cron · Author Mode          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      DATABASE (PostgreSQL)                         │
-│  16 tables · Drizzle ORM · Neon-backed                             │
+│  17 tables · Drizzle ORM · Neon-backed                             │
 │  signals · backtests · ibkr_trades · daily_bars · intraday_bars    │
 │  scheduler_state · universe_members · ticker_stats                  │
 │  setup_expectancy · signal_profiles · symbols · app_settings       │
@@ -47,7 +48,7 @@
 
 ---
 
-## 2. Database Schema (16 Tables)
+## 2. Database Schema (17 Tables)
 
 ### 2.1 `signals` (Core — 40 columns)
 The central table. Stores every detected setup with full lifecycle tracking.
@@ -99,7 +100,10 @@ Watchlist symbols with enabled flag and watchlist membership.
 ### 2.11 `discord_trade_logs` (17 columns)
 Audit trail for every Discord webhook post. Tracks event type (FILLED/TP1_HIT/TP2_HIT/STOPPED_OUT/etc), channel (alerts/swings/shares), instrument type/ticker, all prices shown in the embed (entry/target/stop/exit), profit %, full embed JSON payload, webhook status (sent/failed), Discord message ID, and foreign keys to `ibkr_trades` and `signals`.
 
-### 2.12 `app_settings` (3 columns)
+### 2.12 `embed_templates` (6 columns)
+Editable Discord embed templates. 24 templates (4 instrument types × 6 event types). Each stores a full embed JSON with `{{variable}}` placeholders that get rendered at alert time. Templates can be toggled active/inactive and reset to defaults. Instrument types: OPTIONS, SHARES, LEVERAGED_ETF, LETF_OPTIONS. Event types: FILLED, TP1_HIT, TP2_HIT, RAISE_STOP, STOPPED_OUT, CLOSED.
+
+### 2.13 `app_settings` (3 columns)
 Key-value store for application-wide settings.
 
 ### 2.13 `ibkr_state` (Single-row, 13 columns)
@@ -474,6 +478,12 @@ Backtest results and analysis interface.
 
 ### Discord
 - `GET /api/discord-trades` — Discord trade logs with filtering (channel, event, ticker)
+- `GET /api/embed-templates` — All 24 editable embed templates
+- `GET /api/embed-templates/variables` — Available template placeholder variables
+- `PUT /api/embed-templates/:id` — Update template (embedJson, templateName, isActive)
+- `POST /api/embed-templates/seed` — Seed default templates
+- `POST /api/embed-templates/reset/:id` — Reset template to default
+- `POST /api/embed-templates/preview` — Render template with sample data
 - `POST /api/discord/test-options` — Test options webhook
 - `POST /api/discord/test-letf` — Test LETF webhook
 

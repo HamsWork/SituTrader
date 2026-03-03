@@ -101,12 +101,14 @@ This document maps every major feature to the specific files and key functions/e
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery; all alerts use instrument prices |
+| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery; template-first rendering with hardcoded fallback |
+| `server/lib/embedTemplateDefaults.ts` | `getDefaultTemplates()`, `AVAILABLE_VARIABLES`, `INSTRUMENT_TYPES`, `EVENT_TYPES` | 24 default embed templates (4 instruments × 6 events) with variable definitions |
+| `server/lib/embedTemplateEngine.ts` | `renderTemplate()`, `getTemplateForEvent()`, `seedDefaultTemplates()` | Template rendering engine — resolves `{{variables}}`, converts colors, seeds DB |
 | `server/lib/alerts.ts` | `runAlerts()` | Alert lifecycle detection and routing |
-| `shared/schema.ts` | `discord_trade_logs` table; `alert_state`, `next_alert_eligible_at` signal columns; `discord_alert_sent`, `discord_update_sent` trade columns | Alert state + audit log schema |
-| `server/storage.ts` | `insertDiscordTradeLog()`, `getDiscordTradeLogs()`, signal/trade alert state updates | Persistence |
-| `server/routes.ts` | `GET /api/discord-trades`, `POST /api/alerts/run`, `GET /api/alerts/events`, `POST /api/discord/test-options`, `POST /api/discord/test-letf` | API endpoints |
-| `client/src/pages/discord-trades.tsx` | `DiscordTradesPage` | Discord trade logs table with filters, expandable embed preview |
+| `shared/schema.ts` | `embed_templates` table; `discord_trade_logs` table; `alert_state`, `next_alert_eligible_at` signal columns; `discord_alert_sent`, `discord_update_sent` trade columns | Template + alert state + audit log schema |
+| `server/storage.ts` | `getEmbedTemplates()`, `getEmbedTemplate()`, `upsertEmbedTemplate()`, `updateEmbedTemplate()`, `insertDiscordTradeLog()`, `getDiscordTradeLogs()` | Persistence |
+| `server/routes.ts` | `GET /api/embed-templates`, `PUT /api/embed-templates/:id`, `POST /api/embed-templates/seed`, `POST /api/embed-templates/reset/:id`, `POST /api/embed-templates/preview`, `GET /api/embed-templates/variables`, `GET /api/discord-trades`, `POST /api/discord/test-options`, `POST /api/discord/test-letf` | API endpoints |
+| `client/src/pages/discord-trades.tsx` | `DiscordTradesPage`, `TradeLogsTab`, `EmbedTemplatesTab`, `EmbedPreview` | Discord trade logs + embed template editor with preview, tabs, filters |
 
 **Channel Routing:**
 - `DISCORD_GOAT_ALERTS_WEBHOOK` → Options trades
@@ -333,7 +335,9 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/activation.ts` | Activation, Stop Management |
 | `server/lib/alerts.ts` | Discord Alerts |
 | `server/lib/discord.ts` | Discord Alerts, Discord Trades, IBKR Integration |
-| `client/src/pages/discord-trades.tsx` | Discord Trades |
+| `server/lib/embedTemplateDefaults.ts` | Discord Alerts (24 default embed templates) |
+| `server/lib/embedTemplateEngine.ts` | Discord Alerts (template rendering engine) |
+| `client/src/pages/discord-trades.tsx` | Discord Trades, Embed Template Editor |
 | `server/lib/ibkr.ts` | IBKR Integration |
 | `server/lib/ibkrOrders.ts` | IBKR Integration, Stop Management |
 | `server/lib/polygon.ts` | Market Data, Universe, Options, Backtesting |

@@ -480,6 +480,20 @@ export const insertDiscordTradeLogSchema = createInsertSchema(discordTradeLogs).
 export type InsertDiscordTradeLog = z.infer<typeof insertDiscordTradeLogSchema>;
 export type DiscordTradeLog = typeof discordTradeLogs.$inferSelect;
 
+export const embedTemplates = pgTable("embed_templates", {
+  id: serial("id").primaryKey(),
+  instrumentType: text("instrument_type").notNull(),
+  eventType: text("event_type").notNull(),
+  templateName: text("template_name").notNull(),
+  embedJson: jsonb("embed_json").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEmbedTemplateSchema = createInsertSchema(embedTemplates).omit({ id: true, updatedAt: true });
+export type InsertEmbedTemplate = z.infer<typeof insertEmbedTemplateSchema>;
+export type EmbedTemplate = typeof embedTemplates.$inferSelect;
+
 export interface ReliabilitySummary {
   overallGrade: string;
   overallScore: number;

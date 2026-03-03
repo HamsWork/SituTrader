@@ -4,13 +4,14 @@ import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
-  ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs,
+  ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs, embedTemplates,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
   type IbkrTrade, type IbkrState,
   type RobustnessRun, type InsertRobustnessRun,
   type DiscordTradeLog, type InsertDiscordTradeLog,
+  type EmbedTemplate, type InsertEmbedTemplate,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -124,6 +125,11 @@ export interface IStorage {
 
   insertDiscordTradeLog(data: InsertDiscordTradeLog): Promise<DiscordTradeLog>;
   getDiscordTradeLogs(opts?: { limit?: number; offset?: number; event?: string; channel?: string; ticker?: string }): Promise<DiscordTradeLog[]>;
+
+  getEmbedTemplates(): Promise<EmbedTemplate[]>;
+  getEmbedTemplate(instrumentType: string, eventType: string): Promise<EmbedTemplate | null>;
+  upsertEmbedTemplate(data: InsertEmbedTemplate): Promise<EmbedTemplate>;
+  updateEmbedTemplate(id: number, updates: Partial<InsertEmbedTemplate>): Promise<EmbedTemplate | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -980,6 +986,38 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(discordTradeLogs.id))
       .limit(opts?.limit ?? 100)
       .offset(opts?.offset ?? 0);
+  }
+
+  async getEmbedTemplates(): Promise<EmbedTemplate[]> {
+    return db.select().from(embedTemplates).orderBy(asc(embedTemplates.instrumentType), asc(embedTemplates.eventType));
+  }
+
+  async getEmbedTemplate(instrumentType: string, eventType: string): Promise<EmbedTemplate | null> {
+    const [result] = await db.select().from(embedTemplates)
+      .where(and(eq(embedTemplates.instrumentType, instrumentType), eq(embedTemplates.eventType, eventType)))
+      .limit(1);
+    return result ?? null;
+  }
+
+  async upsertEmbedTemplate(data: InsertEmbedTemplate): Promise<EmbedTemplate> {
+    const existing = await this.getEmbedTemplate(data.instrumentType, data.eventType);
+    if (existing) {
+      const [updated] = await db.update(embedTemplates)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(embedTemplates.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(embedTemplates).values(data).returning();
+    return created;
+  }
+
+  async updateEmbedTemplate(id: number, updates: Partial<InsertEmbedTemplate>): Promise<EmbedTemplate | null> {
+    const [result] = await db.update(embedTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(embedTemplates.id, id))
+      .returning();
+    return result ?? null;
   }
 }
 

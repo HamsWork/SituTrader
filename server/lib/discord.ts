@@ -2,23 +2,24 @@ import { log } from "../log";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
 
 async function getWebhookUrl(
-  channel: "alerts" | "swings" | "shares",
+  channel: "alerts" | "swings" | "shares" | "letf_options",
 ): Promise<string | undefined> {
-  const envKey =
-    channel === "alerts"
-      ? "DISCORD_GOAT_ALERTS_WEBHOOK"
-      : channel === "swings"
-        ? "DISCORD_GOAT_SWINGS_WEBHOOK"
-        : "DISCORD_GOAT_SHARES_WEBHOOK";
+  const envMap: Record<string, string> = {
+    alerts: "DISCORD_GOAT_ALERTS_WEBHOOK",
+    swings: "DISCORD_GOAT_SWINGS_WEBHOOK",
+    shares: "DISCORD_GOAT_SHARES_WEBHOOK",
+    letf_options: "DISCORD_GOAT_LETF_OPTIONS_WEBHOOK",
+  };
+  const settingMap: Record<string, string> = {
+    alerts: "discordGoatAlertsWebhook",
+    swings: "discordGoatSwingsWebhook",
+    shares: "discordGoatSharesWebhook",
+    letf_options: "discordGoatLetfOptionsWebhook",
+  };
+  const envKey = envMap[channel];
   try {
     const { storage } = await import("../storage");
-    const settingKey =
-      channel === "alerts"
-        ? "discordGoatAlertsWebhook"
-        : channel === "swings"
-          ? "discordGoatSwingsWebhook"
-          : "discordGoatSharesWebhook";
-    const fromDb = await storage.getSetting(settingKey);
+    const fromDb = await storage.getSetting(settingMap[channel]);
     return fromDb || process.env[envKey] || undefined;
   } catch {
     return process.env[envKey] || undefined;
@@ -411,9 +412,10 @@ export async function postTradeUpdate(
   tradeUpdateWebhookUrl?: string,
 ): Promise<boolean> {
   const isOption = trade.instrumentType === "OPTION";
+  const isLetfOptions = trade.instrumentType === "LETF_OPTIONS";
   const isLetf = trade.instrumentType === "LEVERAGED_ETF";
   const isShares = trade.instrumentType === "SHARES";
-  const channelKey = isOption ? "alerts" : isShares ? "shares" : "swings";
+  const channelKey = isOption ? "alerts" : isLetfOptions ? "letf_options" : isShares ? "shares" : "swings";
   const url = tradeUpdateWebhookUrl ?? (await getWebhookUrl(channelKey));
   if (!url) return false;
 
@@ -498,6 +500,95 @@ export async function postTradeUpdate(
           inline: true,
         },
       );
+    }
+  }
+
+  const mappedEvent = event === "STOPPED_OUT_AFTER_TP" ? "STOPPED_OUT" : event === "TIME_STOP" ? "RAISE_STOP" : event === "TP3_HIT" ? "TP2_HIT" : event;
+  const instrumentTypeForTemplate = isLetfOptions ? "LETF_OPTIONS" : isOption ? "OPTIONS" : isLetf ? "LEVERAGED_ETF" : isShares ? "SHARES" : "OPTIONS";
+  const TEMPLATE_EVENTS = ["FILLED", "TP1_HIT", "TP2_HIT", "RAISE_STOP", "STOPPED_OUT", "CLOSED"];
+
+  if (TEMPLATE_EVENTS.includes(mappedEvent)) {
+    try {
+      const { getTemplateForEvent, renderTemplate } = await import("./embedTemplateEngine");
+      const template = await getTemplateForEvent(instrumentTypeForTemplate, mappedEvent);
+      if (template) {
+        const instrEntry = trade.entryPrice ?? 0;
+        const instrStop = trade.stopPrice ?? 0;
+        const instrT1 = trade.target1Price ?? 0;
+        const instrT2 = trade.target2Price ?? 0;
+        const stockPx = signal.entryPriceAtActivation ?? 0;
+        const stopPctCalc = instrEntry > 0 ? (((instrStop - instrEntry) / instrEntry) * 100).toFixed(1) : "?";
+        let targetsLineCalc = instrT1 > 0 ? `${fmtPrice(instrT1)} (${fmtPct(instrEntry, instrT1)})` : "";
+        if (instrT2 > 0) targetsLineCalc += `, ${fmtPrice(instrT2)} (${fmtPct(instrEntry, instrT2)})`;
+        const t1PctCalc = instrEntry > 0 && instrT1 > 0 ? fmtPct(instrEntry, instrT1) : "?";
+        const t2PctCalc = instrT2 > 0 && instrEntry > 0 ? fmtPct(instrEntry, instrT2) : null;
+        let tpPlanCalc = `Take Profit (1): At ${t1PctCalc} take off 50.0% of position and raise stop loss to break even.`;
+        if (instrT2 > 0) tpPlanCalc += `\nTake Profit (2): At ${t2PctCalc} take off 50.0% of remaining position.`;
+
+        const exitPx = trade.exitPrice ?? trade.tp1FillPrice ?? trade.tp2FillPrice ?? 0;
+        const profitPctCalc = instrEntry > 0 && exitPx > 0 ? fmtPct(instrEntry, exitPx) : "—";
+        const isProfitable = trade.pnl != null ? trade.pnl > 0 : false;
+
+        const vars: Record<string, string> = {
+          "{{ticker}}": signal.ticker,
+          "{{stock_price}}": stockPx.toFixed(2),
+          "{{entry_price}}": fmtPrice(instrEntry),
+          "{{stop_price}}": fmtPrice(instrStop),
+          "{{stop_pct}}": stopPctCalc,
+          "{{targets_line}}": targetsLineCalc,
+          "{{tp_plan}}": tpPlanCalc,
+          "{{expiry}}": expiry,
+          "{{strike}}": String(strike),
+          "{{right}}": right,
+          "{{option_price}}": (signal.optionEntryMark ?? instrEntry).toFixed(2),
+          "{{letf_ticker}}": letfTicker,
+          "{{leverage}}": String(letfLeverage),
+          "{{letf_direction}}": String(letfDirection),
+          "{{tp1_fill_price}}": fmtPrice(trade.tp1FillPrice ?? instrT1),
+          "{{tp2_fill_price}}": fmtPrice(trade.tp2FillPrice ?? instrT2),
+          "{{profit_pct}}": profitPctCalc,
+          "{{exit_price}}": fmtPrice(exitPx),
+          "{{new_stop_price}}": fmtPrice(trade.stopPrice ?? instrEntry),
+          "{{pnl_dollar}}": fmtPnl(trade.pnl),
+          "{{r_multiple}}": trade.rMultiple?.toFixed(2) ?? "—",
+          "{{tp2_rider_text}}": instrT2 > 0 ? `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(instrT2)})` : "",
+          "{{tp2_target_text}}": instrT2 > 0 ? `\n\u{1F3AF} Remaining target: TP2 at ${fmtPrice(instrT2)}` : "",
+          "{{pnl_emoji}}": isProfitable ? "\u{1F4B0}" : "\u{1F4C9}",
+          "{{pnl_color}}": isProfitable ? "#22c55e" : "#ef4444",
+          "{{status_emoji}}": isProfitable ? "\u{1F7E2}" : "\u{1F6D1}",
+        };
+
+        const renderedEmbed = renderTemplate(template, vars);
+        const webhookResult = await sendWebhook(url, `@everyone`, [renderedEmbed]);
+
+        try {
+          const { storage } = await import("../storage");
+          await storage.insertDiscordTradeLog({
+            tradeId: trade.id,
+            signalId: signal.id,
+            event,
+            channel: channelKey,
+            instrumentType: trade.instrumentType,
+            instrumentTicker: trade.instrumentTicker ?? signal.ticker,
+            ticker: signal.ticker,
+            entryPrice: trade.entryPrice,
+            targetPrice: trade.target1Price,
+            stopPrice: trade.stopPrice,
+            exitPrice: trade.exitPrice,
+            profitPct: trade.pnlPct,
+            embedJson: renderedEmbed,
+            webhookStatus: webhookResult.status,
+            discordMessageId: webhookResult.messageId ?? null,
+            errorMessage: webhookResult.error ?? null,
+          });
+        } catch (logErr: any) {
+          log(`Failed to log Discord trade (template): ${logErr.message}`, "discord");
+        }
+
+        return webhookResult.success;
+      }
+    } catch (tmplErr: any) {
+      log(`Template rendering failed, falling back to hardcoded: ${tmplErr.message}`, "discord");
     }
   }
 

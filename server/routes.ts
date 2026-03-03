@@ -1445,6 +1445,122 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/embed-templates", async (_req, res) => {
+    try {
+      const templates = await storage.getEmbedTemplates();
+      res.json(templates);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/embed-templates/variables", async (_req, res) => {
+    try {
+      const { AVAILABLE_VARIABLES } = await import("./lib/embedTemplateDefaults");
+      res.json(AVAILABLE_VARIABLES);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/embed-templates/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid template id" });
+      const { embedJson, templateName, isActive } = req.body;
+      if (embedJson !== undefined && (typeof embedJson !== "object" || embedJson === null)) {
+        return res.status(400).json({ message: "embedJson must be a valid object" });
+      }
+      if (embedJson && (!embedJson.description || !Array.isArray(embedJson.fields))) {
+        return res.status(400).json({ message: "embedJson must have description and fields array" });
+      }
+      if (templateName !== undefined && typeof templateName !== "string") {
+        return res.status(400).json({ message: "templateName must be a string" });
+      }
+      if (isActive !== undefined && typeof isActive !== "boolean") {
+        return res.status(400).json({ message: "isActive must be a boolean" });
+      }
+      const updates: any = {};
+      if (embedJson !== undefined) updates.embedJson = embedJson;
+      if (templateName !== undefined) updates.templateName = templateName;
+      if (isActive !== undefined) updates.isActive = isActive;
+      const result = await storage.updateEmbedTemplate(id, updates);
+      if (!result) return res.status(404).json({ message: "Template not found" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/embed-templates/seed", async (_req, res) => {
+    try {
+      const { seedDefaultTemplates } = await import("./lib/embedTemplateEngine");
+      const count = await seedDefaultTemplates();
+      res.json({ seeded: count });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/embed-templates/reset/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid template id" });
+      const templates = await storage.getEmbedTemplates();
+      const existing = templates.find(t => t.id === id);
+      if (!existing) return res.status(404).json({ message: "Template not found" });
+      const { getDefaultTemplates } = await import("./lib/embedTemplateDefaults");
+      const defaults = getDefaultTemplates();
+      const def = defaults.find(d => d.instrumentType === existing.instrumentType && d.eventType === existing.eventType);
+      if (!def) return res.status(404).json({ message: "No default template found for this combination" });
+      const result = await storage.updateEmbedTemplate(id, { embedJson: def.embedJson as any, templateName: def.templateName });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/embed-templates/preview", async (req, res) => {
+    try {
+      const { embedJson, variables } = req.body;
+      if (!embedJson) return res.status(400).json({ message: "embedJson required" });
+      const { renderTemplate } = await import("./lib/embedTemplateEngine");
+      const sampleVars: Record<string, string> = {
+        "{{ticker}}": "AAPL",
+        "{{stock_price}}": "185.50",
+        "{{entry_price}}": "$3.45",
+        "{{stop_price}}": "$180.00",
+        "{{stop_pct}}": "-3.0",
+        "{{targets_line}}": "$190.00 (+2.4%), $195.00 (+5.1%)",
+        "{{tp_plan}}": "Take Profit (1): At +2.4% take off 50.0% of position and raise stop loss to break even.\nTake Profit (2): At +5.1% take off 50.0% of remaining position.",
+        "{{expiry}}": "03/14/2026",
+        "{{strike}}": "185",
+        "{{right}}": "CALL",
+        "{{option_price}}": "3.45",
+        "{{letf_ticker}}": "TQQQ",
+        "{{leverage}}": "3",
+        "{{letf_direction}}": "BULL",
+        "{{tp1_fill_price}}": "$4.50",
+        "{{tp2_fill_price}}": "$5.80",
+        "{{profit_pct}}": "+30.4%",
+        "{{exit_price}}": "$4.50",
+        "{{new_stop_price}}": "$3.45",
+        "{{pnl_dollar}}": "+$150.00",
+        "{{r_multiple}}": "2.50",
+        "{{tp2_rider_text}}": "\n🎯 Let remaining 50% ride to TP2 ($195.00)",
+        "{{tp2_target_text}}": "\n🎯 Remaining target: TP2 at $195.00",
+        "{{pnl_emoji}}": "💰",
+        "{{pnl_color}}": "#22c55e",
+        "{{status_emoji}}": "🟢",
+        ...(variables || {}),
+      };
+      const rendered = renderTemplate(embedJson, sampleVars);
+      res.json(rendered);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Discord Routes ──
 
   app.post("/api/discord/test-options", async (req, res) => {

@@ -1,12 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, Fragment } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, MessageSquare, ChevronDown, ChevronRight } from "lucide-react";
-import type { DiscordTradeLog } from "@shared/schema";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { Loader2, MessageSquare, ChevronDown, ChevronRight, Save, RotateCcw, Eye, Info } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import type { DiscordTradeLog, EmbedTemplate } from "@shared/schema";
 
 function eventColor(event: string): string {
   if (event === "FILLED") return "bg-green-500/20 text-green-400 border-green-500/30";
@@ -38,7 +44,54 @@ function fmtPrice(p: number | null | undefined): string {
   return `$${p.toFixed(2)}`;
 }
 
+const INSTRUMENT_LABELS: Record<string, string> = {
+  OPTIONS: "Options",
+  SHARES: "Shares",
+  LEVERAGED_ETF: "Leveraged ETF",
+  LETF_OPTIONS: "LETF Options",
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  FILLED: "Entry Fill",
+  TP1_HIT: "TP1 Hit",
+  TP2_HIT: "TP2 Hit",
+  RAISE_STOP: "Raise Stop",
+  STOPPED_OUT: "Stopped Out",
+  CLOSED: "Trade Closed",
+};
+
+const INSTRUMENT_COLORS: Record<string, string> = {
+  OPTIONS: "border-purple-500/40 bg-purple-500/5",
+  SHARES: "border-blue-500/40 bg-blue-500/5",
+  LEVERAGED_ETF: "border-cyan-500/40 bg-cyan-500/5",
+  LETF_OPTIONS: "border-amber-500/40 bg-amber-500/5",
+};
+
 export default function DiscordTradesPage() {
+  return (
+    <div className="p-4 space-y-4" data-testid="page-discord-trades">
+      <div className="flex items-center gap-3">
+        <MessageSquare className="w-6 h-6 text-primary" />
+        <h1 className="text-xl font-bold" data-testid="text-page-title">Discord Trade Logs</h1>
+      </div>
+
+      <Tabs defaultValue="logs" className="w-full">
+        <TabsList data-testid="tabs-discord">
+          <TabsTrigger value="logs" data-testid="tab-logs">Trade Logs</TabsTrigger>
+          <TabsTrigger value="templates" data-testid="tab-templates">Embed Templates</TabsTrigger>
+        </TabsList>
+        <TabsContent value="logs">
+          <TradeLogsTab />
+        </TabsContent>
+        <TabsContent value="templates">
+          <EmbedTemplatesTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function TradeLogsTab() {
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [tickerFilter, setTickerFilter] = useState<string>("");
@@ -61,18 +114,15 @@ export default function DiscordTradesPage() {
   });
 
   return (
-    <div className="p-4 space-y-4" data-testid="page-discord-trades">
-      <div className="flex items-center gap-3">
-        <MessageSquare className="w-6 h-6 text-primary" />
-        <h1 className="text-xl font-bold" data-testid="text-page-title">Discord Trade Logs</h1>
-        <Badge variant="outline" className="ml-auto" data-testid="badge-log-count">
-          {logs?.length ?? 0} logs
-        </Badge>
-      </div>
-
+    <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Filters</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium">Filters</CardTitle>
+            <Badge variant="outline" data-testid="badge-log-count">
+              {logs?.length ?? 0} logs
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-3">
@@ -207,7 +257,7 @@ export default function DiscordTradesPage() {
                     {expandedRow === log.id && (
                       <TableRow key={`${log.id}-expand`}>
                         <TableCell colSpan={13} className="bg-muted/30">
-                          <EmbedPreview log={log} />
+                          <EmbedPreview embed={log.embedJson as any} messageId={log.discordMessageId} errorMessage={log.errorMessage} />
                         </TableCell>
                       </TableRow>
                     )}
@@ -222,14 +272,323 @@ export default function DiscordTradesPage() {
   );
 }
 
-function EmbedPreview({ log }: { log: DiscordTradeLog }) {
-  const embed = log.embedJson as any;
-  if (!embed) return <div className="p-3 text-sm text-muted-foreground">No embed data</div>;
+function EmbedTemplatesTab() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [editJson, setEditJson] = useState<string>("");
+  const [editName, setEditName] = useState<string>("");
+  const [showVars, setShowVars] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
+  const [eventFilter, setEventFilter] = useState<string>("all");
 
-  const colorHex = embed.color ? `#${embed.color.toString(16).padStart(6, "0")}` : "#5865f2";
+  const { data: templates, isLoading } = useQuery<EmbedTemplate[]>({
+    queryKey: ["/api/embed-templates"],
+  });
+
+  const { data: variables } = useQuery<Record<string, string>>({
+    queryKey: ["/api/embed-templates/variables"],
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ id, embedJson, templateName }: { id: number; embedJson: any; templateName: string }) => {
+      return apiRequest("PUT", `/api/embed-templates/${id}`, { embedJson, templateName });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/embed-templates"] });
+      toast({ title: "Template saved" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest("POST", `/api/embed-templates/reset/${id}`);
+    },
+    onSuccess: async (res) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/embed-templates"] });
+      const data = await res.json();
+      if (data.embedJson) {
+        setEditJson(JSON.stringify(data.embedJson, null, 2));
+        setEditName(data.templateName);
+      }
+      toast({ title: "Template reset to default" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reset failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      return apiRequest("PUT", `/api/embed-templates/${id}`, { isActive });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/embed-templates"] });
+    },
+  });
+
+  const seedMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/embed-templates/seed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/embed-templates"] });
+      toast({ title: "Templates seeded" });
+    },
+  });
+
+  const selectTemplate = (t: EmbedTemplate) => {
+    setSelectedId(t.id);
+    setEditJson(JSON.stringify(t.embedJson, null, 2));
+    setEditName(t.templateName);
+    setPreviewData(null);
+  };
+
+  const handleSave = () => {
+    if (!selectedId) return;
+    try {
+      const parsed = JSON.parse(editJson);
+      saveMutation.mutate({ id: selectedId, embedJson: parsed, templateName: editName });
+    } catch {
+      toast({ title: "Invalid JSON", variant: "destructive" });
+    }
+  };
+
+  const handlePreview = async () => {
+    try {
+      const parsed = JSON.parse(editJson);
+      const res = await apiRequest("POST", "/api/embed-templates/preview", { embedJson: parsed });
+      const data = await res.json();
+      setPreviewData(data);
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const filteredTemplates = templates?.filter((t) => {
+    if (instrumentFilter !== "all" && t.instrumentType !== instrumentFilter) return false;
+    if (eventFilter !== "all" && t.eventType !== eventFilter) return false;
+    return true;
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!templates || templates.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center space-y-4">
+          <p className="text-muted-foreground">No embed templates found.</p>
+          <Button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending} data-testid="button-seed-templates">
+            {seedMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Seed Default Templates
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div className="p-3 max-w-xl" data-testid={`embed-preview-${log.id}`}>
+    <div className="grid grid-cols-12 gap-4">
+      <div className="col-span-4 space-y-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Templates ({templates.length})</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => setShowVars(!showVars)} data-testid="button-toggle-vars">
+                <Info className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex gap-2">
+              <Select value={instrumentFilter} onValueChange={setInstrumentFilter}>
+                <SelectTrigger className="text-xs h-8" data-testid="select-tmpl-instrument">
+                  <SelectValue placeholder="Instrument" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Instruments</SelectItem>
+                  <SelectItem value="OPTIONS">Options</SelectItem>
+                  <SelectItem value="SHARES">Shares</SelectItem>
+                  <SelectItem value="LEVERAGED_ETF">Leveraged ETF</SelectItem>
+                  <SelectItem value="LETF_OPTIONS">LETF Options</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={eventFilter} onValueChange={setEventFilter}>
+                <SelectTrigger className="text-xs h-8" data-testid="select-tmpl-event">
+                  <SelectValue placeholder="Event" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Events</SelectItem>
+                  <SelectItem value="FILLED">Filled</SelectItem>
+                  <SelectItem value="TP1_HIT">TP1 Hit</SelectItem>
+                  <SelectItem value="TP2_HIT">TP2 Hit</SelectItem>
+                  <SelectItem value="RAISE_STOP">Raise Stop</SelectItem>
+                  <SelectItem value="STOPPED_OUT">Stopped Out</SelectItem>
+                  <SelectItem value="CLOSED">Closed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1 max-h-[500px] overflow-y-auto">
+              {filteredTemplates?.map((t) => (
+                <div
+                  key={t.id}
+                  className={`p-2 rounded cursor-pointer border text-xs transition-colors ${
+                    selectedId === t.id
+                      ? "border-primary bg-primary/10"
+                      : `${INSTRUMENT_COLORS[t.instrumentType] || "border-border"} hover:bg-muted/50`
+                  }`}
+                  onClick={() => selectTemplate(t)}
+                  data-testid={`tmpl-card-${t.id}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium truncate">{t.templateName}</span>
+                    <Switch
+                      checked={t.isActive}
+                      onCheckedChange={(checked) => toggleMutation.mutate({ id: t.id, isActive: checked })}
+                      className="scale-75"
+                      data-testid={`switch-active-${t.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  <div className="flex gap-1 mt-1">
+                    <Badge variant="outline" className="text-[10px] px-1 py-0">
+                      {INSTRUMENT_LABELS[t.instrumentType] || t.instrumentType}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px] px-1 py-0">
+                      {EVENT_LABELS[t.eventType] || t.eventType}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="col-span-8 space-y-3">
+        {showVars && variables && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Available Variables</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                {Object.entries(variables).map(([key, desc]) => (
+                  <div key={key} className="flex gap-2">
+                    <code className="text-primary font-mono bg-muted px-1 rounded whitespace-nowrap">{key}</code>
+                    <span className="text-muted-foreground truncate">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {selectedId ? (
+          <>
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Edit Template</CardTitle>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => resetMutation.mutate(selectedId)}
+                      disabled={resetMutation.isPending}
+                      data-testid="button-reset-template"
+                    >
+                      <RotateCcw className="w-3 h-3 mr-1" />
+                      Reset
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePreview}
+                      data-testid="button-preview-template"
+                    >
+                      <Eye className="w-3 h-3 mr-1" />
+                      Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSave}
+                      disabled={saveMutation.isPending}
+                      data-testid="button-save-template"
+                    >
+                      <Save className="w-3 h-3 mr-1" />
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Template Name</label>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="h-8 text-sm"
+                    data-testid="input-template-name"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Embed JSON</label>
+                  <Textarea
+                    value={editJson}
+                    onChange={(e) => setEditJson(e.target.value)}
+                    className="font-mono text-xs min-h-[300px]"
+                    data-testid="textarea-embed-json"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {previewData && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Preview (sample data)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <EmbedPreview embed={previewData} />
+                </CardContent>
+              </Card>
+            )}
+          </>
+        ) : (
+          <Card>
+            <CardContent className="py-12 text-center text-muted-foreground">
+              Select a template from the left panel to edit
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmbedPreview({ embed, messageId, errorMessage }: { embed: any; messageId?: string | null; errorMessage?: string | null }) {
+  if (!embed) return <div className="p-3 text-sm text-muted-foreground">No embed data</div>;
+
+  const colorHex = typeof embed.color === "number"
+    ? `#${embed.color.toString(16).padStart(6, "0")}`
+    : typeof embed.color === "string" && embed.color.startsWith("#")
+      ? embed.color
+      : "#5865f2";
+
+  return (
+    <div className="p-3 max-w-xl" data-testid="embed-preview">
       <div className="rounded-md overflow-hidden border" style={{ borderLeftColor: colorHex, borderLeftWidth: "4px" }}>
         <div className="p-3 bg-card space-y-2">
           {embed.description && (
@@ -249,12 +608,16 @@ function EmbedPreview({ log }: { log: DiscordTradeLog }) {
             </div>
           )}
           {embed.footer && (
-            <div className="text-[10px] text-muted-foreground pt-1 border-t">{embed.footer.text}</div>
+            <div className="text-[10px] text-muted-foreground pt-1 border-t">
+              {typeof embed.footer === "string" ? embed.footer : embed.footer.text}
+            </div>
           )}
-          <div className="flex gap-4 text-[10px] text-muted-foreground pt-1">
-            {log.discordMessageId && <span>Msg ID: {log.discordMessageId}</span>}
-            {log.errorMessage && <span className="text-red-400">Error: {log.errorMessage}</span>}
-          </div>
+          {(messageId || errorMessage) && (
+            <div className="flex gap-4 text-[10px] text-muted-foreground pt-1">
+              {messageId && <span>Msg ID: {messageId}</span>}
+              {errorMessage && <span className="text-red-400">Error: {errorMessage}</span>}
+            </div>
+          )}
         </div>
       </div>
     </div>
