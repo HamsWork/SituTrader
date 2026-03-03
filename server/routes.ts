@@ -2402,6 +2402,8 @@ export async function registerRoutes(
 
       const t1OnlyResults: any[] = [];
       const splitResults: any[] = [];
+      const activatedT1Results: any[] = [];
+      const activatedSplitResults: any[] = [];
 
       const signalDateKeys = new Set<string>();
 
@@ -2414,6 +2416,12 @@ export async function registerRoutes(
         if (!isHit && !isMiss) continue;
 
         if (!matchesProfile(sig)) continue;
+
+        const ibkrTrade = allTrades.find(t => t.signalId === sig.id);
+        const wasActivated = (sig.activationStatus === "ACTIVE" || sig.activationStatus === "INVALIDATED")
+          || (sig.entryPriceAtActivation != null && sig.entryPriceAtActivation > 0)
+          || (sig.activatedTs != null)
+          || !!ibkrTrade;
 
         const stopDist = tp.stopDistance || 0;
         const bias = tp.bias as string | undefined;
@@ -2467,7 +2475,7 @@ export async function registerRoutes(
           t1Outcome = "STOPPED";
         }
 
-        t1OnlyResults.push({
+        const t1Row = {
           signalId: sig.id,
           ticker: sig.ticker,
           setupType: sig.setupType,
@@ -2483,7 +2491,9 @@ export async function registerRoutes(
           pnlPct: Math.round((t1Pnl / actualInvested) * 10000) / 100,
           outcome: t1Outcome,
           source: "signal",
-        });
+        };
+        t1OnlyResults.push(t1Row);
+        if (wasActivated) activatedT1Results.push(t1Row);
 
         const halfShares = Math.floor(shares / 2);
         const remainShares = shares - halfShares;
@@ -2522,7 +2532,7 @@ export async function registerRoutes(
           }
         }
 
-        splitResults.push({
+        const splitRow = {
           signalId: sig.id,
           ticker: sig.ticker,
           setupType: sig.setupType,
@@ -2542,7 +2552,9 @@ export async function registerRoutes(
           outcome: splitOutcome,
           halfwayHit,
           source: "signal",
-        });
+        };
+        splitResults.push(splitRow);
+        if (wasActivated) activatedSplitResults.push(splitRow);
       }
 
       const seenBacktestKeys = new Set<string>();
@@ -2746,18 +2758,32 @@ export async function registerRoutes(
         return trades;
       };
 
+      activatedT1Results.sort((a, b) => a.date.localeCompare(b.date));
+      activatedSplitResults.sort((a, b) => a.date.localeCompare(b.date));
+
       const filteredT1 = filterByPeriod(t1OnlyResults, period);
       const filteredSplit = filterByPeriod(splitResults, period);
+      const filteredActT1 = filterByPeriod(activatedT1Results, period);
+      const filteredActSplit = filterByPeriod(activatedSplitResults, period);
 
       const t1Curve = buildCurve(filteredT1);
       const splitCurve = buildCurve(filteredSplit);
+      const actT1Curve = buildCurve(filteredActT1);
+      const actSplitCurve = buildCurve(filteredActSplit);
 
       const t1Summary = buildSummary(filteredT1);
       const splitSummary = buildSummary(filteredSplit);
+      const actT1Summary = buildSummary(filteredActT1);
+      const actSplitSummary = buildSummary(filteredActSplit);
 
       const halfwayHitCount = filteredSplit.filter(t => t.halfwayHit).length;
       const halfwayHitRate = filteredSplit.length > 0
         ? Math.round((halfwayHitCount / filteredSplit.length) * 1000) / 10
+        : 0;
+
+      const actHalfwayHitCount = filteredActSplit.filter(t => t.halfwayHit).length;
+      const actHalfwayHitRate = filteredActSplit.length > 0
+        ? Math.round((actHalfwayHitCount / filteredActSplit.length) * 1000) / 10
         : 0;
 
       const totalFilteredTrades = filteredSplit.length;
@@ -2775,6 +2801,19 @@ export async function registerRoutes(
         deltaPct: t1Summary.totalPnl !== 0
           ? Math.round(((splitSummary.totalPnl - t1Summary.totalPnl) / Math.abs(t1Summary.totalPnl)) * 10000) / 100
           : 0,
+        activated: {
+          totalResolvedTrades: activatedSplitResults.length,
+          halfwayHitCount: actHalfwayHitCount,
+          halfwayHitRate: actHalfwayHitRate,
+          t1OnlySummary: actT1Summary,
+          splitSummary: actSplitSummary,
+          deltaPnl: Math.round((actSplitSummary.totalPnl - actT1Summary.totalPnl) * 100) / 100,
+          deltaPct: actT1Summary.totalPnl !== 0
+            ? Math.round(((actSplitSummary.totalPnl - actT1Summary.totalPnl) / Math.abs(actT1Summary.totalPnl)) * 10000) / 100
+            : 0,
+          t1Curve: sampleCurve(actT1Curve),
+          splitCurve: sampleCurve(actSplitCurve),
+        },
         t1Curve: sampleCurve(t1Curve),
         splitCurve: sampleCurve(splitCurve),
         trades: paginatedTrades,

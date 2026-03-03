@@ -86,6 +86,18 @@ interface CurvePoint {
   cumPnl: number;
 }
 
+interface ActivatedData {
+  totalResolvedTrades: number;
+  halfwayHitCount: number;
+  halfwayHitRate: number;
+  t1OnlySummary: Summary;
+  splitSummary: Summary;
+  deltaPnl: number;
+  deltaPct: number;
+  t1Curve: CurvePoint[];
+  splitCurve: CurvePoint[];
+}
+
 interface PerformanceHalfData {
   capitalPerTrade: number;
   totalResolvedTrades: number;
@@ -95,6 +107,7 @@ interface PerformanceHalfData {
   splitSummary: Summary;
   deltaPnl: number;
   deltaPct: number;
+  activated: ActivatedData;
   t1Curve: CurvePoint[];
   splitCurve: CurvePoint[];
   trades: SplitTrade[];
@@ -130,6 +143,21 @@ export default function PerformanceHalfPage() {
         trade: i + 1,
         t1Only: data.t1Curve[i]?.cumPnl ?? null,
         splitHalf: data.splitCurve[i]?.cumPnl ?? null,
+      });
+    }
+    return merged;
+  }, [data]);
+
+  const activatedCurve = useMemo(() => {
+    if (!data?.activated) return [];
+    const act = data.activated;
+    const maxLen = Math.max(act.t1Curve.length, act.splitCurve.length);
+    const merged: any[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      merged.push({
+        trade: i + 1,
+        t1Only: act.t1Curve[i]?.cumPnl ?? null,
+        splitHalf: act.splitCurve[i]?.cumPnl ?? null,
       });
     }
     return merged;
@@ -362,6 +390,190 @@ export default function PerformanceHalfPage() {
               )}
             </CardContent>
           </Card>
+
+          {data.activated && (() => {
+            const act = data.activated;
+            const actT1 = act.t1OnlySummary;
+            const actSp = act.splitSummary;
+            const actWinner = actSp.totalPnl > actT1.totalPnl ? "SPLIT" : "T1_ONLY";
+            return (
+              <>
+                <div className="flex items-center gap-3 pt-2">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Activated Only — Market Hours Trades</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+
+                {act.totalResolvedTrades === 0 ? (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <Activity className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground" data-testid="text-activated-empty">No activated trades resolved yet</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        This section tracks signals that triggered entry during RTH. Data will populate as activated trades resolve to hit or miss.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                <>
+
+                <Card className={`border-2 ${actWinner === "SPLIT" ? "border-purple-500/40" : "border-emerald-500/40"}`}>
+                  <CardContent className="pt-4 pb-4 px-5">
+                    <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+                      <div className="text-center">
+                        <div className="text-xs text-muted-foreground mb-1">T1-Only P&L</div>
+                        <div className={`text-2xl font-bold font-mono ${actT1.totalPnl >= 0 ? "text-emerald-500" : "text-red-500 dark:text-red-400"}`} data-testid="text-act-t1-pnl">
+                          {actT1.totalPnl >= 0 ? "+" : ""}${actT1.totalPnl.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{actT1.roiOnCapital}% ROI</div>
+                      </div>
+
+                      <div className="text-center text-muted-foreground">
+                        <div className="text-xs mb-1">vs</div>
+                        <div className={`text-lg font-bold font-mono ${act.deltaPnl >= 0 ? "text-purple-500" : "text-orange-500"}`} data-testid="text-act-delta">
+                          {act.deltaPnl >= 0 ? "+" : ""}${act.deltaPnl.toLocaleString()}
+                          <span className="text-xs ml-1">({act.deltaPct >= 0 ? "+" : ""}{act.deltaPct}%)</span>
+                        </div>
+                      </div>
+
+                      <div className="text-center">
+                        <div className="text-xs text-muted-foreground mb-1">Split ½ P&L</div>
+                        <div className={`text-2xl font-bold font-mono ${actSp.totalPnl >= 0 ? "text-purple-500" : "text-red-500 dark:text-red-400"}`} data-testid="text-act-split-pnl">
+                          {actSp.totalPnl >= 0 ? "+" : ""}${actSp.totalPnl.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{actSp.roiOnCapital}% ROI</div>
+                      </div>
+
+                      <div className="ml-auto text-right space-y-1">
+                        <div className="text-xs text-muted-foreground">{act.totalResolvedTrades.toLocaleString()} activated trades</div>
+                        <div className="text-xs text-muted-foreground">Halfway Hit Rate: <span className="font-mono font-medium text-foreground">{act.halfwayHitRate}%</span></div>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${actWinner === "SPLIT" ? "bg-purple-500/10 text-purple-600 border-purple-500/20" : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"}`}
+                          data-testid="badge-act-winner"
+                        >
+                          {actWinner === "SPLIT" ? "Split ½ Wins" : "T1-Only Wins"}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Target className="w-4 h-4" />
+                        T1-Only (Activated)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Win Rate</div>
+                          <div className="text-lg font-bold font-mono">{actT1.winRate}%</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Avg P&L</div>
+                          <div className={`text-lg font-bold font-mono ${actT1.avgPnlPerTrade >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                            {actT1.avgPnlPerTrade >= 0 ? "+" : ""}${actT1.avgPnlPerTrade.toFixed(2)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Edge</div>
+                          <div className={`text-lg font-bold font-mono ${actT1.edgePct >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                            {actT1.edgePct >= 0 ? "+" : ""}{actT1.edgePct}%
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                        <span>{actT1.wins}W / {actT1.losses}L</span>
+                        <span>${actT1.capitalRequired.toLocaleString()} req</span>
+                        <span>{actT1.avgDailyTrades} avg/day</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <ArrowRightLeft className="w-4 h-4" />
+                        Split ½ (Activated)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Win Rate</div>
+                          <div className="text-lg font-bold font-mono">{actSp.winRate}%</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Avg P&L</div>
+                          <div className={`text-lg font-bold font-mono ${actSp.avgPnlPerTrade >= 0 ? "text-purple-500" : "text-red-500"}`}>
+                            {actSp.avgPnlPerTrade >= 0 ? "+" : ""}${actSp.avgPnlPerTrade.toFixed(2)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Edge</div>
+                          <div className={`text-lg font-bold font-mono ${actSp.edgePct >= 0 ? "text-purple-500" : "text-red-500"}`}>
+                            {actSp.edgePct >= 0 ? "+" : ""}{actSp.edgePct}%
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                        <span>{actSp.wins}W{(actSp.partials ?? 0) > 0 ? ` / ${actSp.partials}P` : ""} / {actSp.losses}L</span>
+                        <span>${actSp.capitalRequired.toLocaleString()} req</span>
+                        <span>{actSp.avgDailyTrades} avg/day</span>
+                        <span>{act.halfwayHitRate}% halfway hit</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Activated Equity Curve</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      Only trades activated during RTH: <span className="text-emerald-500">T1-Only</span> vs <span className="text-purple-500">Split ½</span>
+                    </p>
+                  </CardHeader>
+                  <CardContent className="p-2">
+                    {activatedCurve.length === 0 ? (
+                      <div className="h-64 flex items-center justify-center text-xs text-muted-foreground">No activated trades</div>
+                    ) : (
+                      <div className="h-64" data-testid="chart-activated-equity">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={activatedCurve}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="trade" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} label={{ value: "Trade #", position: "insideBottom", offset: -2, fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                            <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v: number) => `$${v}`} />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "hsl(var(--card))",
+                                border: "1px solid hsl(var(--border))",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                              }}
+                              formatter={(value: number, name: string) => [
+                                `$${value?.toFixed(2) ?? "—"}`,
+                                name === "t1Only" ? "T1-Only" : "Split ½",
+                              ]}
+                              labelFormatter={(label: number) => `Trade #${label}`}
+                            />
+                            <Legend formatter={(value: string) => value === "t1Only" ? "T1-Only" : "Split ½"} />
+                            <Line type="monotone" dataKey="t1Only" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} connectNulls />
+                            <Line type="monotone" dataKey="splitHalf" stroke="hsl(270 70% 56%)" strokeWidth={2} dot={false} strokeDasharray="6 3" connectNulls />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                </>
+                )}
+              </>
+            );
+          })()}
 
           <Card>
             <CardHeader className="pb-2">

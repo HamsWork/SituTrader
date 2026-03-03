@@ -197,9 +197,11 @@ This document maps every major feature to the specific files and key functions/e
 **Features mapped:**
 - Compares T1-Only (100% exit at T1) vs Split ½ (50% at halfway, 50% at T1)
 - Comparison banner with delta P&L and winner badge
-- Dual equity curve overlay (T1-Only green solid vs Split ½ blue dashed)
+- Dual equity curve overlay (T1-Only green solid vs Split ½ purple dashed)
 - Trade history with halfway price, T1 price, ½ Hit status, and PARTIAL outcome
 - MFE-based halfway hit detection for missed trades
+- Activated Only channel: filters to signals with RTH activation (activatedTs, IBKR trade, or activationStatus ACTIVE/INVALIDATED), with separate comparison banner, model cards, and equity curve
+- Period filter (30/60/90/120 days) scopes all sections
 - Period-scoped summaries and curves (30d/60d/90d/91+/Total)
 
 ---

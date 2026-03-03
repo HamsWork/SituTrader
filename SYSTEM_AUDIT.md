@@ -323,7 +323,7 @@ Wouter-based routing with sidebar navigation:
 | `/settings` | Settings | 985 |
 | `/optimization` | Optimization | 1,002 |
 | `/performance` | Performance | 596 |
-| `/performance-half` | Performance ½ Study | 502 |
+| `/performance-half` | Performance ½ Study | 718 |
 | `/symbol/:ticker` | Symbol Detail | 560 |
 | `/backtest` | Backtest | 647 |
 | `/ibkr` | IBKR Dashboard | 401 |
