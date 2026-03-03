@@ -319,17 +319,16 @@ Wouter-based routing with sidebar navigation:
 
 | Route | Page | Lines |
 |---|---|---|
-| `/` | Dashboard | 1,903 |
+| `/` | Dashboard | 1,869 |
 | `/settings` | Settings | 985 |
 | `/optimization` | Optimization | 1,002 |
 | `/performance` | Performance | 596 |
-| `/performance2` | Performance 2 (Split-Exit) | 742 |
 | `/symbol/:ticker` | Symbol Detail | 560 |
 | `/backtest` | Backtest | 647 |
 | `/ibkr` | IBKR Dashboard | 401 |
 | `/guide` | Guide | 432 |
 
-### 5.2 Dashboard (`client/src/pages/dashboard.tsx` — 1,903 lines)
+### 5.2 Dashboard (`client/src/pages/dashboard.tsx` — 1,869 lines)
 The primary interface. Features:
 - Signal table with filtering (setup type, tier, status, direction)
 - Auto-refresh system: 60-second interval + on-focus + on-load
@@ -347,18 +346,6 @@ P&L analytics with exclusive time windows:
 - Instrument breakdown (Options/Shares/Leveraged ETF)
 - Full trade history table with sorting
 - KPI cards: capital required, ROI, win rate, best/worst trades
-- T2 target display on active trade cards (cyan diamond on progress bar, T2 price in footer and info strip)
-
-### 5.3b Performance 2 — Split-Exit Model (`client/src/pages/performance2.tsx` — 742 lines)
-Two-target exit simulation comparing 50/50 split (50% at T1, 50% rides to T2 or BE) vs T1-only:
-- Comparison banner: T1-Only P&L vs Split-Exit P&L, delta %, T2 hit rate
-- Period-based summaries (30d/60d/90d/91+/Total) with T2 stats
-- Dual equity curve: split-exit (solid) vs T1-only (dashed)
-- Daily P&L bar chart (split-exit model)
-- Trade history table with T2 columns: T2 Price, T2 Hit, T1 Leg P&L, T2 Leg P&L
-- Instrument breakdown and KPI cards reflecting split-exit math
-- API: `GET /api/performance2/analysis` with capital/period/instrument/pagination params
-- T2 hit detection: IBKR tpHitLevel >= 2 for live trades, MFE-based for backtests
 
 ### 5.4 Optimization (`client/src/pages/optimization.tsx` — 1,002 lines)
 Intelligence dashboard for setup grading:
@@ -502,7 +489,6 @@ Backtest results and analysis interface.
 
 ### Performance
 - `GET /api/performance/analysis` — P&L analytics with time window params
-- `GET /api/performance2/analysis` — Split-exit (50% T1 / 50% T2 or BE) P&L analytics with T2 tracking
 
 ### Reliability & Robustness
 - `GET /api/analysis/reliability` — Compute and return reliability summary with 10-gate scoring

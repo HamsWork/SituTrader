@@ -185,7 +185,6 @@
       { "method": "POST", "path": "/api/discord/test-options", "purpose": "Test options webhook" },
       { "method": "POST", "path": "/api/discord/test-letf", "purpose": "Test LETF webhook" },
       { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" },
-      { "method": "GET", "path": "/api/performance2/analysis", "purpose": "Split-exit (50% T1 / 50% T2 or BE) P&L analytics" },
       { "method": "POST", "path": "/api/backtest/jobs/start", "purpose": "Start backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/pause", "purpose": "Pause backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/resume", "purpose": "Resume backtest worker" },
@@ -398,12 +397,6 @@
         "file": "client/src/pages/performance.tsx",
         "lines": 596,
         "purpose": "P&L analytics with exclusive time windows"
-      },
-      {
-        "route": "/performance2",
-        "file": "client/src/pages/performance2.tsx",
-        "lines": 742,
-        "purpose": "Split-exit model (50% T1, 50% T2/BE) P&L analytics with comparison to T1-only"
       },
       {
         "route": "/optimization",

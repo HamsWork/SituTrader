@@ -16,7 +16,6 @@ import {
 const navItems = [
   { title: "Dashboard", url: "/", icon: Home },
   { title: "Performance", url: "/performance", icon: Activity },
-  { title: "Performance 2", url: "/performance2", icon: Activity },
   { title: "Profit Windows", url: "/profit-windows", icon: Layers },
   { title: "Optimization", url: "/optimization", icon: FlaskConical },
   { title: "IBKR", url: "/ibkr", icon: Wallet },

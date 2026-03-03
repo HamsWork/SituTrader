@@ -18,7 +18,6 @@ import IbkrDashboard from "@/pages/ibkr-dashboard";
 import DiscordTradesPage from "@/pages/discord-trades";
 import SystemAuditPage from "@/pages/system-audit";
 import ProfitWindowsPage from "@/pages/profit-windows";
-import Performance2Page from "@/pages/performance2";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -30,7 +29,6 @@ function Router() {
       <Route path="/optimization" component={OptimizationPage} />
       <Route path="/performance" component={PerformancePage} />
       <Route path="/profit-windows" component={ProfitWindowsPage} />
-      <Route path="/performance2" component={Performance2Page} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ibkr" component={IbkrDashboard} />
       <Route path="/discord-trades" component={DiscordTradesPage} />

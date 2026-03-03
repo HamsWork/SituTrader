@@ -182,26 +182,6 @@ This document maps every major feature to the specific files and key functions/e
 - Daily P&L (Recharts BarChart)
 - Instrument breakdown (Options/Shares/LETF)
 - Trade history table with sorting
-- T2 target display on dashboard active trade cards (progress bar, footer, info strip)
-
----
-
-## 13b. Performance 2 — Split-Exit Model
-
-| File | Key Exports | Role |
-|---|---|---|
-| `client/src/pages/performance2.tsx` | Performance2Page component | Split-exit P&L analytics page |
-| `server/routes.ts` | `GET /api/performance2/analysis` | Split-exit analytics endpoint |
-| `client/src/components/app-sidebar.tsx` | Sidebar nav entry | Navigation link |
-| `client/src/App.tsx` | Route `/performance2` | Route registration |
-
-**Features mapped:**
-- 50/50 split-exit simulation (50% at T1, 50% rides to T2 or BE)
-- Comparison banner: T1-Only vs Split-Exit P&L, delta %, T2 hit rate
-- Dual equity curve (split vs T1-only)
-- Trade history with T2 columns (T2 Price, T2 Hit, T1 Leg, T2 Leg)
-- T2 detection: IBKR tpHitLevel >= 2 for live, MFE-based for backtests
-- Same filters: capital per trade, period, instrument, pagination
 
 ---
 
@@ -378,7 +358,6 @@ This document maps every major feature to the specific files and key functions/e
 | `server/jobs/backtestWorker.ts` | Backtesting (bulk worker) |
 | `client/src/pages/dashboard.tsx` | Dashboard, Signals, Profiles, Activation |
 | `client/src/pages/performance.tsx` | Performance Analytics |
-| `client/src/pages/performance2.tsx` | Performance 2 (Split-Exit Model) |
 | `client/src/pages/profit-windows.tsx` | Multi-Instrument Profit Windows |
 | `server/lib/profitWindows.ts` | Profit Windows (computation engine) |
 | `client/src/pages/optimization.tsx` | Optimization, Expectancy, Testing & Robustness |
