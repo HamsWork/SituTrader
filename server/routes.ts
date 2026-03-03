@@ -2485,7 +2485,9 @@ export async function registerRoutes(
 
       const topTickerSet = new Set(topTickers.map(t => t.ticker));
       const capitalPerTrade = 1000;
-      const stratTrades: { date: string; ticker: string; pnl: number }[] = [];
+
+      interface RawTrade { date: string; ticker: string; hit: boolean; sharesPnl: number; pctReturn: number }
+      const rawTrades: RawTrade[] = [];
 
       for (const bt of allBacktests) {
         if (bt.setupType !== bestSetup) continue;
@@ -2502,63 +2504,84 @@ export async function registerRoutes(
           const shares = Math.floor(capitalPerTrade / ePrice);
           if (shares <= 0) continue;
 
-          let pnl: number;
+          let sharesPnl: number;
           if (d.hit) {
-            pnl = bias === "BUY"
+            sharesPnl = bias === "BUY"
               ? (magnetPrice - ePrice) * shares
               : (ePrice - magnetPrice) * shares;
           } else {
             const stopDist = ePrice * 0.01;
-            pnl = -stopDist * shares;
+            sharesPnl = -stopDist * shares;
           }
-          stratTrades.push({ date: d.date, ticker: bt.ticker, pnl: Math.round(pnl * 100) / 100 });
+          const actualInvested = shares * ePrice;
+          const pctReturn = actualInvested > 0 ? sharesPnl / actualInvested : 0;
+          rawTrades.push({ date: d.date, ticker: bt.ticker, hit: d.hit, sharesPnl: Math.round(sharesPnl * 100) / 100, pctReturn });
         }
       }
 
-      stratTrades.sort((a, b) => a.date.localeCompare(b.date));
+      rawTrades.sort((a, b) => a.date.localeCompare(b.date));
 
-      let strategyPerformance = null;
-      if (stratTrades.length > 0) {
-        const wins = stratTrades.filter(t => t.pnl > 0).length;
-        const losses = stratTrades.filter(t => t.pnl <= 0).length;
-        const totalPnl = stratTrades.reduce((s, t) => s + t.pnl, 0);
+      function buildInstrumentPerf(label: string, trades: { date: string; ticker: string; pnl: number }[]) {
+        if (trades.length === 0) return null;
+        const wins = trades.filter(t => t.pnl > 0).length;
+        const losses = trades.filter(t => t.pnl <= 0).length;
+        const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
         let cumPnl = 0;
-        const equityCurve = stratTrades.map((t, i) => {
+        const equityCurve = trades.map((t, i) => {
           cumPnl += t.pnl;
           return { trade: i + 1, date: t.date, ticker: t.ticker, pnl: t.pnl, cumPnl: Math.round(cumPnl * 100) / 100 };
         });
-
         const maxPoints = 500;
         let sampledCurve = equityCurve;
         if (equityCurve.length > maxPoints) {
           const step = Math.ceil(equityCurve.length / maxPoints);
           sampledCurve = equityCurve.filter((_, i) => i % step === 0 || i === equityCurve.length - 1);
         }
-
         const dailyMap = new Map<string, number>();
-        for (const t of stratTrades) {
+        for (const t of trades) {
           dailyMap.set(t.date, (dailyMap.get(t.date) ?? 0) + t.pnl);
         }
         const dailyPnl = Array.from(dailyMap.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([date, pnl]) => ({ date: date.slice(5), pnl: Math.round(pnl * 100) / 100 }));
-
-        const best = stratTrades.reduce((b, t) => t.pnl > b.pnl ? t : b);
-        const worst = stratTrades.reduce((w, t) => t.pnl < w.pnl ? t : w);
-
-        strategyPerformance = {
-          totalTrades: stratTrades.length,
+        const best = trades.reduce((b, t) => t.pnl > b.pnl ? t : b);
+        const worst = trades.reduce((w, t) => t.pnl < w.pnl ? t : w);
+        return {
+          instrument: label,
+          totalTrades: trades.length,
           wins,
           losses,
-          winRate: Math.round(wins / stratTrades.length * 1000) / 10,
+          winRate: Math.round(wins / trades.length * 1000) / 10,
           totalPnl: Math.round(totalPnl * 100) / 100,
-          avgPnl: Math.round(totalPnl / stratTrades.length * 100) / 100,
-          bestTrade: { ticker: best.ticker, pnl: best.pnl },
-          worstTrade: { ticker: worst.ticker, pnl: worst.pnl },
+          avgPnl: Math.round(totalPnl / trades.length * 100) / 100,
+          bestTrade: { ticker: best.ticker, pnl: Math.round(best.pnl * 100) / 100 },
+          worstTrade: { ticker: worst.ticker, pnl: Math.round(worst.pnl * 100) / 100 },
           equityCurve: sampledCurve,
           dailyPnl,
         };
       }
+
+      const shareTrades = rawTrades.map(t => ({ date: t.date, ticker: t.ticker, pnl: t.sharesPnl }));
+
+      const letfTrades = rawTrades.map(t => ({
+        date: t.date, ticker: t.ticker,
+        pnl: Math.round(Math.max(t.sharesPnl * 3, -capitalPerTrade) * 100) / 100,
+      }));
+
+      const optionTrades = rawTrades.map(t => ({
+        date: t.date, ticker: t.ticker,
+        pnl: t.hit
+          ? Math.round(t.pctReturn * 5 * capitalPerTrade * 100) / 100
+          : -capitalPerTrade,
+      }));
+
+      const strategyPerformance = buildInstrumentPerf("SHARES", shareTrades);
+
+      const instrumentBreakdown = [
+        buildInstrumentPerf("SHARES", shareTrades),
+        buildInstrumentPerf("LEVERAGED_ETF", letfTrades),
+        buildInstrumentPerf("OPTIONS", optionTrades),
+      ].filter(Boolean);
 
       res.json({
         totalBacktestTrades: Object.values(bySetup).reduce((s, b) => s + b.count, 0),
@@ -2570,6 +2593,7 @@ export async function registerRoutes(
         avoidTickers,
         qualityScoreBreakdown,
         strategyPerformance,
+        instrumentBreakdown,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

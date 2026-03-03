@@ -349,15 +349,16 @@ P&L analytics with exclusive time windows:
 - KPI cards: capital required, ROI, win rate, best/worst trades
 - Activated Only toggle: filters to trades that moved On Deck → Active during market hours
 
-### 5.3b ROI Insights (`client/src/pages/roi-insights.tsx` — 515 lines)
+### 5.3b ROI Insights (`client/src/pages/roi-insights.tsx` — 703 lines)
 Dedicated backtest edge analysis page:
+- Instrument comparison: Shares vs Leveraged ETF (3x) vs Options (~5x) side-by-side P&L simulation
+- Overlay equity curve with all 3 instruments + individual instrument tabs with detailed KPIs/charts
+- Comparison table: trades, win rate, total P&L, avg P&L, best/worst trade per instrument
 - Setup rankings table with activated win rates and lift
-- Recommended strategy P&L simulation (best setup + top tickers + activated)
-- Strategy equity curve and daily P&L charts
 - Quality score breakdown by bucket
 - Top tickers table for best setup (65%+ WR, 30+ trades)
 - Avoid list for worst-performing tickers
-- 1-trade-per-day selection guide
+- 1-trade-per-day selection guide with instrument recommendation
 - Filterable by setup type
 
 ### 5.4 Optimization (`client/src/pages/optimization.tsx` — 1,002 lines)
