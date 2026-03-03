@@ -467,8 +467,13 @@ function oneLinePlan(signal: Signal): string {
   const stopNum = signal.stopPrice ?? null;
   const t1Num = tp.t1 ?? signal.magnetPrice;
 
+  const t2Num = tp?.t2 ?? null;
   if (entryNum != null && stopNum != null) {
-    return `${biasLabel} → entry $${entryNum.toFixed(2)} → stop $${stopNum.toFixed(2)} → T1 $${t1Num.toFixed(2)}`;
+    let plan = `${biasLabel} → entry $${entryNum.toFixed(2)} → stop $${stopNum.toFixed(2)} → T1 $${t1Num.toFixed(2)}`;
+    if (t2Num != null && Math.abs(t2Num - t1Num) > 0.001) {
+      plan += ` → T2 $${t2Num.toFixed(2)}`;
+    }
+    return plan;
   }
   const earlyHit = signal.pHit60 != null ? `${(signal.pHit60 * 100).toFixed(0)}%` : "--";
   return `${biasLabel} → target $${t1Num.toFixed(2)} → Early Hit ${earlyHit}`;
@@ -479,6 +484,8 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
   if (!tp) return null;
 
   const targetPrice = (tp.t1 ?? signal.magnetPrice);
+  const t2Price = tp.t2 ?? null;
+  const hasT2 = t2Price != null && Math.abs(t2Price - targetPrice) > 0.001;
 
   const entryPrice = signal.entryPriceAtActivation ?? null;
   const stopPrice = signal.stopPrice ?? null;
@@ -506,13 +513,15 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
 
   const stopDist = Math.abs(resolvedEntry - originalStop);
   const targetDist = Math.abs(targetPrice - resolvedEntry);
-  const baseDist = Math.max(stopDist, targetDist) || 1;
+  const t2Dist = hasT2 ? Math.abs(t2Price - resolvedEntry) : targetDist;
+  const maxTargetDist = Math.max(targetDist, t2Dist);
+  const baseDist = Math.max(stopDist, maxTargetDist) || 1;
 
   let profitOverflow = 0;
   if (currentPrice != null) {
     const profitDelta = isSell ? (resolvedEntry - currentPrice) : (currentPrice - resolvedEntry);
-    if (profitDelta > targetDist) {
-      profitOverflow = profitDelta - targetDist;
+    if (profitDelta > maxTargetDist) {
+      profitOverflow = profitDelta - maxTargetDist;
     }
   }
 
@@ -529,6 +538,7 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
   const originalStopPct = toBarPct(originalStop);
   const currentStopPct = toBarPct(resolvedStop);
   const targetPct = toBarPct(targetPrice);
+  const t2Pct = hasT2 ? toBarPct(t2Price) : null;
 
   const currentPct = currentPrice != null ? toBarPct(currentPrice) : null;
 
@@ -629,6 +639,15 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
           data-testid={`marker-target-${signal.id}`}
         />
 
+        {hasT2 && t2Pct != null && (
+          <div
+            className="absolute w-2 h-2 rotate-45 top-[2px] border-2 border-background z-[2] bg-cyan-500"
+            style={{ left: `${t2Pct}%`, transform: "translateX(-50%)" }}
+            title={`T2: ${t2Price.toFixed(2)}`}
+            data-testid={`marker-t2-${signal.id}`}
+          />
+        )}
+
         {currentPct != null && (
           <div
             className={`absolute w-0.5 h-full z-[3] ${beyondStop ? "bg-red-500" : isWinning ? "bg-emerald-500" : "bg-amber-500"}`}
@@ -643,6 +662,12 @@ function ProgressBar({ signal, currentPrice }: { signal: SignalApi; currentPrice
         <span>Entry {resolvedEntry.toFixed(2)}</span>
         <span className="text-muted-foreground/40">•</span>
         <span className="text-emerald-500/80">T1 {targetPrice.toFixed(2)}</span>
+        {hasT2 && (
+          <>
+            <span className="text-muted-foreground/40">•</span>
+            <span className="text-cyan-500/80">T2 {t2Price.toFixed(2)}</span>
+          </>
+        )}
       </div>
     </div>
   );
@@ -831,6 +856,8 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
   const P = signal.live?.currentPrice ?? null;
   const trig = signal.entryTriggerPrice ?? null;
   const t1 = tp?.t1 ?? signal.magnetPrice;
+  const t2 = tp?.t2 ?? null;
+  const hasT2 = t2 != null && Math.abs(t2 - t1) > 0.001;
   const stopDist = tp?.stopDistance ?? null;
 
   const stopFromInvalidation = tp?.invalidation?.match(/\$([0-9.]+)/)?.[1];
@@ -905,6 +932,12 @@ function OnDeckCard({ signal }: { signal: SignalApi }) {
             <span className="text-emerald-500/80" data-testid={`text-t1-${signal.id}`}>
               T1: <span className="font-semibold">${t1.toFixed(2)}</span>
             </span>
+
+            {hasT2 && (
+              <span className="text-cyan-500/80" data-testid={`text-t2-${signal.id}`}>
+                T2: <span className="font-semibold">${t2.toFixed(2)}</span>
+              </span>
+            )}
 
             {rrToT1 != null && Number.isFinite(rrToT1) && rrToT1 > 0 ? (
               <span className="text-muted-foreground" data-testid={`text-rr-${signal.id}`}>
