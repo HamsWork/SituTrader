@@ -128,9 +128,9 @@ const INSTRUMENT_COLORS: Record<string, string> = {
 };
 
 const INSTRUMENT_NOTES: Record<string, string> = {
-  SHARES: "Baseline — $1,000/trade, shares = floor($1,000 / entry price), 1% stop loss",
-  LEVERAGED_ETF: "Approximate — 3× underlying shares P&L, max loss capped at $1,000 invested",
-  OPTIONS: "Approximate — ~5× leverage on underlying % return for wins, 100% premium loss ($1,000) on stops",
+  SHARES: "Baseline — $1,000/trade, 1% stop loss, T1 at magnet price",
+  LEVERAGED_ETF: "3× leverage — amplifies underlying % moves by 3x on both wins and stops",
+  OPTIONS: "~5× leverage — amplifies underlying % moves by 5x on both wins and stops",
 };
 
 export default function ROIInsightsPage() {
