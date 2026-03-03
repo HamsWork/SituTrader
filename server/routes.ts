@@ -2486,44 +2486,55 @@ export async function registerRoutes(
       const topTickerSet = new Set(topTickers.map(t => t.ticker));
       const capitalPerTrade = 1000;
 
-      const shareTrades: { date: string; ticker: string; pnl: number }[] = [];
-      const letfTrades: { date: string; ticker: string; pnl: number }[] = [];
-      const optionTrades: { date: string; ticker: string; pnl: number }[] = [];
+      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; hit: boolean }[] = [];
+      
 
       for (const bt of allBacktests) {
         if (bt.setupType !== bestSetup) continue;
         if (!topTickerSet.has(bt.ticker)) continue;
         const details = bt.details as any[] | null;
         if (!details) continue;
-
         for (const d of details) {
           if (!d.triggered || d.activated !== true) continue;
           const ePrice = (d.activationPrice && d.activationPrice > 0) ? d.activationPrice : d.entryPrice;
           if (!ePrice || ePrice <= 0) continue;
           const magnetPrice = d.magnetPrice;
-          const bias = magnetPrice >= ePrice ? "BUY" : "SELL";
-
-          const stopDist = ePrice * 0.01;
-          const rewardDist = Math.abs(magnetPrice - ePrice);
-          const stopPct = stopDist / ePrice;
-          const rewardPct = rewardDist / ePrice;
-
-          const sharesQty = Math.floor(capitalPerTrade / ePrice);
-          if (sharesQty <= 0) continue;
-          const shareWin = Math.round(rewardDist * sharesQty * 100) / 100;
-          const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
-          shareTrades.push({ date: d.date, ticker: bt.ticker, pnl: d.hit ? shareWin : shareLoss });
-
-          const letfLev = 3;
-          const letfWin = Math.round(rewardPct * letfLev * capitalPerTrade * 100) / 100;
-          const letfLoss = Math.round(-stopPct * letfLev * capitalPerTrade * 100) / 100;
-          letfTrades.push({ date: d.date, ticker: bt.ticker, pnl: d.hit ? letfWin : letfLoss });
-
-          const optLev = 5;
-          const optWin = Math.round(rewardPct * optLev * capitalPerTrade * 100) / 100;
-          const optLoss = Math.round(-stopPct * optLev * capitalPerTrade * 100) / 100;
-          optionTrades.push({ date: d.date, ticker: bt.ticker, pnl: d.hit ? optWin : optLoss });
+          allTradeRecords.push({
+            date: d.date, ticker: bt.ticker, ePrice, magnetPrice,
+            hit: !!d.hit,
+          });
+          
         }
+      }
+
+      const shareTrades: { date: string; ticker: string; pnl: number }[] = [];
+      const letfTrades: { date: string; ticker: string; pnl: number }[] = [];
+      const optionTrades: { date: string; ticker: string; pnl: number }[] = [];
+
+      const letfLeverage = 3;
+      const optionsLeverage = 5;
+
+      for (const trade of allTradeRecords) {
+        const { date, ticker, ePrice, magnetPrice, hit } = trade;
+        const stopDist = ePrice * 0.01;
+        const rewardDist = Math.abs(magnetPrice - ePrice);
+
+        const pctReward = rewardDist / ePrice;
+        const pctStop = stopDist / ePrice;
+
+        const sharesQty = Math.floor(capitalPerTrade / ePrice);
+        if (sharesQty <= 0) continue;
+        const shareWin = Math.round(rewardDist * sharesQty * 100) / 100;
+        const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
+        shareTrades.push({ date, ticker, pnl: hit ? shareWin : shareLoss });
+
+        const letfWinPnl = Math.round(pctReward * letfLeverage * capitalPerTrade * 100) / 100;
+        const letfLossPnl = Math.round(-pctStop * letfLeverage * capitalPerTrade * 100) / 100;
+        letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
+
+        const optWinPnl = Math.round(pctReward * optionsLeverage * capitalPerTrade * 100) / 100;
+        const optLossPnl = Math.round(-pctStop * optionsLeverage * capitalPerTrade * 100) / 100;
+        optionTrades.push({ date, ticker, pnl: hit ? optWinPnl : optLossPnl });
       }
 
       shareTrades.sort((a, b) => a.date.localeCompare(b.date));

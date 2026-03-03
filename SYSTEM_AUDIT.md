@@ -17,7 +17,7 @@
 │           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
-│  2,132-line routes.ts · 950-line storage.ts · Drizzle ORM          │
+│  3,786-line routes.ts · 950-line storage.ts · Drizzle ORM          │
 │  Session management · CORS · JSON body parsing                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER (server/lib/)                   │
@@ -246,7 +246,7 @@ Dynamic instrument selection:
 - Leverage-adjusted entry/stop/target calculation
 - Real-time stock NBBO for pricing
 
-**Exports:** `selectBestLeveragedEtf()`, `fetchStockNbbo()`, `hasLeveragedEtfMapping()`
+**Exports:** `selectBestLeveragedEtf()`, `fetchStockNbbo()`, `hasLeveragedEtfMapping()`, `getCandidates()`
 
 ### 3.11 Universe Management (`server/lib/universe.ts` — 169 lines)
 Automatic ticker discovery and ranking:
@@ -351,7 +351,7 @@ P&L analytics with exclusive time windows:
 
 ### 5.3b ROI Insights (`client/src/pages/roi-insights.tsx` — 703 lines)
 Dedicated backtest edge analysis page:
-- Instrument comparison: Shares vs Leveraged ETF (3x) vs Options (~5x) side-by-side P&L simulation
+- Instrument comparison: Shares (1x baseline) vs LETF (3x leverage) vs Options (~5x leverage) — all with proportional stop losses, side-by-side P&L simulation
 - Overlay equity curve with all 3 instruments + individual instrument tabs with detailed KPIs/charts
 - Comparison table: trades, win rate, total P&L, avg P&L, best/worst trade per instrument
 - Setup rankings table with activated win rates and lift
@@ -407,7 +407,7 @@ Backtest results and analysis interface.
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 2,096 lines)
+## 6. API Routes Summary (`server/routes.ts` — 3,705 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -639,5 +639,5 @@ Polygon.io API
 | Setup types | 6 (A–F) |
 | Quality score components | 6 |
 | Robustness tests | 8 |
-| Largest file | `routes.ts` (2,096 lines) |
+| Largest file | `routes.ts` (3,705 lines) |
 | Second largest | `dashboard.tsx` (1,870 lines) |

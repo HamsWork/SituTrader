@@ -124,7 +124,7 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 2681,
+    "routes_lines": 3705,
     "storage_file": "server/storage.ts",
     "storage_lines": 1024,
     "api_endpoints": [
@@ -274,7 +274,7 @@
         "file": "leveragedEtf.ts",
         "lines": 379,
         "purpose": "Leveraged ETF selection and price adjustment",
-        "exports": ["selectBestLeveragedEtf", "fetchStockNbbo", "hasLeveragedEtfMapping"]
+        "exports": ["selectBestLeveragedEtf", "fetchStockNbbo", "hasLeveragedEtfMapping", "getCandidates"]
       },
       {
         "file": "universe.ts",

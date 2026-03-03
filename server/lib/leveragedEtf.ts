@@ -237,7 +237,7 @@ function resolveUnderlying(ticker: string): string {
   return UNDERLYING_ALIASES[ticker] ?? ticker;
 }
 
-function getCandidates(underlyingTicker: string, bias: "BUY" | "SELL"): EtfCandidate[] {
+export function getCandidates(underlyingTicker: string, bias: "BUY" | "SELL"): EtfCandidate[] {
   const resolved = resolveUnderlying(underlyingTicker);
   const all = LEVERAGED_ETF_MAP[resolved];
   if (!all) return [];

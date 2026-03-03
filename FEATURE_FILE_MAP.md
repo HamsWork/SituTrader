@@ -191,11 +191,12 @@ This document maps every major feature to the specific files and key functions/e
 | File | Key Exports | Role |
 |---|---|---|
 | `client/src/pages/roi-insights.tsx` | ROI Insights page component | Backtest edge analysis, strategy simulation |
-| `server/routes.ts` | `GET /api/performance/roi-insights` | Setup rankings, top/avoid tickers, strategy P&L |
+| `server/routes.ts` | `GET /api/performance/roi-insights` | Setup rankings, top/avoid tickers, instrument P&L |
 
 **Features mapped:**
 - Setup rankings with activated win rates and lift
 - Recommended strategy P&L (best setup + top tickers + activated trades)
+- Instrument comparison: Shares (1x baseline), LETF (3x leverage), Options (5x leverage) — all with proportional stop losses
 - Strategy equity curve and daily P&L charts
 - Quality score breakdown by bucket
 - Top tickers / avoid list tables
