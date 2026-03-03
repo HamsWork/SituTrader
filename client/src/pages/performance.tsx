@@ -34,6 +34,7 @@ import {
   PieChart,
   Pie,
 } from "recharts";
+import { Switch } from "@/components/ui/switch";
 import {
   DollarSign,
   TrendingUp,
@@ -132,13 +133,14 @@ export default function PerformancePage() {
   const [capital, setCapital] = useState(1000);
   const [periodFilter, setPeriodFilter] = useState<number>(4);
   const [instrumentFilter, setInstrumentFilter] = useState<string>("all");
+  const [activatedOnly, setActivatedOnly] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 100;
 
   const { data, isLoading, isFetching } = useQuery<PerformanceData>({
-    queryKey: ["/api/performance/analysis", capital, periodFilter, instrumentFilter, page],
+    queryKey: ["/api/performance/analysis", capital, periodFilter, instrumentFilter, activatedOnly, page],
     queryFn: async () => {
-      const res = await fetch(`/api/performance/analysis?capital=${capital}&period=${periodFilter}&instrument=${instrumentFilter}&page=${page}&pageSize=${pageSize}`);
+      const res = await fetch(`/api/performance/analysis?capital=${capital}&period=${periodFilter}&instrument=${instrumentFilter}&activatedOnly=${activatedOnly}&page=${page}&pageSize=${pageSize}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -240,6 +242,17 @@ export default function PerformancePage() {
               <SelectItem value="LEVERAGED_ETF">Leveraged ETF</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-center gap-2 pb-0.5">
+          <Switch
+            id="activated-only"
+            checked={activatedOnly}
+            onCheckedChange={(checked) => { setActivatedOnly(checked); setPage(1); }}
+            data-testid="switch-activated-only"
+          />
+          <Label htmlFor="activated-only" className="text-xs cursor-pointer">
+            Activated Only
+          </Label>
         </div>
       </div>
 

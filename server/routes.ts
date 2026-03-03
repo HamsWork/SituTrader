@@ -2032,6 +2032,8 @@ export async function registerRoutes(
         return true;
       };
 
+      const activatedOnly = req.query.activatedOnly === "true";
+
       const tradeResults: any[] = [];
 
       const signalDateKeys = new Set<string>();
@@ -2045,6 +2047,12 @@ export async function registerRoutes(
         if (!isHit && !isMiss) continue;
 
         if (!matchesProfile(sig)) continue;
+
+        if (activatedOnly) {
+          const hasActivation = (sig.activationStatus === "ACTIVE" || sig.activationStatus === "INVALIDATED")
+            && (sig.activatedTs != null || (sig.entryPriceAtActivation != null && sig.entryPriceAtActivation > 0));
+          if (!hasActivation) continue;
+        }
 
         const stopDist = tp.stopDistance || 0;
         const bias = tp.bias as string | undefined;
@@ -2150,7 +2158,10 @@ export async function registerRoutes(
           if (seenBacktestKeys.has(dateKey)) continue;
           seenBacktestKeys.add(dateKey);
 
-          const entryPrice = d.entryPrice;
+          if (activatedOnly && d.activated !== true) continue;
+
+          const entryPrice = (activatedOnly && d.activationPrice && d.activationPrice > 0)
+            ? d.activationPrice : d.entryPrice;
           const magnetPrice = d.magnetPrice;
           const bias = magnetPrice >= entryPrice ? "BUY" : "SELL";
           const reward = Math.abs(magnetPrice - entryPrice);
