@@ -74,6 +74,8 @@ interface Summary {
   avgPnlPerTrade: number;
   roiOnCapital: number;
   edgePct: number;
+  avgDailyTrades: number;
+  tradingDays: number;
 }
 
 interface CurvePoint {
@@ -279,6 +281,7 @@ export default function PerformanceHalfPage() {
                 <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                   <span>{t1!.wins}W / {t1!.losses}L</span>
                   <span>${t1!.capitalRequired.toLocaleString()} req</span>
+                  <span>{t1!.avgDailyTrades} avg/day</span>
                 </div>
               </CardContent>
             </Card>
@@ -313,6 +316,7 @@ export default function PerformanceHalfPage() {
                 <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                   <span>{split!.wins}W{(split!.partials ?? 0) > 0 ? ` / ${split!.partials}P` : ""} / {split!.losses}L</span>
                   <span>${split!.capitalRequired.toLocaleString()} req</span>
+                  <span>{split!.avgDailyTrades} avg/day</span>
                   <span>{data.halfwayHitRate}% halfway hit</span>
                 </div>
               </CardContent>

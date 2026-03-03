@@ -2701,6 +2701,8 @@ export async function registerRoutes(
         const capitalRequired = maxConcurrent * capitalPerTrade;
         const winRate = totalTrades > 0 ? wins / totalTrades : 0;
         const avgPnl = totalTrades > 0 ? totalPnl / totalTrades : 0;
+        const uniqueDays = new Set(trades.map(t => t.date)).size;
+        const avgDailyTrades = uniqueDays > 0 ? Math.round((totalTrades / uniqueDays) * 10) / 10 : 0;
         return {
           totalTrades,
           wins,
@@ -2713,6 +2715,8 @@ export async function registerRoutes(
           avgPnlPerTrade: Math.round(avgPnl * 100) / 100,
           roiOnCapital: capitalRequired > 0 ? Math.round((totalPnl / capitalRequired) * 10000) / 100 : 0,
           edgePct: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 10000) / 100 : 0,
+          avgDailyTrades,
+          tradingDays: uniqueDays,
         };
       };
 
