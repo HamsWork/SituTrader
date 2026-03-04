@@ -2541,7 +2541,8 @@ export async function registerRoutes(
 
       const tickerBarsMap = new Map<string, { t: number; c: number }[]>();
       if (allTradeRecords.length > 0) {
-        await Promise.all(Array.from(topTickerSet).map(async (tick) => {
+        const allTickersForVol = new Set([...topTickerSet, ...uniqueLetfTickers]);
+        await Promise.all(Array.from(allTickersForVol).map(async (tick) => {
           try {
             const bars = await fetchDailyBarsCached(tick, minDate, maxDate);
             tickerBarsMap.set(tick, bars.map(b => ({ t: b.t, c: b.c })).sort((a, b) => a.t - b.t));
@@ -2571,6 +2572,7 @@ export async function registerRoutes(
       const shareTrades: { date: string; ticker: string; pnl: number }[] = [];
       const letfTrades: { date: string; ticker: string; pnl: number }[] = [];
       const optionTrades: { date: string; ticker: string; pnl: number }[] = [];
+      const letfOptionTrades: { date: string; ticker: string; pnl: number }[] = [];
 
       for (const trade of allTradeRecords) {
         const { date, ticker, ePrice, magnetPrice, bias, hit } = trade;
@@ -2587,6 +2589,10 @@ export async function registerRoutes(
         const letfInfo = tickerLetfInfo.get(ticker);
         const letfCand = bias === "BUY" ? letfInfo?.bull : letfInfo?.bear;
         let letfHandled = false;
+        let letfEntryPrice = 0;
+        let letfT1Price = 0;
+        let letfStopPrice = 0;
+        let letfTicker = "";
         if (letfCand) {
           const letfBars = letfBarMap.get(letfCand.ticker);
           const letfClose = letfBars?.get(date);
@@ -2601,6 +2607,10 @@ export async function registerRoutes(
               const letfLossPnl = Math.round((letfStopLevel - letfClose) * letfShares * 100) / 100;
               letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
               letfHandled = true;
+              letfEntryPrice = letfClose;
+              letfT1Price = letfT1;
+              letfStopPrice = letfStopLevel;
+              letfTicker = letfCand.ticker;
             }
           }
         }
@@ -2627,11 +2637,28 @@ export async function registerRoutes(
             optionTrades.push({ date, ticker, pnl: optPnl });
           }
         }
+
+        if (letfHandled && letfEntryPrice > 0 && letfTicker) {
+          const letfVol = getTrailingVol(letfTicker, date);
+          const letfSignedDelta = bias === "BUY" ? 0.50 : -0.50;
+          const letfPremium = letfEntryPrice * letfVol * Math.sqrt(dte / 365) * 0.3989;
+          if (letfPremium > 0.01) {
+            const letfContractCost = letfPremium * 100;
+            const letfContracts = Math.floor(capitalPerTrade / letfContractCost);
+            if (letfContracts > 0) {
+              const letfExitPrice = hit ? letfT1Price : letfStopPrice;
+              const letfOptMove = (letfExitPrice - letfEntryPrice) * letfSignedDelta;
+              const letfOptPnl = Math.round(letfOptMove * letfContracts * 100 * 100) / 100;
+              letfOptionTrades.push({ date, ticker, pnl: letfOptPnl });
+            }
+          }
+        }
       }
 
       shareTrades.sort((a, b) => a.date.localeCompare(b.date));
       letfTrades.sort((a, b) => a.date.localeCompare(b.date));
       optionTrades.sort((a, b) => a.date.localeCompare(b.date));
+      letfOptionTrades.sort((a, b) => a.date.localeCompare(b.date));
 
       function buildInstrumentPerf(label: string, trades: { date: string; ticker: string; pnl: number }[]) {
         if (trades.length === 0) return null;
@@ -2679,6 +2706,7 @@ export async function registerRoutes(
         buildInstrumentPerf("SHARES", shareTrades),
         buildInstrumentPerf("LEVERAGED_ETF", letfTrades),
         buildInstrumentPerf("OPTIONS", optionTrades),
+        buildInstrumentPerf("LETF_OPTIONS", letfOptionTrades),
       ].filter(Boolean);
 
       res.json({

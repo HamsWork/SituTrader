@@ -124,7 +124,7 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 3796,
+    "routes_lines": 3824,
     "storage_file": "server/storage.ts",
     "storage_lines": 1024,
     "api_endpoints": [

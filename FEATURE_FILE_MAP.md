@@ -198,7 +198,7 @@ This document maps every major feature to the specific files and key functions/e
 **Features mapped:**
 - Setup rankings with activated win rates and lift
 - Recommended strategy P&L (best setup + top tickers + activated trades)
-- Instrument comparison: Shares (real position sizing), LETF (real Polygon bars where mapped, 3x fallback), Options (BS ATM estimation with trailing 60-day realized vol)
+- Instrument comparison: Shares (real position sizing), LETF (real Polygon bars where mapped, 3x fallback), Options (BS ATM on underlying), LETF Options (BS ATM on real LETF price)
 - Strategy equity curve and daily P&L charts
 - Quality score breakdown by bucket
 - Top tickers / avoid list tables

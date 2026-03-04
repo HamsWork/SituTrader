@@ -119,18 +119,21 @@ const INSTRUMENT_LABELS: Record<string, string> = {
   SHARES: "Shares",
   LEVERAGED_ETF: "Leveraged ETF (3x)",
   OPTIONS: "Options (BS ATM)",
+  LETF_OPTIONS: "LETF Options",
 };
 
 const INSTRUMENT_COLORS: Record<string, string> = {
   SHARES: "hsl(var(--chart-1))",
   LEVERAGED_ETF: "hsl(var(--chart-2))",
   OPTIONS: "hsl(var(--chart-3))",
+  LETF_OPTIONS: "hsl(var(--chart-4))",
 };
 
 const INSTRUMENT_NOTES: Record<string, string> = {
   SHARES: "Baseline — $1,000 capital, real position sizing (floor($1K/entry)), 1% stop, T1 at magnet",
   LEVERAGED_ETF: "Real LETF bars where mapping exists (UPRO/TQQQ/SOFA/etc), 3x % model fallback for unmapped tickers, ibkrOrders conversion",
-  OPTIONS: "ATM estimation — trailing 60-day realized vol from Polygon daily bars, Black-Scholes premium, delta=0.50",
+  OPTIONS: "ATM estimation — trailing 60-day realized vol from Polygon daily bars, Black-Scholes premium on underlying, delta=0.50",
+  LETF_OPTIONS: "Options on leveraged ETFs — Black-Scholes ATM on real LETF price, trailing 60-day LETF vol, delta=0.50. Only available for mapped LETF tickers",
 };
 
 export default function ROIInsightsPage() {
@@ -241,11 +244,11 @@ export default function ROIInsightsPage() {
                   Instrument Comparison — {SETUP_LABELS[data.bestSetup as SetupType] ?? data.bestSetup} + Top Tickers + Activated
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Approximate P&L simulation across Shares, Leveraged ETF (real LETF bars + 3x fallback), and Options (Black-Scholes ATM, trailing 60-day vol, delta=0.50) at $1,000/trade
+                  P&L simulation across Shares, Leveraged ETF (real LETF bars), Options (BS ATM on underlying), and LETF Options (BS ATM on LETF) at $1,000/trade
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {instruments.map(inst => (
                     <div
                       key={inst.instrument}
@@ -363,7 +366,7 @@ export default function ROIInsightsPage() {
                       </Table>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {instruments.map(inst => (
                         <div key={inst.instrument} className="rounded-lg border p-3">
                           <div className="flex items-center gap-1.5 mb-1">
