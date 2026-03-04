@@ -2487,7 +2487,7 @@ export async function registerRoutes(
       const capitalPerTrade = 1000;
 
       let minDate = "9999-12-31", maxDate = "0000-01-01";
-      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; bias: "BUY" | "SELL"; hit: boolean }[] = [];
+      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; bias: "BUY" | "SELL"; hit: boolean; mfe: number }[] = [];
 
       for (const bt of allBacktests) {
         if (bt.setupType !== bestSetup) continue;
@@ -2503,6 +2503,7 @@ export async function registerRoutes(
             date: d.date, ticker: bt.ticker, ePrice, magnetPrice,
             bias: magnetPrice >= ePrice ? "BUY" : "SELL",
             hit: !!d.hit,
+            mfe: d.mfe || 0,
           });
           if (d.date < minDate) minDate = d.date;
           if (d.date > maxDate) maxDate = d.date;
@@ -2698,10 +2699,28 @@ export async function registerRoutes(
               const costPerContract = premium * 100;
               if (costPerContract > capitalPerTrade) optOverCapital++;
               const contracts = Math.max(1, Math.floor(capitalPerTrade / costPerContract));
-              const delta = bias === "BUY" ? 0.50 : -0.50;
-              const exitPrice = hit ? magnetPrice : stopPrice;
-              const optMove = (exitPrice - ePrice) * delta;
-              optionTrades.push({ date, ticker, pnl: Math.round(optMove * contracts * 100 * 100) / 100 });
+              const delta = 0.50;
+              const optT1Premium = premium + Math.abs(magnetPrice - ePrice) * delta;
+              const optStopPremium = Math.max(0.01, premium - stopDist * delta);
+              const optHalfwayPremium = premium + (optT1Premium - premium) / 2;
+              const halfwayUnderlyingDist = (optHalfwayPremium - premium) / delta;
+              const mfeAbsolute = allTradeRecords[i].mfe * ePrice;
+              const halfwayHit = mfeAbsolute >= halfwayUnderlyingDist && halfwayUnderlyingDist > 0;
+
+              let optPnl = 0;
+              if (hit) {
+                optPnl = (optT1Premium - premium) * contracts * 100;
+              } else if (halfwayHit) {
+                const halfContracts = Math.floor(contracts / 2);
+                const remainContracts = contracts - halfContracts;
+                const halfProfit = (optHalfwayPremium - premium) * halfContracts * 100;
+                const remainPnl = 0;
+                optPnl = halfProfit + remainPnl;
+              } else {
+                optPnl = (optStopPremium - premium) * contracts * 100;
+              }
+
+              optionTrades.push({ date, ticker, pnl: Math.round(optPnl * 100) / 100 });
               optHandled = true;
               break;
             }
@@ -2720,10 +2739,27 @@ export async function registerRoutes(
                 const lCost = lPremium * 100;
                 if (lCost > capitalPerTrade) letfOptOverCapital++;
                 const lContracts = Math.max(1, Math.floor(capitalPerTrade / lCost));
-                const delta = bias === "BUY" ? 0.50 : -0.50;
-                const lExitPrice = hit ? letfT1Price : letfStopPx;
-                const lOptMove = (lExitPrice - letfEntryPrice) * delta;
-                letfOptionTrades.push({ date, ticker, pnl: Math.round(lOptMove * lContracts * 100 * 100) / 100 });
+                const delta = 0.50;
+                const lOptT1Premium = lPremium + Math.abs(letfT1Price - letfEntryPrice) * delta;
+                const lOptStopPremium = Math.max(0.01, lPremium - Math.abs(letfEntryPrice - letfStopPx) * delta);
+                const lOptHalfwayPremium = lPremium + (lOptT1Premium - lPremium) / 2;
+                const lHalfwayUnderlyingDist = (lOptHalfwayPremium - lPremium) / delta;
+                const lMfeAbsolute = allTradeRecords[i].mfe * ePrice;
+                const effLev = letfEntryPrice > 0 ? Math.abs(letfT1Price - letfEntryPrice) / Math.abs(magnetPrice - ePrice) : 1;
+                const lHalfwayHit = (lMfeAbsolute * effLev) >= lHalfwayUnderlyingDist && lHalfwayUnderlyingDist > 0;
+
+                let lOptPnl = 0;
+                if (hit) {
+                  lOptPnl = (lOptT1Premium - lPremium) * lContracts * 100;
+                } else if (lHalfwayHit) {
+                  const lHalfContracts = Math.floor(lContracts / 2);
+                  const lHalfProfit = (lOptHalfwayPremium - lPremium) * lHalfContracts * 100;
+                  lOptPnl = lHalfProfit;
+                } else {
+                  lOptPnl = (lOptStopPremium - lPremium) * lContracts * 100;
+                }
+
+                letfOptionTrades.push({ date, ticker, pnl: Math.round(lOptPnl * 100) / 100 });
                 lOptHandled = true;
                 break;
               }

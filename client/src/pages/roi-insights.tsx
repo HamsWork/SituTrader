@@ -136,8 +136,8 @@ const INSTRUMENT_COLORS: Record<string, string> = {
 const INSTRUMENT_NOTES: Record<string, string> = {
   SHARES: "Baseline — $1,000 capital, real position sizing (floor($1K/entry)), 1% stop, T1 at magnet",
   LEVERAGED_ETF: "Real Polygon LETF daily bars — mapped tickers only (no fallback), ibkrOrders conversion",
-  OPTIONS: "Real Polygon option contracts — ATM strike, ~21 DTE monthly expiry, delta=0.50, real premium for position sizing",
-  LETF_OPTIONS: "Real Polygon LETF option contracts — ATM strike on LETF, ~21 DTE, delta=0.50. Only available for mapped LETF tickers",
+  OPTIONS: "Real Polygon option premiums — ATM strike, ~21 DTE, delta=0.50. Split exit: 50% off at halfway to T1 (stop→BE), 100% off at T1",
+  LETF_OPTIONS: "Real Polygon LETF option premiums — ATM on LETF, ~21 DTE, delta=0.50. Split exit: 50% off at halfway, stop→BE on remainder",
 };
 
 export default function ROIInsightsPage() {
