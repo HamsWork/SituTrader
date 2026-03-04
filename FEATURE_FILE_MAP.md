@@ -62,7 +62,7 @@ This document maps every major feature to the specific files and key functions/e
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/activation.ts` | `runActivationScan()` | Entry trigger detection, stop management, state transitions |
+| `server/lib/activation.ts` | `runActivationScan()` | Entry trigger detection, stop management, state transitions, auto Discord alerts on activation (QS>=80, profile filter, 1-per-day gate) |
 | `shared/schema.ts` | `activation_status`, `stop_price`, `stop_stage`, `entry_trigger_price` columns | Activation state schema |
 | `server/storage.ts` | Signal update methods | State persistence |
 | `server/routes.ts` | `POST /api/activation/scan` | Manual activation scan endpoint |

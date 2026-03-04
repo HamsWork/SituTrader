@@ -178,7 +178,7 @@ Calculates R-multiple based statistics from resolved signals:
 
 **Exports:** `computeRMultiples()`, `aggregateExpectancy()`, `computeAndStoreExpectancy()`, `recomputeAllExpectancy()`, `getSetupAlertCategory()`
 
-### 3.4 Activation Engine (`server/lib/activation.ts` — 608 lines)
+### 3.4 Activation Engine (`server/lib/activation.ts` — 747 lines)
 Monitors intraday price action for entry triggers:
 - Conservative mode: Price must cross entry trigger level with confirming bar
 - Aggressive mode: First touch of trigger level activates
@@ -186,6 +186,7 @@ Monitors intraday price action for entry triggers:
 - Stop management: Initial stop → BE stop (after TP1) → Time stop
 - Volatility-based stop calculation using ATR
 - **BE stop wired to IBKR:** When BE condition is met, modifies the IBKR stop order price and sends a RAISE_STOP Discord alert
+- **Auto Discord alerts on activation:** When a signal activates with QS >= 80 and passes the active profile's allowed setups, automatically sends Discord alerts (Options/LETF/Shares) respecting the 1-per-day gate per instrument type
 
 **Exports:** `runActivationScan()`
 

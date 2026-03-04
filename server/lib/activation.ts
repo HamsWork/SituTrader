@@ -647,21 +647,62 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           timestamp: nowIso,
         });
 
-        try {
-          const qualityOk = (sig.qualityScore ?? 0) >= 80;
-          const wouldExceedOption =
-            instrumentTypeForExecution === "OPTION" &&
-            (hasOptionToday || executedOptionThisRun);
-          const wouldExceedLetf =
-            instrumentTypeForExecution === "LEVERAGED_ETF" &&
-            (hasLetfToday || executedLetfThisRun);
-          const wouldExceedShares =
-            instrumentTypeForExecution === "SHARES" &&
-            (hasSharesToday || executedSharesThisRun);
+        const qualityOk = (sig.qualityScore ?? 0) >= 80;
+        const wouldExceedOption =
+          instrumentTypeForExecution === "OPTION" &&
+          (hasOptionToday || executedOptionThisRun);
+        const wouldExceedLetf =
+          instrumentTypeForExecution === "LEVERAGED_ETF" &&
+          (hasLetfToday || executedLetfThisRun);
+        const wouldExceedShares =
+          instrumentTypeForExecution === "SHARES" &&
+          (hasSharesToday || executedSharesThisRun);
 
+        let activeProfileCheck: any = null;
+        try {
+          activeProfileCheck = await storage.getActiveProfile();
+        } catch {}
+        const profileOk = activeProfileCheck
+          ? activeProfileCheck.allowedSetups.includes(sig.setupType)
+          : true;
+
+        if (qualityOk && profileOk && !wouldExceedOption && !wouldExceedLetf && !wouldExceedShares) {
+          try {
+            const freshSigs = await storage.getSignals(undefined, 5000);
+            const freshSig = freshSigs.find((s: any) => s.id === sig.id);
+            const discordSig = freshSig || sig;
+            const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
+            let discordOk = false;
+            if (instrumentTypeForExecution === "OPTION") {
+              discordOk = await postOptionsAlert(discordSig);
+            } else if (instrumentTypeForExecution === "SHARES") {
+              discordOk = await postSharesAlert(discordSig);
+            } else {
+              discordOk = await postLetfAlert(discordSig);
+            }
+            if (discordOk) {
+              log(
+                `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
+                "activation",
+              );
+            } else {
+              log(
+                `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
+                "activation",
+              );
+            }
+          } catch (discordErr: any) {
+            log(
+              `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
+              "activation",
+            );
+          }
+        }
+
+        try {
           if (!qualityOk) {
             log(
-              `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} < 70`,
+              `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} < 80`,
               "activation",
             );
           } else if (

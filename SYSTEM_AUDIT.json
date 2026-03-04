@@ -238,8 +238,8 @@
       },
       {
         "file": "activation.ts",
-        "lines": 608,
-        "purpose": "Signal activation engine with stop management and per-signal IBKR trade monitoring (BE/TIME_STOP logic delegated to ibkrOrders)",
+        "lines": 747,
+        "purpose": "Signal activation engine with stop management, per-signal IBKR trade monitoring, and automatic Discord alert dispatch on activation (QS>=80, profile filter, 1-per-day gate)",
         "exports": ["runActivationScan"]
       },
       {
