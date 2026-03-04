@@ -4,7 +4,6 @@ import { validateMagnetTouch, computeMAEMFE, filterRTHBars } from "./validate";
 import { checkEntryTrigger } from "./activation";
 import { fetchIntradayBarsCached } from "./polygon";
 import { computeATR } from "./confidence";
-import { formatDate } from "./calendar";
 import type { BacktestDetail, Backtest, TimeToHitStat, TradePlan, DailyBar } from "@shared/schema";
 import { log } from "../index";
 
@@ -107,7 +106,7 @@ export async function runBacktest(
       if (result.timeToHitMin !== undefined) timesToHit.push(result.timeToHitMin);
     }
 
-    const setupIdx = dailyBars.findIndex(b => formatDate(b.date) >= setup.asofDate);
+    const setupIdx = dailyBars.findIndex(b => b.date >= setup.asofDate);
     const barsForAtr = setupIdx > 0 ? dailyBars.slice(0, setupIdx) : dailyBars.slice(0, Math.max(1, setupIdx + 1));
     const atr = computeATR(barsForAtr as DailyBar[], 14);
     const atrMultiplier = 0.25;
