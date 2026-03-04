@@ -120,24 +120,21 @@ interface ROIInsightsData {
 }
 
 const INSTRUMENT_LABELS: Record<string, string> = {
-  SHARES: "Shares",
-  LEVERAGED_ETF: "Leveraged ETF",
-  OPTIONS: "Options (Real)",
-  LETF_OPTIONS: "LETF Options (Real)",
+  SHARES: "Shares (1×)",
+  LEVERAGED_ETF: "Leveraged ETF (3×)",
+  OPTIONS: "Options (5×)",
 };
 
 const INSTRUMENT_COLORS: Record<string, string> = {
   SHARES: "hsl(var(--chart-1))",
   LEVERAGED_ETF: "hsl(var(--chart-2))",
   OPTIONS: "hsl(var(--chart-3))",
-  LETF_OPTIONS: "hsl(var(--chart-4))",
 };
 
 const INSTRUMENT_NOTES: Record<string, string> = {
-  SHARES: "Baseline — $1,000 capital, real position sizing (floor($1K/entry)), 1% stop, T1 at magnet",
-  LEVERAGED_ETF: "Real Polygon LETF daily bars — mapped tickers only (no fallback), ibkrOrders conversion",
-  OPTIONS: "Real Polygon option premiums — ATM strike, ~21 DTE, delta=0.50. Split exit: 50% off at halfway to T1 (stop→BE), 100% off at T1",
-  LETF_OPTIONS: "Real Polygon LETF option premiums — ATM on LETF, ~21 DTE, delta=0.50. Split exit: 50% off at halfway, stop→BE on remainder",
+  SHARES: "Baseline — $1,000/trade, 1% stop loss, T1 at magnet price",
+  LEVERAGED_ETF: "3× leverage — amplifies underlying % moves by 3x on both wins and stops",
+  OPTIONS: "~5× leverage — amplifies underlying % moves by 5x on both wins and stops",
 };
 
 export default function ROIInsightsPage() {
@@ -490,18 +487,6 @@ export default function ROIInsightsPage() {
                         <div className="text-[10px] text-muted-foreground">
                           <span className="font-medium text-foreground">Model:</span> {INSTRUMENT_NOTES[inst.instrument]}
                         </div>
-                        {inst.instrument === "OPTIONS" && data && (data.optionsSkipped || data.optionsOverCapital) ? (
-                          <div className="text-[10px] text-muted-foreground">
-                            {data.optionsSkipped ? <span className="mr-3">{data.optionsSkipped} trades skipped (no Polygon option data)</span> : null}
-                            {data.optionsOverCapital ? <span>{data.optionsOverCapital} trades over $1K/contract</span> : null}
-                          </div>
-                        ) : null}
-                        {inst.instrument === "LETF_OPTIONS" && data && (data.letfOptionsSkipped || data.letfOptionsOverCapital) ? (
-                          <div className="text-[10px] text-muted-foreground">
-                            {data.letfOptionsSkipped ? <span className="mr-3">{data.letfOptionsSkipped} trades skipped (no Polygon option data)</span> : null}
-                            {data.letfOptionsOverCapital ? <span>{data.letfOptionsOverCapital} trades over $1K/contract</span> : null}
-                          </div>
-                        ) : null}
                       </div>
                     </TabsContent>
                   ))}
