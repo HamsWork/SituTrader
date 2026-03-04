@@ -34,11 +34,12 @@
 │  backtestWorker.ts (174 lines) · node-cron · Author Mode          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      DATABASE (PostgreSQL)                         │
-│  17 tables · Drizzle ORM · Neon-backed                             │
+│  19 tables · Drizzle ORM · Neon-backed                             │
 │  signals · backtests · ibkr_trades · daily_bars · intraday_bars    │
 │  scheduler_state · universe_members · ticker_stats                  │
 │  setup_expectancy · signal_profiles · symbols · app_settings       │
 │  ibkr_state · time_to_hit_stats · backtest_jobs · robustness_runs  │
+│  roi_trade_cache · roi_cache_meta · pw_trade_cache · pw_cache_meta │
 ├─────────────────────────────────────────────────────────────────────┤
 │                    EXTERNAL INTEGRATIONS                           │
 │  Polygon.io (market data) · IBKR TWS/Gateway (trade execution)    │
@@ -121,7 +122,13 @@ Cached per-trade ROI results for each instrument type. Stores computed P&L, posi
 ### 2.17 `roi_cache_meta` (5 columns)
 Cache invalidation metadata per setup type. Tracks computation status (computing/ready/stale), trade count, and last computed timestamp.
 
-### 2.18 `robustness_runs` (9 columns)
+### 2.18 `pw_trade_cache` (20 columns)
+Cached per-trade Profit Windows results using real Polygon data. Stores computed P&L for each instrument (SHARES, LEVERAGED_ETF, OPTIONS, LETF_OPTIONS) with R-multiples, contracts, premiums, and over-capital flags. Source field links to cache key ("profit_windows").
+
+### 2.19 `pw_cache_meta` (5 columns)
+Cache invalidation metadata for profit windows. Tracks computation status (computing/ready/stale), trade count, and last computed timestamp.
+
+### 2.20 `robustness_runs` (9 columns)
 Tracks all robustness test executions with parameters, status, and summary metrics.
 
 | Key Columns | Purpose |

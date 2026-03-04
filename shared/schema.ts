@@ -617,3 +617,39 @@ export const roiCacheMeta = pgTable("roi_cache_meta", {
 });
 
 export type RoiCacheMeta = typeof roiCacheMeta.$inferSelect;
+
+export const pwTradeCache = pgTable("pw_trade_cache", {
+  id: serial("id").primaryKey(),
+  ticker: text("ticker").notNull(),
+  tradeDate: text("trade_date").notNull(),
+  instrument: text("instrument").notNull(),
+  setupType: text("setup_type").notNull(),
+  ePrice: real("e_price").notNull(),
+  magnetPrice: real("magnet_price").notNull(),
+  stopDist: real("stop_dist").notNull(),
+  bias: text("bias").notNull(),
+  hit: boolean("hit").notNull(),
+  pnl: real("pnl").notNull(),
+  rMultiple: real("r_multiple").notNull(),
+  contracts: integer("contracts").notNull().default(0),
+  instrumentTicker: text("instrument_ticker"),
+  entryPremium: real("entry_premium"),
+  overCapital: boolean("over_capital").notNull().default(false),
+  mfe: real("mfe"),
+  halfwayHit: boolean("halfway_hit").notNull().default(false),
+  source: text("source").notNull().default("signal"),
+  computedAt: timestamp("computed_at").defaultNow(),
+});
+
+export type PwTradeCache = typeof pwTradeCache.$inferSelect;
+export type InsertPwTradeCache = typeof pwTradeCache.$inferInsert;
+
+export const pwCacheMeta = pgTable("pw_cache_meta", {
+  id: serial("id").primaryKey(),
+  cacheKey: text("cache_key").notNull().unique(),
+  computedAt: timestamp("computed_at").defaultNow(),
+  tradeCount: integer("trade_count").notNull().default(0),
+  status: text("status").notNull().default("stale"),
+});
+
+export type PwCacheMeta = typeof pwCacheMeta.$inferSelect;

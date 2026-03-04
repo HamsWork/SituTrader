@@ -5,7 +5,7 @@ import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
   ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs, embedTemplates,
-  roiTradeCache, roiCacheMeta,
+  roiTradeCache, roiCacheMeta, pwTradeCache, pwCacheMeta,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
@@ -14,6 +14,7 @@ import {
   type DiscordTradeLog, type InsertDiscordTradeLog,
   type EmbedTemplate, type InsertEmbedTemplate,
   type RoiTradeCache, type InsertRoiTradeCache, type RoiCacheMeta,
+  type PwTradeCache, type InsertPwTradeCache, type PwCacheMeta,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -139,6 +140,13 @@ export interface IStorage {
   clearRoiTradeCache(setupType?: string): Promise<void>;
   getRoiCacheMeta(setupType: string): Promise<RoiCacheMeta | null>;
   upsertRoiCacheMeta(setupType: string, tradeCount: number, status: string): Promise<void>;
+
+  getPwTradeCache(cacheKey: string): Promise<PwTradeCache[]>;
+  upsertPwTradeCacheBatch(records: InsertPwTradeCache[]): Promise<void>;
+  clearPwTradeCache(cacheKey?: string): Promise<void>;
+  getPwCacheMeta(cacheKey: string): Promise<PwCacheMeta | null>;
+  upsertPwCacheMeta(cacheKey: string, tradeCount: number, status: string): Promise<void>;
+  clearPwCacheMeta(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1073,6 +1081,46 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.insert(roiCacheMeta).values({ setupType, tradeCount, status, computedAt: new Date() });
     }
+  }
+
+  async getPwTradeCache(cacheKey: string): Promise<PwTradeCache[]> {
+    return db.select().from(pwTradeCache).where(eq(pwTradeCache.source, cacheKey)).orderBy(asc(pwTradeCache.tradeDate));
+  }
+
+  async upsertPwTradeCacheBatch(records: InsertPwTradeCache[]): Promise<void> {
+    if (records.length === 0) return;
+    const batchSize = 100;
+    for (let i = 0; i < records.length; i += batchSize) {
+      await db.insert(pwTradeCache).values(records.slice(i, i + batchSize));
+    }
+  }
+
+  async clearPwTradeCache(cacheKey?: string): Promise<void> {
+    if (cacheKey) {
+      await db.delete(pwTradeCache).where(eq(pwTradeCache.source, cacheKey));
+    } else {
+      await db.delete(pwTradeCache);
+    }
+  }
+
+  async getPwCacheMeta(cacheKey: string): Promise<PwCacheMeta | null> {
+    const [result] = await db.select().from(pwCacheMeta).where(eq(pwCacheMeta.cacheKey, cacheKey));
+    return result ?? null;
+  }
+
+  async upsertPwCacheMeta(cacheKey: string, tradeCount: number, status: string): Promise<void> {
+    const existing = await this.getPwCacheMeta(cacheKey);
+    if (existing) {
+      await db.update(pwCacheMeta)
+        .set({ tradeCount, status, computedAt: new Date() })
+        .where(eq(pwCacheMeta.cacheKey, cacheKey));
+    } else {
+      await db.insert(pwCacheMeta).values({ cacheKey, tradeCount, status, computedAt: new Date() });
+    }
+  }
+
+  async clearPwCacheMeta(): Promise<void> {
+    await db.delete(pwCacheMeta);
   }
 }
 

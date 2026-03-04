@@ -129,6 +129,18 @@
         "pk": "id (serial)",
         "purpose": "Cache invalidation metadata per setup type (computing/ready/stale)",
         "key_columns": ["setupType", "status", "tradeCount", "computedAt"]
+      },
+      "pw_trade_cache": {
+        "columns": 20,
+        "pk": "id (serial)",
+        "purpose": "Cached per-trade Profit Windows results with real Polygon data (LETF bars, option premiums)",
+        "key_columns": ["ticker", "tradeDate", "instrument", "setupType", "pnl", "rMultiple", "contracts", "overCapital", "source"]
+      },
+      "pw_cache_meta": {
+        "columns": 5,
+        "pk": "id (serial)",
+        "purpose": "Cache invalidation metadata for profit windows (computing/ready/stale)",
+        "key_columns": ["cacheKey", "status", "tradeCount", "computedAt"]
       }
     }
   },
@@ -136,9 +148,9 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 4028,
+    "routes_lines": 4322,
     "storage_file": "server/storage.ts",
-    "storage_lines": 1079,
+    "storage_lines": 1122,
     "api_endpoints": [
       { "method": "GET", "path": "/api/profiles", "purpose": "List all signal profiles" },
       { "method": "GET", "path": "/api/profiles/active", "purpose": "Get active profile" },
@@ -205,7 +217,8 @@
       { "method": "POST", "path": "/api/backtest/jobs/resume", "purpose": "Resume backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/cancel", "purpose": "Cancel active backtest job" },
       { "method": "GET", "path": "/api/backtest/jobs/status", "purpose": "Worker status and job progress" },
-      { "method": "GET", "path": "/api/performance/profit-windows", "purpose": "Multi-instrument profit windows analysis" },
+      { "method": "GET", "path": "/api/performance/profit-windows", "purpose": "Multi-instrument profit windows with real Polygon LETF/option data, DB-cached" },
+      { "method": "POST", "path": "/api/profit-windows/rebuild", "purpose": "Force rebuild profit windows cache" },
       { "method": "GET", "path": "/api/analysis/reliability", "purpose": "Compute and return reliability summary with 10-gate scoring" },
       { "method": "GET", "path": "/api/analysis/robustness-runs", "purpose": "List robustness test runs, optional testType filter" },
       { "method": "POST", "path": "/api/analysis/robustness/run", "purpose": "Execute a single robustness test by type" },
@@ -452,8 +465,8 @@
       {
         "route": "/profit-windows",
         "file": "client/src/pages/profit-windows.tsx",
-        "lines": 689,
-        "purpose": "Multi-instrument profit windows with execution cost analysis"
+        "lines": 670,
+        "purpose": "Multi-instrument profit windows with real Polygon data, cache controls"
       },
       {
         "route": "/guide",

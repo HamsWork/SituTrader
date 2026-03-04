@@ -26,7 +26,6 @@ import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } 
 import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
 import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./lib/discord";
-import { computeAllProfitWindows, type TradeInput } from "./lib/profitWindows";
 import {
   computeReliabilitySummary,
   runFeesSlippageTest,
@@ -3693,185 +3692,479 @@ export async function registerRoutes(
 
   app.get("/api/performance/profit-windows", async (req, res) => {
     try {
-      const riskPerTrade = parseFloat(req.query.risk as string) || 1000;
-      const minWinRate = parseFloat(req.query.minWinRate as string) || 0;
-      const minExpectancyR = parseFloat(req.query.minExpectancyR as string) || 0;
-      const minSampleSize = parseInt(req.query.minSampleSize as string) || 0;
-      const includeBacktests = req.query.includeBacktests === "true";
+      const capitalPerTrade = parseFloat(req.query.risk as string) || 1000;
+      const forceRebuild = req.query.rebuild === "true";
 
-      const allSignals = await storage.getSignals(undefined, 10000);
+      const cacheKey = `profit_windows:${capitalPerTrade}`;
+      const cacheMeta = await storage.getPwCacheMeta(cacheKey);
+      const cacheValid = !forceRebuild && cacheMeta && cacheMeta.status === "ready" && cacheMeta.tradeCount > 0;
 
-      const activeProfile = await storage.getActiveProfile();
-      const TIER_RANK: Record<string, number> = { APLUS: 0, A: 1, B: 2, C: 3 };
-
-      let allExpectancy: any[] = [];
-      try {
-        allExpectancy = await storage.getOverallSetupExpectancy();
-      } catch {}
-
-      const perTickerStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
-      const overallStatsMap = new Map<string, { sampleSize: number; winRate: number; expectancyR: number }>();
-      for (const s of allExpectancy) {
-        if (s.ticker) {
-          perTickerStatsMap.set(`${s.ticker}:${s.setupType}`, { sampleSize: s.sampleSize, winRate: s.winRate, expectancyR: s.expectancyR });
-        } else {
-          overallStatsMap.set(s.setupType, { sampleSize: s.sampleSize, winRate: s.winRate, expectancyR: s.expectancyR });
-        }
+      interface PwTrade {
+        date: string;
+        ticker: string;
+        setupType: string;
+        instrument: string;
+        pnl: number;
+        rMultiple: number;
+        overCapital: boolean;
       }
 
-      const passesOptimization = (ticker: string, setupType: string): boolean => {
-        const stat = perTickerStatsMap.get(`${ticker}:${setupType}`);
-        if (!stat) {
-          const overall = overallStatsMap.get(setupType);
-          if (!overall) return minWinRate <= 0 && minExpectancyR <= 0 && minSampleSize <= 0;
-          if (minSampleSize > 0 && overall.sampleSize < minSampleSize) return false;
-          if (minWinRate > 0 && overall.winRate < minWinRate) return false;
-          if (minExpectancyR > 0 && overall.expectancyR < minExpectancyR) return false;
-          return true;
-        }
-        if (minSampleSize > 0 && stat.sampleSize < minSampleSize) return false;
-        if (minWinRate > 0 && stat.winRate < minWinRate) return false;
-        if (minExpectancyR > 0 && stat.expectancyR < minExpectancyR) return false;
-        return true;
-      };
+      let allPwTrades: PwTrade[] = [];
+      let totalBacktestTrades = 0;
+      let activatedTradesUsed = 0;
+      let polygonFetched = false;
 
-      const matchesProfile = (sig: any): boolean => {
-        if (!activeProfile) return true;
-        if (!activeProfile.allowedSetups.includes(sig.setupType)) return false;
-        const sigTierRank = TIER_RANK[sig.tier] ?? 3;
-        const minTierRank = TIER_RANK[activeProfile.minTier] ?? 3;
-        if (sigTierRank > minTierRank) return false;
-        if (sig.qualityScore < activeProfile.minQualityScore) return false;
-        return true;
-      };
+      if (cacheValid) {
+        log(`Profit Windows: serving from cache (${cacheMeta!.tradeCount} records)`, "pw");
+        const cached = await storage.getPwTradeCache(cacheKey);
+        allPwTrades = cached.map(c => ({
+          date: c.tradeDate, ticker: c.ticker, setupType: c.setupType,
+          instrument: c.instrument, pnl: c.pnl, rMultiple: c.rMultiple,
+          overCapital: c.overCapital,
+        }));
+        activatedTradesUsed = new Set(cached.map(c => `${c.ticker}:${c.tradeDate}:${c.setupType}`)).size;
+      } else {
+        log("Profit Windows: computing fresh with real Polygon data...", "pw");
+        await storage.upsertPwCacheMeta(cacheKey, 0, "computing");
 
-      const tradeInputs: TradeInput[] = [];
-      const signalDateKeys = new Set<string>();
-      let totalSignalsConsidered = 0;
-      let signalsFilteredByProfile = 0;
-      let signalsFilteredByOptimization = 0;
-      let signalsIncluded = 0;
-
-      for (const sig of allSignals) {
-        const tp = sig.tradePlanJson as any;
-        if (!tp) continue;
-        const isHit = sig.status === "hit";
-        const isMiss = sig.status === "miss" || sig.status === "invalidated" || sig.status === "stopped";
-        if (!isHit && !isMiss) continue;
-        totalSignalsConsidered++;
-
-        if (!matchesProfile(sig)) { signalsFilteredByProfile++; continue; }
-        if (!passesOptimization(sig.ticker, sig.setupType)) { signalsFilteredByOptimization++; continue; }
-
-        const stopDist = tp.stopDistance || 0;
-        const bias = tp.bias as string | undefined;
-
-        let entryPrice: number;
-        if (sig.entryPriceAtActivation && sig.entryPriceAtActivation > 0) {
-          entryPrice = sig.entryPriceAtActivation;
-        } else if (sig.stopPrice && sig.stopPrice > 0 && stopDist > 0) {
-          entryPrice = bias === "BUY" ? sig.stopPrice + stopDist : sig.stopPrice - stopDist;
-        } else if (tp.riskReward && stopDist > 0 && sig.magnetPrice > 0) {
-          entryPrice = bias === "BUY" ? sig.magnetPrice - (tp.riskReward * stopDist) : sig.magnetPrice + (tp.riskReward * stopDist);
-        } else continue;
-
-        if (entryPrice <= 0 || stopDist <= 0) continue;
-
-        let rMultiple: number;
-        if (isHit && tp.t1) {
-          const reward = Math.abs(tp.t1 - entryPrice);
-          rMultiple = reward / stopDist;
-        } else {
-          rMultiple = -1;
-        }
-
-        const signalDate = sig.hitTs ? new Date(sig.hitTs).toISOString().slice(0, 10) : sig.targetDate;
-        const exitDate = signalDate || sig.asofDate;
-        const entryDate = sig.asofDate;
-
-        signalDateKeys.add(`${sig.ticker}:${sig.setupType}:${exitDate}`);
-
-        const entryTs = Math.floor(new Date(entryDate + "T10:00:00-05:00").getTime() / 1000);
-        const exitTs = Math.floor(new Date(exitDate + "T14:00:00-05:00").getTime() / 1000);
-
-        tradeInputs.push({
-          r_multiple: Math.round(rMultiple * 10000) / 10000,
-          entry_ts: entryTs,
-          exit_ts: exitTs,
-          symbol: sig.ticker,
-          entry_price: entryPrice,
-          timeframe: "1d",
-        });
-        signalsIncluded++;
-      }
-
-      let backtestsIncluded = 0;
-      if (includeBacktests) {
         const allBacktests = await storage.getBacktests();
         const latestBt = new Map<string, typeof allBacktests[0]>();
         for (const bt of allBacktests) {
           const key = `${bt.ticker}:${bt.setupType}`;
           const existing = latestBt.get(key);
-          if (!existing || bt.id > existing.id) {
-            latestBt.set(key, bt);
-          }
+          if (!existing || bt.id > existing.id) latestBt.set(key, bt);
         }
-        const seenBtKeys = new Set<string>();
+
+        interface TradeRecord {
+          date: string; ticker: string; setupType: string;
+          ePrice: number; magnetPrice: number; stopDist: number;
+          bias: "BUY" | "SELL"; hit: boolean; mfe: number;
+        }
+        const allTradeRecords: TradeRecord[] = [];
+        let minDate = "9999-12-31", maxDate = "0000-01-01";
+
         for (const bt of latestBt.values()) {
-          if (!passesOptimization(bt.ticker, bt.setupType)) continue;
           const details = bt.details as any[] | null;
           if (!details) continue;
-
           for (const d of details) {
-            if (!d.triggered) continue;
-            if (!d.entryPrice || d.entryPrice <= 0) continue;
-            if (!d.date) continue;
-
-            const dateKey = `${bt.ticker}:${bt.setupType}:${d.date}`;
-            if (signalDateKeys.has(dateKey)) continue;
-            if (seenBtKeys.has(dateKey)) continue;
-            seenBtKeys.add(dateKey);
-
-            const entryPrice = d.entryPrice;
+            if (!d.triggered || d.activated !== true) continue;
+            const ePrice = (d.activationPrice && d.activationPrice > 0) ? d.activationPrice : d.entryPrice;
+            if (!ePrice || ePrice <= 0) continue;
             const magnetPrice = d.magnetPrice;
-            const stopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : entryPrice * 0.01;
-            const reward = Math.abs(magnetPrice - entryPrice);
-            const rMultiple = d.hit ? reward / stopDist : -1;
-
-            const exitTs = Math.floor(new Date(d.date + "T14:00:00-05:00").getTime() / 1000);
-            const entryTs = exitTs - 86400;
-
-            tradeInputs.push({
-              r_multiple: Math.round(rMultiple * 10000) / 10000,
-              entry_ts: entryTs,
-              exit_ts: exitTs,
-              symbol: bt.ticker,
-              entry_price: entryPrice,
-              timeframe: "1d",
+            if (!magnetPrice) continue;
+            const stopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : ePrice * 0.01;
+            totalBacktestTrades++;
+            allTradeRecords.push({
+              date: d.date, ticker: bt.ticker, setupType: bt.setupType,
+              ePrice, magnetPrice, stopDist,
+              bias: magnetPrice >= ePrice ? "BUY" : "SELL",
+              hit: !!d.hit, mfe: d.mfe || 0,
             });
-            backtestsIncluded++;
+            if (d.date < minDate) minDate = d.date;
+            if (d.date > maxDate) maxDate = d.date;
           }
         }
+
+        activatedTradesUsed = allTradeRecords.length;
+        log(`Profit Windows: ${allTradeRecords.length} activated trades across all setups`, "pw");
+
+        const uniqueTickers = new Set(allTradeRecords.map(t => t.ticker));
+        const tickerLetfInfo = new Map<string, { bull: { ticker: string; leverage: number; direction: string } | null; bear: { ticker: string; leverage: number; direction: string } | null }>();
+        const uniqueLetfTickers = new Set<string>();
+        for (const tick of uniqueTickers) {
+          const bullCands = getCandidates(tick, "BUY");
+          const bearCands = getCandidates(tick, "SELL");
+          const bestBull = bullCands.sort((a, b) => b.leverage - a.leverage)[0] || null;
+          const bestBear = bearCands.sort((a, b) => b.leverage - a.leverage)[0] || null;
+          tickerLetfInfo.set(tick, {
+            bull: bestBull ? { ticker: bestBull.ticker, leverage: bestBull.leverage, direction: bestBull.direction } : null,
+            bear: bestBear ? { ticker: bestBear.ticker, leverage: bestBear.leverage, direction: bestBear.direction } : null,
+          });
+          if (bestBull) uniqueLetfTickers.add(bestBull.ticker);
+          if (bestBear) uniqueLetfTickers.add(bestBear.ticker);
+        }
+
+        const letfBarMap = new Map<string, Map<string, number>>();
+        if (allTradeRecords.length > 0 && uniqueLetfTickers.size > 0) {
+          const letfList = Array.from(uniqueLetfTickers);
+          const batchSz = 20;
+          for (let b = 0; b < letfList.length; b += batchSz) {
+            await Promise.all(letfList.slice(b, b + batchSz).map(async (letfTick) => {
+              try {
+                const bars = await fetchDailyBarsCached(letfTick, minDate, maxDate);
+                const dateMap = new Map<string, number>();
+                for (const bar of bars) dateMap.set(new Date(bar.t).toISOString().slice(0, 10), bar.c);
+                letfBarMap.set(letfTick, dateMap);
+              } catch {}
+            }));
+          }
+          log(`Profit Windows: fetched LETF bars for ${letfBarMap.size}/${uniqueLetfTickers.size} tickers`, "pw");
+        }
+
+        function getThirdFriday(year: number, month: number): string {
+          const d = new Date(Date.UTC(year, month, 1));
+          const dow = d.getUTCDay();
+          const firstFri = dow <= 5 ? (5 - dow + 1) : (12 - dow + 1);
+          const tf = new Date(Date.UTC(year, month, firstFri + 14));
+          return tf.toISOString().slice(0, 10);
+        }
+        function findTargetExpiry(tradeDate: string): string {
+          const d = new Date(tradeDate + "T12:00:00Z");
+          const cands: string[] = [];
+          for (let off = 0; off <= 2; off++) {
+            const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + off, 1));
+            cands.push(getThirdFriday(dt.getUTCFullYear(), dt.getUTCMonth()));
+          }
+          let best = cands[0]; let bestScore = Infinity;
+          for (const c of cands) {
+            const dte = (new Date(c + "T12:00:00Z").getTime() - d.getTime()) / 86400000;
+            if (dte >= 7) { const score = Math.abs(dte - 21); if (score < bestScore) { best = c; bestScore = score; } }
+          }
+          return best;
+        }
+        function strikeIncrement(price: number): number {
+          if (price <= 5) return 0.5; if (price <= 25) return 1;
+          if (price <= 200) return 5; if (price <= 500) return 5;
+          if (price <= 1000) return 10; return 50;
+        }
+        function nearbyStrikes(price: number): number[] {
+          const inc = strikeIncrement(price);
+          const base = Math.round(price / inc) * inc;
+          const candidates = [base];
+          for (let di = 1; di <= 2; di++) { candidates.push(base + inc * di); candidates.push(base - inc * di); }
+          candidates.sort((a, b) => Math.abs(a - price) - Math.abs(b - price));
+          return candidates.filter(s => s > 0);
+        }
+        function buildOptTicker(underlying: string, expiry: string, type: "C" | "P", strike: number): string {
+          const yy = expiry.slice(2, 4); const mm = expiry.slice(5, 7); const dd = expiry.slice(8, 10);
+          const strikeInt = Math.round(strike * 1000);
+          return `O:${underlying}${yy}${mm}${dd}${type}${String(strikeInt).padStart(8, "0")}`;
+        }
+
+        const tradeOptCandidates: string[][] = [];
+        const tradeLetfOptCandidates: (string[] | null)[] = [];
+        const uniqueOptTickers = new Set<string>();
+
+        for (let i = 0; i < allTradeRecords.length; i++) {
+          const t = allTradeRecords[i];
+          const expiry = findTargetExpiry(t.date);
+          const cType: "C" | "P" = t.bias === "BUY" ? "C" : "P";
+          const strikes = nearbyStrikes(t.ePrice);
+          const cands = strikes.map(s => buildOptTicker(t.ticker, expiry, cType, s));
+          tradeOptCandidates.push(cands);
+          cands.forEach(c => uniqueOptTickers.add(c));
+
+          const lInfo = tickerLetfInfo.get(t.ticker);
+          const lCand = t.bias === "BUY" ? lInfo?.bull : lInfo?.bear;
+          if (lCand) {
+            const lBars = letfBarMap.get(lCand.ticker);
+            const lClose = lBars?.get(t.date);
+            if (lClose && lClose > 0) {
+              const lStrikes = nearbyStrikes(lClose);
+              const lCands = lStrikes.map(s => buildOptTicker(lCand.ticker, expiry, cType, s));
+              tradeLetfOptCandidates.push(lCands);
+              lCands.forEach(c => uniqueOptTickers.add(c));
+            } else {
+              tradeLetfOptCandidates.push(null);
+            }
+          } else {
+            tradeLetfOptCandidates.push(null);
+          }
+        }
+
+        const optBarMap = new Map<string, Map<string, number>>();
+        if (uniqueOptTickers.size > 0) {
+          const optList = Array.from(uniqueOptTickers);
+          log(`Profit Windows: fetching bars for ${optList.length} option contracts...`, "pw");
+          const batchSz = 20;
+          for (let b = 0; b < optList.length; b += batchSz) {
+            await Promise.all(optList.slice(b, b + batchSz).map(async (oTick) => {
+              try {
+                const bars = await fetchDailyBarsCached(oTick, minDate, maxDate);
+                const dMap = new Map<string, number>();
+                for (const bar of bars) dMap.set(new Date(bar.t).toISOString().slice(0, 10), bar.c);
+                if (dMap.size > 0) optBarMap.set(oTick, dMap);
+              } catch {}
+            }));
+          }
+          log(`Profit Windows: got bars for ${optBarMap.size}/${optList.length} option contracts`, "pw");
+          polygonFetched = true;
+        }
+
+        const cacheRecords: any[] = [];
+
+        for (let i = 0; i < allTradeRecords.length; i++) {
+          const t = allTradeRecords[i];
+          const { date, ticker, setupType, ePrice, magnetPrice, stopDist, bias, hit, mfe } = t;
+          const rewardDist = Math.abs(magnetPrice - ePrice);
+          const stopPrice = bias === "BUY" ? ePrice - stopDist : ePrice + stopDist;
+
+          const sharesQty = Math.floor(capitalPerTrade / ePrice);
+          const shareIsOverCapital = ePrice > capitalPerTrade;
+          if (sharesQty > 0) {
+            const shareWin = Math.round(rewardDist * sharesQty * 100) / 100;
+            const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
+            const sharePnl = hit ? shareWin : shareLoss;
+            const shareRmult = hit ? rewardDist / stopDist : -1;
+            allPwTrades.push({ date, ticker, setupType, instrument: "SHARES", pnl: sharePnl, rMultiple: shareRmult, overCapital: shareIsOverCapital });
+            cacheRecords.push({
+              ticker, tradeDate: date, instrument: "SHARES", setupType,
+              ePrice, magnetPrice, stopDist, bias, hit, pnl: sharePnl,
+              rMultiple: shareRmult, contracts: sharesQty, instrumentTicker: ticker,
+              entryPremium: null, overCapital: shareIsOverCapital, mfe, halfwayHit: false,
+              source: cacheKey,
+            });
+          }
+
+          let letfEntryPrice = 0, letfT1Price = 0, letfStopPx = 0;
+          const letfInfo = tickerLetfInfo.get(ticker);
+          const letfCand = bias === "BUY" ? letfInfo?.bull : letfInfo?.bear;
+          if (letfCand) {
+            const letfBars = letfBarMap.get(letfCand.ticker);
+            const letfClose = letfBars?.get(date);
+            if (letfClose && letfClose > 0) {
+              const effLev = letfCand.direction === "BEAR" ? -letfCand.leverage : letfCand.leverage;
+              const letfShares = Math.floor(capitalPerTrade / letfClose);
+              if (letfShares > 0) {
+                letfT1Price = letfClose * (1 + effLev * (magnetPrice - ePrice) / ePrice);
+                letfStopPx = letfClose * (1 + effLev * (stopPrice - ePrice) / ePrice);
+                const letfPnl = hit
+                  ? Math.round((letfT1Price - letfClose) * letfShares * 100) / 100
+                  : Math.round((letfStopPx - letfClose) * letfShares * 100) / 100;
+                const letfIsOverCapital = letfClose > capitalPerTrade;
+                const letfRmult = letfPnl > 0 ? letfPnl / capitalPerTrade * (capitalPerTrade / (Math.abs(letfClose - letfStopPx) * letfShares || 1)) : -1;
+                allPwTrades.push({ date, ticker, setupType, instrument: "LEVERAGED_ETF", pnl: letfPnl, rMultiple: letfRmult, overCapital: letfIsOverCapital });
+                cacheRecords.push({
+                  ticker, tradeDate: date, instrument: "LEVERAGED_ETF", setupType,
+                  ePrice, magnetPrice, stopDist, bias, hit, pnl: letfPnl,
+                  rMultiple: letfRmult, contracts: letfShares, instrumentTicker: letfCand.ticker,
+                  entryPremium: letfClose, overCapital: letfIsOverCapital, mfe, halfwayHit: false,
+                  source: cacheKey,
+                });
+                letfEntryPrice = letfClose;
+              }
+            }
+          }
+
+          const optCands = tradeOptCandidates[i];
+          let optHandled = false;
+          if (optCands) {
+            for (const optTick of optCands) {
+              const oBars = optBarMap.get(optTick);
+              const premium = oBars?.get(date);
+              if (premium && premium > 0) {
+                const costPerContract = premium * 100;
+                const optIsOverCapital = costPerContract > capitalPerTrade;
+                const contracts = Math.max(1, Math.floor(capitalPerTrade / costPerContract));
+                const delta = 0.50;
+                const optT1Premium = premium + rewardDist * delta;
+                const optStopPremium = Math.max(0.01, premium - stopDist * delta);
+                const optHalfwayPremium = premium + (optT1Premium - premium) / 2;
+                const halfwayUnderlyingDist = (optHalfwayPremium - premium) / delta;
+                const mfeAbsolute = mfe * ePrice;
+                const halfwayHit = mfeAbsolute >= halfwayUnderlyingDist && halfwayUnderlyingDist > 0;
+
+                let optPnl = 0;
+                if (hit) {
+                  optPnl = (optT1Premium - premium) * contracts * 100;
+                } else if (halfwayHit) {
+                  const halfContracts = Math.floor(contracts / 2);
+                  optPnl = (optHalfwayPremium - premium) * halfContracts * 100;
+                } else {
+                  optPnl = (optStopPremium - premium) * contracts * 100;
+                }
+                optPnl = Math.round(optPnl * 100) / 100;
+                const optRisk = (premium - optStopPremium) * contracts * 100;
+                const optRmult = optRisk > 0 ? optPnl / optRisk : (optPnl > 0 ? 1 : -1);
+                allPwTrades.push({ date, ticker, setupType, instrument: "OPTIONS", pnl: optPnl, rMultiple: optRmult, overCapital: optIsOverCapital });
+                cacheRecords.push({
+                  ticker, tradeDate: date, instrument: "OPTIONS", setupType,
+                  ePrice, magnetPrice, stopDist, bias, hit, pnl: optPnl,
+                  rMultiple: optRmult, contracts, instrumentTicker: optTick,
+                  entryPremium: premium, overCapital: optIsOverCapital, mfe, halfwayHit,
+                  source: cacheKey,
+                });
+                optHandled = true;
+                break;
+              }
+            }
+          }
+
+          if (letfEntryPrice > 0) {
+            const lOptCands = tradeLetfOptCandidates[i];
+            if (lOptCands) {
+              for (const lOptTick of lOptCands) {
+                const loBars = optBarMap.get(lOptTick);
+                const lPremium = loBars?.get(date);
+                if (lPremium && lPremium > 0) {
+                  const lCost = lPremium * 100;
+                  const lOptIsOverCapital = lCost > capitalPerTrade;
+                  const lContracts = Math.max(1, Math.floor(capitalPerTrade / lCost));
+                  const delta2 = 0.50;
+                  const lOptT1Premium = lPremium + Math.abs(letfT1Price - letfEntryPrice) * delta2;
+                  const lOptStopPremium = Math.max(0.01, lPremium - Math.abs(letfEntryPrice - letfStopPx) * delta2);
+                  const lOptHalfwayPremium = lPremium + (lOptT1Premium - lPremium) / 2;
+                  const lHalfwayDist = (lOptHalfwayPremium - lPremium) / delta2;
+                  const lMfe = mfe * ePrice;
+                  const effLev2 = letfEntryPrice > 0 ? Math.abs(letfT1Price - letfEntryPrice) / (rewardDist || 1) : 1;
+                  const lHalfwayHit = (lMfe * effLev2) >= lHalfwayDist && lHalfwayDist > 0;
+
+                  let lOptPnl = 0;
+                  if (hit) {
+                    lOptPnl = (lOptT1Premium - lPremium) * lContracts * 100;
+                  } else if (lHalfwayHit) {
+                    const lHalfContracts = Math.floor(lContracts / 2);
+                    lOptPnl = (lOptHalfwayPremium - lPremium) * lHalfContracts * 100;
+                  } else {
+                    lOptPnl = (lOptStopPremium - lPremium) * lContracts * 100;
+                  }
+                  lOptPnl = Math.round(lOptPnl * 100) / 100;
+                  const lOptRisk = (lPremium - lOptStopPremium) * lContracts * 100;
+                  const lOptRmult = lOptRisk > 0 ? lOptPnl / lOptRisk : (lOptPnl > 0 ? 1 : -1);
+                  allPwTrades.push({ date, ticker, setupType, instrument: "LETF_OPTIONS", pnl: lOptPnl, rMultiple: lOptRmult, overCapital: lOptIsOverCapital });
+                  cacheRecords.push({
+                    ticker, tradeDate: date, instrument: "LETF_OPTIONS", setupType,
+                    ePrice, magnetPrice, stopDist, bias, hit, pnl: lOptPnl,
+                    rMultiple: lOptRmult, contracts: lContracts, instrumentTicker: lOptTick,
+                    entryPremium: lPremium, overCapital: lOptIsOverCapital, mfe, halfwayHit: lHalfwayHit,
+                    source: cacheKey,
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        await storage.clearPwTradeCache(cacheKey);
+        await storage.upsertPwTradeCacheBatch(cacheRecords);
+        await storage.upsertPwCacheMeta(cacheKey, cacheRecords.length, "ready");
+        log(`Profit Windows: cached ${cacheRecords.length} trade records`, "pw");
       }
 
-      const result = computeAllProfitWindows(tradeInputs, riskPerTrade, [30, 60, 90]);
+      const windowDays = [30, 60, 90];
+      const now = new Date();
+      const instrumentTypes = ["SHARES", "LEVERAGED_ETF", "OPTIONS", "LETF_OPTIONS"];
+
+      const INST_PROFILES: Record<string, { name: string; leverage: number; rth_only: boolean; loss_cap: number | null; fee_per_trade: number }> = {
+        SHARES: { name: "Shares (Real Data)", leverage: 1, rth_only: false, loss_cap: null, fee_per_trade: 0 },
+        LEVERAGED_ETF: { name: "Leveraged ETF (Real Polygon)", leverage: 3, rth_only: true, loss_cap: null, fee_per_trade: 0 },
+        OPTIONS: { name: "Options (Real Polygon)", leverage: 1, rth_only: true, loss_cap: null, fee_per_trade: 0 },
+        LETF_OPTIONS: { name: "LETF Options (Real Polygon)", leverage: 1, rth_only: true, loss_cap: null, fee_per_trade: 0 },
+      };
+
+      const comparison: Record<string, any> = {};
+
+      for (const instKey of instrumentTypes) {
+        const frontendKey = instKey === "LEVERAGED_ETF" ? "LETF" : instKey;
+        const instTrades = allPwTrades.filter(t => t.instrument === instKey).sort((a, b) => a.date.localeCompare(b.date));
+
+        const windowResults: any[] = [];
+        for (const wd of windowDays) {
+          const cutoff = new Date(now.getTime() - wd * 86400000).toISOString().slice(0, 10);
+          const windowTrades = instTrades.filter(t => t.date >= cutoff);
+
+          const wins = windowTrades.filter(t => t.pnl > 0).length;
+          const losses = windowTrades.filter(t => t.pnl <= 0).length;
+          const totalPnl = windowTrades.reduce((s, t) => s + t.pnl, 0);
+
+          let cumPnl = 0;
+          let peak = 0;
+          let maxDD = 0;
+          let bestR = 0, worstR = 0, bestPnl = 0, worstPnl = 0;
+          const equityCurve = windowTrades.map((t, idx) => {
+            cumPnl += t.pnl;
+            if (cumPnl > peak) peak = cumPnl;
+            const dd = peak - cumPnl;
+            if (dd > maxDD) maxDD = dd;
+            if (t.rMultiple > bestR) bestR = t.rMultiple;
+            if (t.rMultiple < worstR) worstR = t.rMultiple;
+            if (t.pnl > bestPnl) bestPnl = t.pnl;
+            if (t.pnl < worstPnl) worstPnl = t.pnl;
+            return { trade: idx + 1, cum_r: Math.round(t.rMultiple * 100) / 100, cum_pnl: Math.round(cumPnl * 100) / 100 };
+          });
+
+          const maxPoints = 500;
+          let sampledCurve = equityCurve;
+          if (equityCurve.length > maxPoints) {
+            const step = Math.ceil(equityCurve.length / maxPoints);
+            sampledCurve = equityCurve.filter((_, i) => i % step === 0 || i === equityCurve.length - 1);
+          }
+
+          const grossW = windowTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+          const grossL = Math.abs(windowTrades.filter(t => t.pnl <= 0).reduce((s, t) => s + t.pnl, 0));
+          const tradingDays = Math.max(1, Math.ceil(wd * 252 / 365));
+
+          const totalR = windowTrades.reduce((s, t) => s + t.rMultiple, 0);
+          const overCapitalCount = windowTrades.filter(t => t.overCapital).length;
+
+          windowResults.push({
+            window_days: wd,
+            trading_days: tradingDays,
+            total_trades: windowTrades.length,
+            wins,
+            losses,
+            win_rate: windowTrades.length > 0 ? Math.round(wins / windowTrades.length * 1000) / 10 : 0,
+            total_r: Math.round(totalR * 100) / 100,
+            avg_r: windowTrades.length > 0 ? Math.round(totalR / windowTrades.length * 100) / 100 : 0,
+            total_pnl: Math.round(totalPnl * 100) / 100,
+            avg_pnl: windowTrades.length > 0 ? Math.round(totalPnl / windowTrades.length * 100) / 100 : 0,
+            trades_per_day: Math.round(windowTrades.length / tradingDays * 100) / 100,
+            daily_avg_pnl: Math.round(totalPnl / tradingDays * 100) / 100,
+            profit_factor: grossL > 0 ? Math.round(grossW / grossL * 100) / 100 : (grossW > 0 ? Infinity : 0),
+            best_trade_r: Math.round(bestR * 100) / 100,
+            best_trade_pnl: Math.round(bestPnl * 100) / 100,
+            worst_trade_r: Math.round(worstR * 100) / 100,
+            worst_trade_pnl: Math.round(worstPnl * 100) / 100,
+            max_drawdown_r: Math.round(maxDD / capitalPerTrade * 100) / 100,
+            max_drawdown_pnl: Math.round(maxDD * 100) / 100,
+            equity_curve: sampledCurve,
+            over_capital_count: overCapitalCount,
+          });
+        }
+
+        comparison[frontendKey] = {
+          profile: INST_PROFILES[instKey],
+          windows: windowResults,
+        };
+      }
+
+      const overCapital = {
+        shares: allPwTrades.filter(t => t.instrument === "SHARES" && t.overCapital).length,
+        letf: allPwTrades.filter(t => t.instrument === "LEVERAGED_ETF" && t.overCapital).length,
+        options: allPwTrades.filter(t => t.instrument === "OPTIONS" && t.overCapital).length,
+        letfOptions: allPwTrades.filter(t => t.instrument === "LETF_OPTIONS" && t.overCapital).length,
+      };
+
       res.json({
-        ...result,
-        filters: {
-          min_win_rate: minWinRate,
-          min_expectancy_r: minExpectancyR,
-          min_sample_size: minSampleSize,
-          include_backtests: includeBacktests,
-        },
+        comparison,
+        risk_per_trade: capitalPerTrade,
+        generated_at: now.toISOString(),
+        filters: { min_win_rate: 0, min_expectancy_r: 0, min_sample_size: 0, include_backtests: true },
         data_summary: {
-          total_signals_considered: totalSignalsConsidered,
-          signals_filtered_by_profile: signalsFilteredByProfile,
-          signals_filtered_by_optimization: signalsFilteredByOptimization,
-          signals_included: signalsIncluded,
-          backtests_included: backtestsIncluded,
-          total_trade_inputs: tradeInputs.length,
+          total_signals_considered: 0,
+          signals_filtered_by_profile: 0,
+          signals_filtered_by_optimization: 0,
+          signals_included: 0,
+          backtests_included: activatedTradesUsed,
+          total_trade_inputs: activatedTradesUsed,
+          polygon_data: true,
+          over_capital: overCapital,
         },
+        cache_status: cacheValid ? "cached" : "fresh",
+        cached_at: cacheMeta?.computedAt ?? null,
       });
+    } catch (err: any) {
+      log(`Profit Windows error: ${err.message}`, "pw");
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/profit-windows/rebuild", async (_req, res) => {
+    try {
+      await storage.clearPwTradeCache();
+      await storage.clearPwCacheMeta();
+      res.json({ success: true, message: "Profit Windows cache cleared, will recompute on next load" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

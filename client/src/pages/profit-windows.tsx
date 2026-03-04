@@ -104,7 +104,9 @@ interface ProfitWindowsData {
   risk_per_trade: number;
   generated_at: string;
   filters: { min_win_rate: number; min_expectancy_r: number; min_sample_size: number; include_backtests: boolean };
-  data_summary: DataSummary;
+  data_summary: DataSummary & { polygon_data?: boolean; over_capital?: { shares: number; letf: number; options: number; letfOptions: number } };
+  cache_status?: string;
+  cached_at?: string | null;
 }
 
 const INST_ORDER = ["SHARES", "LETF", "OPTIONS", "LETF_OPTIONS"];
@@ -115,10 +117,10 @@ const INST_COLORS: Record<string, string> = {
   LETF_OPTIONS: "hsl(var(--chart-4))",
 };
 const INST_LABELS: Record<string, string> = {
-  SHARES: "Shares (1x)",
-  LETF: "LETF (3x)",
-  OPTIONS: "Options (5x)",
-  LETF_OPTIONS: "LETF Opts (15x)",
+  SHARES: "Shares",
+  LETF: "Leveraged ETF",
+  OPTIONS: "Options",
+  LETF_OPTIONS: "LETF Options",
 };
 
 function formatR(v: number) {
@@ -132,16 +134,24 @@ export default function ProfitWindowsPage() {
   const [risk, setRisk] = useState(1000);
   const [activeWindow, setActiveWindow] = useState(0);
   const [activeInstrument, setActiveInstrument] = useState("SHARES");
-  const [minWinRate, setMinWinRate] = useState(0);
-  const [minExpectancyR, setMinExpectancyR] = useState(0);
-  const [minSampleSize, setMinSampleSize] = useState(0);
-  const [includeBacktests, setIncludeBacktests] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
 
-  const queryParams = `risk=${risk}&minWinRate=${minWinRate}&minExpectancyR=${minExpectancyR}&minSampleSize=${minSampleSize}&includeBacktests=${includeBacktests}`;
+  const queryParams = `risk=${risk}`;
 
-  const { data, isLoading } = useQuery<ProfitWindowsData>({
-    queryKey: [`/api/performance/profit-windows?${queryParams}`],
+  const { data, isLoading, refetch } = useQuery<ProfitWindowsData>({
+    queryKey: ["/api/performance/profit-windows", risk],
+    queryFn: () => fetch(`/api/performance/profit-windows?${queryParams}`).then(r => r.json()),
   });
+
+  const handleRebuild = async () => {
+    setRebuilding(true);
+    try {
+      await fetch("/api/profit-windows/rebuild", { method: "POST" });
+      await refetch();
+    } finally {
+      setRebuilding(false);
+    }
+  };
 
   const currentInstrument = useMemo(() => {
     if (!data) return null;
@@ -183,11 +193,45 @@ export default function ProfitWindowsPage() {
         </p>
       </div>
 
+      {data?.data_summary?.polygon_data && (
+        <Card>
+          <CardContent className="pt-3 pb-3 px-4">
+            <div className="flex items-center gap-3 text-xs">
+              <Badge variant="outline" className="border-green-500/50 text-green-600">
+                <CheckCircle className="w-3 h-3 mr-1" />
+                Real Polygon Data
+              </Badge>
+              <span className="text-muted-foreground">
+                {data.data_summary.backtests_included} activated trades
+              </span>
+              {data.cache_status === "cached" && data.cached_at && (
+                <span className="text-muted-foreground">
+                  Cached {new Date(data.cached_at).toLocaleDateString()}
+                </span>
+              )}
+              {data.data_summary.over_capital && (
+                <span className="text-amber-500">
+                  {Object.values(data.data_summary.over_capital).reduce((s, v) => s + v, 0)} trades &gt;$1K
+                </span>
+              )}
+              <button
+                onClick={handleRebuild}
+                disabled={rebuilding}
+                className="ml-auto px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                data-testid="btn-rebuild-cache"
+              >
+                {rebuilding ? "Rebuilding..." : "Rebuild Cache"}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="pt-4 pb-4 px-4">
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div className="space-y-1">
-              <Label className="text-xs">Risk Per Trade</Label>
+              <Label className="text-xs">Capital Per Trade</Label>
               <div className="flex items-center gap-1">
                 <span className="text-sm text-muted-foreground">$</span>
                 <Input
@@ -198,62 +242,6 @@ export default function ProfitWindowsPage() {
                   data-testid="input-risk"
                 />
               </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Min Win Rate</Label>
-              <div className="flex items-center gap-1">
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="1"
-                  value={minWinRate}
-                  onChange={(e) => setMinWinRate(parseFloat(e.target.value) || 0)}
-                  className="w-20 h-8 text-sm"
-                  data-testid="input-min-wr"
-                  placeholder="0.50"
-                />
-                <span className="text-[10px] text-muted-foreground">0-1</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Min Expectancy R</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min="0"
-                value={minExpectancyR}
-                onChange={(e) => setMinExpectancyR(parseFloat(e.target.value) || 0)}
-                className="w-20 h-8 text-sm"
-                data-testid="input-min-exp"
-                placeholder="0.5"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Min Sample Size</Label>
-              <Input
-                type="number"
-                min="0"
-                value={minSampleSize}
-                onChange={(e) => setMinSampleSize(parseInt(e.target.value) || 0)}
-                className="w-20 h-8 text-sm"
-                data-testid="input-min-sample"
-                placeholder="10"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Include Backtests</Label>
-              <button
-                onClick={() => setIncludeBacktests(!includeBacktests)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors border ${
-                  includeBacktests
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
-                }`}
-                data-testid="btn-include-bt"
-              >
-                {includeBacktests ? "ON" : "OFF"}
-              </button>
             </div>
             <div className="flex gap-1">
               {WINDOW_LABELS.map((label, idx) => (
@@ -274,18 +262,11 @@ export default function ProfitWindowsPage() {
           </div>
           {data?.data_summary && (
             <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t text-[11px] text-muted-foreground">
-              <span data-testid="text-signals-considered">{data.data_summary.total_signals_considered} signals evaluated</span>
-              {data.data_summary.signals_filtered_by_profile > 0 && (
-                <span className="text-yellow-500">{data.data_summary.signals_filtered_by_profile} filtered by profile</span>
-              )}
-              {data.data_summary.signals_filtered_by_optimization > 0 && (
-                <span className="text-yellow-500">{data.data_summary.signals_filtered_by_optimization} filtered by optimization</span>
-              )}
-              <span className="font-medium text-foreground" data-testid="text-signals-included">{data.data_summary.signals_included} signals included</span>
-              {data.data_summary.backtests_included > 0 && (
-                <span className="text-blue-500">{data.data_summary.backtests_included} backtest trades added</span>
-              )}
-              <span className="font-medium">{data.data_summary.total_trade_inputs} total trades</span>
+              <span data-testid="text-signals-considered">{data.data_summary.backtests_included} activated backtest trades</span>
+              <span className="font-medium text-foreground" data-testid="text-signals-included">
+                Real Polygon.io LETF bars + option premiums
+              </span>
+              <span className="font-medium">{data.data_summary.total_trade_inputs} total instruments computed</span>
             </div>
           )}
         </CardContent>

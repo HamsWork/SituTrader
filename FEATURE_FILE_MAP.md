@@ -320,20 +320,22 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
-## 21. Multi-Instrument Profit Windows
+## 21. Multi-Instrument Profit Windows (Real Polygon Data)
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/profitWindows.ts` | `computeAllProfitWindows()`, `computeInstrumentWindows()`, `computeExecutionCosts()`, `getTimingRecommendations()` | Core engine: 4 instrument profiles (SHARES/LETF/OPTIONS/LETF_OPTIONS), R-multiple windowed stats, equity curves, execution cost modeling with liquidity tiers, timing recommendations |
-| `server/routes.ts` | `GET /api/performance/profit-windows` | API endpoint merging signals + backtests into TradeInputs |
-| `client/src/pages/profit-windows.tsx` | Profit Windows page component | Instrument comparison cards, side-by-side table, per-instrument tabs with charts, execution analysis, timing recs |
+| `server/routes.ts` | `GET /api/performance/profit-windows`, `POST /api/profit-windows/rebuild` | Real Polygon data endpoint: fetches actual LETF bars and option premiums for all 4 instruments, DB-cached via pw_trade_cache/pw_cache_meta |
+| `server/lib/profitWindows.ts` | `computeAllProfitWindows()` (legacy, no longer imported) | Legacy synthetic engine — retained for reference but no longer used |
+| `client/src/pages/profit-windows.tsx` | Profit Windows page component | Instrument comparison cards, per-instrument tabs with charts, cache controls, real data badge |
+| `shared/schema.ts` | `pwTradeCache`, `pwCacheMeta` | DB tables for caching computed profit window trade results |
+| `server/storage.ts` | `getPwTradeCache()`, `upsertPwTradeCacheBatch()`, `clearPwTradeCache()`, `getPwCacheMeta()`, `upsertPwCacheMeta()` | Storage CRUD for profit windows cache |
 | `client/src/components/app-sidebar.tsx` | Nav item for Profit Windows | Sidebar navigation entry |
 
-**Instrument Profiles:** SHARES (1x), LETF (3x, RTH-only, -100% cap), OPTIONS (5x, RTH-only, -100% cap), LETF_OPTIONS (15x, RTH-only, -100% cap)  
-**Liquidity Tiers:** ULTRA / HIGH / MEDIUM / LOW with different spread factors  
-**Timing Windows:** 7 intraday windows with cost multipliers (optimal at 10:00-11:30 ET, avoid pre-open)  
-**Data Source:** Live signals only by default (backtests opt-in via toggle)  
-**Optimization Filters:** Min Win Rate, Min Expectancy R, Min Sample Size (per-ticker/setup level); data summary shows filtering breakdown
+**Data Source:** Real Polygon.io daily bars for LETF tickers + real option premiums — NO synthetic leverage multipliers  
+**Instruments:** SHARES (direct equity), LEVERAGED_ETF (real LETF bars via getCandidates), OPTIONS (real premiums via fetchDailyBarsCached), LETF_OPTIONS (compound: real LETF bar + real LETF option premium)  
+**Trade Filter:** Only activated backtest trades (d.activated === true) with ATR-based stops  
+**Over-Capital:** Trades >$1K flagged but included  
+**Caching:** pw_trade_cache table stores per-trade results; pw_cache_meta tracks status; POST /api/profit-windows/rebuild clears cache
 
 ---
 
