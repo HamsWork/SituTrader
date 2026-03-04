@@ -2092,7 +2092,7 @@ export async function registerRoutes(
           pnlPct = (diff / actualInvested) * 100;
           outcome = "HIT_T1";
         } else if (isMiss) {
-          const sd = stopDist || (entryPrice * 0.02);
+          const sd = stopDist || (entryPrice * 0.01);
           exitPrice = bias === "BUY" ? entryPrice - sd : entryPrice + sd;
           pnlDollar = -sd * shares;
           pnlPct = (pnlDollar / actualInvested) * 100;
@@ -3059,7 +3059,7 @@ export async function registerRoutes(
           t1Pnl = diff;
           t1Outcome = "HIT_T1";
         } else if (isMiss) {
-          const sd = stopDist || (entryPrice * 0.02);
+          const sd = stopDist || (entryPrice * 0.01);
           t1Exit = bias === "BUY" ? entryPrice - sd : entryPrice + sd;
           t1Pnl = -sd * shares;
           t1Outcome = "STOPPED";
@@ -3105,7 +3105,7 @@ export async function registerRoutes(
           splitOutcome = "HIT_T1";
           halfwayHit = true;
         } else if (isMiss) {
-          const sd = stopDist || (entryPrice * 0.02);
+          const sd = stopDist || (entryPrice * 0.01);
           const mfe = (sig as any).mfe || 0;
           const mfeAbsolute = mfe * entryPrice;
           const halfwayDist = Math.abs(halfwayPrice - entryPrice);
@@ -3250,7 +3250,7 @@ export async function registerRoutes(
                   : (actEntry - actT1Exit) * actShares;
                 actT1Outcome = "HIT_T1";
               } else {
-                const actStopDist = actEntry * 0.01;
+                const actStopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : actEntry * 0.01;
                 actT1Exit = bias === "BUY" ? actEntry - actStopDist : actEntry + actStopDist;
                 actT1Pnl = -actStopDist * actShares;
                 actT1Outcome = "STOPPED";
@@ -3372,7 +3372,7 @@ export async function registerRoutes(
                   actSplitPnl = halfLeg;
                   actSplitOutcome = "PARTIAL";
                 } else {
-                  const actStopDist = actEntry * 0.01;
+                  const actStopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : actEntry * 0.01;
                   actSplitPnl = -actStopDist * actShares;
                   actSplitOutcome = "STOPPED";
                 }
