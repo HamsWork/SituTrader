@@ -118,7 +118,7 @@ interface ROIInsightsData {
 const INSTRUMENT_LABELS: Record<string, string> = {
   SHARES: "Shares",
   LEVERAGED_ETF: "Leveraged ETF (3x)",
-  OPTIONS: "Options (~5x)",
+  OPTIONS: "Options (BS ATM)",
 };
 
 const INSTRUMENT_COLORS: Record<string, string> = {
@@ -241,7 +241,7 @@ export default function ROIInsightsPage() {
                   Instrument Comparison — {SETUP_LABELS[data.bestSetup as SetupType] ?? data.bestSetup} + Top Tickers + Activated
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Approximate P&L simulation across Shares, Leveraged ETF (3x leverage), and Options (~5x leverage) at $1,000/trade
+                  Approximate P&L simulation across Shares, Leveraged ETF (real LETF bars + 3x fallback), and Options (Black-Scholes ATM, trailing 60-day vol, delta=0.50) at $1,000/trade
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
