@@ -2539,43 +2539,126 @@ export async function registerRoutes(
         }));
       }
 
-      const tickerBarsMap = new Map<string, { t: number; c: number }[]>();
-      if (allTradeRecords.length > 0) {
-        const allTickersForVol = new Set([...topTickerSet, ...uniqueLetfTickers]);
-        await Promise.all(Array.from(allTickersForVol).map(async (tick) => {
-          try {
-            const bars = await fetchDailyBarsCached(tick, minDate, maxDate);
-            tickerBarsMap.set(tick, bars.map(b => ({ t: b.t, c: b.c })).sort((a, b) => a.t - b.t));
-          } catch {}
-        }));
+      function getThirdFriday(year: number, month: number): string {
+        const d = new Date(Date.UTC(year, month, 1));
+        const dow = d.getUTCDay();
+        const firstFri = dow <= 5 ? (5 - dow + 1) : (12 - dow + 1);
+        const tf = new Date(Date.UTC(year, month, firstFri + 14));
+        return tf.toISOString().slice(0, 10);
       }
 
-      function getTrailingVol(ticker: string, tradeDate: string): number {
-        const bars = tickerBarsMap.get(ticker);
-        if (!bars || bars.length < 20) return 0.30;
-        const tradeDateMs = new Date(tradeDate + "T00:00:00Z").getTime();
-        const trailingBars = bars.filter(b => b.t <= tradeDateMs);
-        const windowBars = trailingBars.slice(-61);
-        if (windowBars.length < 15) return 0.30;
-        const returns: number[] = [];
-        for (let i = 1; i < windowBars.length; i++) {
-          if (windowBars[i - 1].c > 0 && windowBars[i].c > 0) {
-            returns.push(Math.log(windowBars[i].c / windowBars[i - 1].c));
+      function findTargetExpiry(tradeDate: string): string {
+        const d = new Date(tradeDate + "T12:00:00Z");
+        const cands: string[] = [];
+        for (let off = 0; off <= 2; off++) {
+          const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + off, 1));
+          cands.push(getThirdFriday(dt.getUTCFullYear(), dt.getUTCMonth()));
+        }
+        let best = cands[0];
+        let bestScore = Infinity;
+        for (const c of cands) {
+          const dte = (new Date(c + "T12:00:00Z").getTime() - d.getTime()) / 86400000;
+          if (dte >= 7) {
+            const score = Math.abs(dte - 21);
+            if (score < bestScore) { best = c; bestScore = score; }
           }
         }
-        if (returns.length < 10) return 0.30;
-        const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
-        const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
-        return Math.max(0.10, Math.min(1.50, Math.sqrt(variance) * Math.sqrt(252)));
+        return best;
+      }
+
+      function strikeIncrement(price: number): number {
+        if (price <= 5) return 0.5;
+        if (price <= 25) return 1;
+        if (price <= 200) return 5;
+        if (price <= 500) return 5;
+        if (price <= 1000) return 10;
+        return 50;
+      }
+
+      function nearbyStrikes(price: number): number[] {
+        const inc = strikeIncrement(price);
+        const base = Math.round(price / inc) * inc;
+        const candidates = [base];
+        for (let d = 1; d <= 2; d++) {
+          candidates.push(base + inc * d);
+          candidates.push(base - inc * d);
+        }
+        candidates.sort((a, b) => Math.abs(a - price) - Math.abs(b - price));
+        return candidates.filter(s => s > 0);
+      }
+
+      function buildOptTicker(underlying: string, expiry: string, type: "C" | "P", strike: number): string {
+        const yy = expiry.slice(2, 4);
+        const mm = expiry.slice(5, 7);
+        const dd = expiry.slice(8, 10);
+        const strikeInt = Math.round(strike * 1000);
+        return `O:${underlying}${yy}${mm}${dd}${type}${String(strikeInt).padStart(8, "0")}`;
+      }
+
+      const tradeOptCandidates: string[][] = [];
+      const tradeLetfOptCandidates: (string[] | null)[] = [];
+      const uniqueOptTickers = new Set<string>();
+
+      for (let i = 0; i < allTradeRecords.length; i++) {
+        const t = allTradeRecords[i];
+        const expiry = findTargetExpiry(t.date);
+        const cType: "C" | "P" = t.bias === "BUY" ? "C" : "P";
+
+        const strikes = nearbyStrikes(t.ePrice);
+        const cands = strikes.map(s => buildOptTicker(t.ticker, expiry, cType, s));
+        tradeOptCandidates.push(cands);
+        cands.forEach(c => uniqueOptTickers.add(c));
+
+        const lInfo = tickerLetfInfo.get(t.ticker);
+        const lCand = t.bias === "BUY" ? lInfo?.bull : lInfo?.bear;
+        if (lCand) {
+          const lBars = letfBarMap.get(lCand.ticker);
+          const lClose = lBars?.get(t.date);
+          if (lClose && lClose > 0) {
+            const lStrikes = nearbyStrikes(lClose);
+            const lCands = lStrikes.map(s => buildOptTicker(lCand.ticker, expiry, cType, s));
+            tradeLetfOptCandidates.push(lCands);
+            lCands.forEach(c => uniqueOptTickers.add(c));
+          } else {
+            tradeLetfOptCandidates.push(null);
+          }
+        } else {
+          tradeLetfOptCandidates.push(null);
+        }
+      }
+
+      const optBarMap = new Map<string, Map<string, number>>();
+      if (uniqueOptTickers.size > 0) {
+        const optList = Array.from(uniqueOptTickers);
+        log(`ROI Insights: fetching daily bars for ${optList.length} option contracts...`, "roi");
+        const batchSz = 20;
+        for (let b = 0; b < optList.length; b += batchSz) {
+          const chunk = optList.slice(b, b + batchSz);
+          await Promise.all(chunk.map(async (oTick) => {
+            try {
+              const bars = await fetchDailyBarsCached(oTick, minDate, maxDate);
+              const dMap = new Map<string, number>();
+              for (const bar of bars) {
+                dMap.set(new Date(bar.t).toISOString().slice(0, 10), bar.c);
+              }
+              if (dMap.size > 0) optBarMap.set(oTick, dMap);
+            } catch {}
+          }));
+        }
+        log(`ROI Insights: got bars for ${optBarMap.size}/${optList.length} option contracts`, "roi");
       }
 
       const shareTrades: { date: string; ticker: string; pnl: number }[] = [];
       const letfTrades: { date: string; ticker: string; pnl: number }[] = [];
       const optionTrades: { date: string; ticker: string; pnl: number }[] = [];
       const letfOptionTrades: { date: string; ticker: string; pnl: number }[] = [];
+      let optOverCapital = 0;
+      let letfOptOverCapital = 0;
+      let optSkipped = 0;
+      let letfOptSkipped = 0;
 
-      for (const trade of allTradeRecords) {
-        const { date, ticker, ePrice, magnetPrice, bias, hit } = trade;
+      for (let i = 0; i < allTradeRecords.length; i++) {
+        const { date, ticker, ePrice, magnetPrice, bias, hit } = allTradeRecords[i];
         const stopDist = ePrice * 0.01;
         const rewardDist = Math.abs(magnetPrice - ePrice);
         const stopPrice = bias === "BUY" ? ePrice - stopDist : ePrice + stopDist;
@@ -2586,71 +2669,66 @@ export async function registerRoutes(
         const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
         shareTrades.push({ date, ticker, pnl: hit ? shareWin : shareLoss });
 
+        let letfEntryPrice = 0, letfT1Price = 0, letfStopPx = 0, letfTick = "";
         const letfInfo = tickerLetfInfo.get(ticker);
         const letfCand = bias === "BUY" ? letfInfo?.bull : letfInfo?.bear;
-        let letfHandled = false;
-        let letfEntryPrice = 0;
-        let letfT1Price = 0;
-        let letfStopPrice = 0;
-        let letfTicker = "";
         if (letfCand) {
           const letfBars = letfBarMap.get(letfCand.ticker);
           const letfClose = letfBars?.get(date);
           if (letfClose && letfClose > 0) {
-            const rawLev = letfCand.leverage;
-            const effectiveLev = letfCand.direction === "BEAR" ? -rawLev : rawLev;
+            const effLev = letfCand.direction === "BEAR" ? -letfCand.leverage : letfCand.leverage;
             const letfShares = Math.floor(capitalPerTrade / letfClose);
             if (letfShares > 0) {
-              const letfT1 = letfClose * (1 + effectiveLev * (magnetPrice - ePrice) / ePrice);
-              const letfStopLevel = letfClose * (1 + effectiveLev * (stopPrice - ePrice) / ePrice);
-              const letfWinPnl = Math.round((letfT1 - letfClose) * letfShares * 100) / 100;
-              const letfLossPnl = Math.round((letfStopLevel - letfClose) * letfShares * 100) / 100;
-              letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
-              letfHandled = true;
+              letfT1Price = letfClose * (1 + effLev * (magnetPrice - ePrice) / ePrice);
+              letfStopPx = letfClose * (1 + effLev * (stopPrice - ePrice) / ePrice);
+              letfTrades.push({ date, ticker, pnl: hit ? Math.round((letfT1Price - letfClose) * letfShares * 100) / 100 : Math.round((letfStopPx - letfClose) * letfShares * 100) / 100 });
               letfEntryPrice = letfClose;
-              letfT1Price = letfT1;
-              letfStopPrice = letfStopLevel;
-              letfTicker = letfCand.ticker;
+              letfTick = letfCand.ticker;
             }
           }
         }
-        if (!letfHandled) {
-          const fallbackLev = 3;
-          const pctReward = rewardDist / ePrice;
-          const pctStop = stopDist / ePrice;
-          const letfWinPnl = Math.round(pctReward * fallbackLev * capitalPerTrade * 100) / 100;
-          const letfLossPnl = Math.round(-pctStop * fallbackLev * capitalPerTrade * 100) / 100;
-          letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
-        }
 
-        const vol = getTrailingVol(ticker, date);
-        const dte = 21;
-        const signedDelta = bias === "BUY" ? 0.50 : -0.50;
-        const premium = ePrice * vol * Math.sqrt(dte / 365) * 0.3989;
-        if (premium > 0.01) {
-          const contractCost = premium * 100;
-          const contracts = Math.floor(capitalPerTrade / contractCost);
-          if (contracts > 0) {
-            const stockExitPrice = hit ? magnetPrice : stopPrice;
-            const optionMove = (stockExitPrice - ePrice) * signedDelta;
-            const optPnl = Math.round(optionMove * contracts * 100 * 100) / 100;
-            optionTrades.push({ date, ticker, pnl: optPnl });
-          }
-        }
-
-        if (letfHandled && letfEntryPrice > 0 && letfTicker) {
-          const letfVol = getTrailingVol(letfTicker, date);
-          const letfSignedDelta = bias === "BUY" ? 0.50 : -0.50;
-          const letfPremium = letfEntryPrice * letfVol * Math.sqrt(dte / 365) * 0.3989;
-          if (letfPremium > 0.01) {
-            const letfContractCost = letfPremium * 100;
-            const letfContracts = Math.floor(capitalPerTrade / letfContractCost);
-            if (letfContracts > 0) {
-              const letfExitPrice = hit ? letfT1Price : letfStopPrice;
-              const letfOptMove = (letfExitPrice - letfEntryPrice) * letfSignedDelta;
-              const letfOptPnl = Math.round(letfOptMove * letfContracts * 100 * 100) / 100;
-              letfOptionTrades.push({ date, ticker, pnl: letfOptPnl });
+        const optCands = tradeOptCandidates[i];
+        let optHandled = false;
+        if (optCands) {
+          for (const optTick of optCands) {
+            const oBars = optBarMap.get(optTick);
+            const premium = oBars?.get(date);
+            if (premium && premium > 0) {
+              const costPerContract = premium * 100;
+              if (costPerContract > capitalPerTrade) optOverCapital++;
+              const contracts = Math.max(1, Math.floor(capitalPerTrade / costPerContract));
+              const delta = bias === "BUY" ? 0.50 : -0.50;
+              const exitPrice = hit ? magnetPrice : stopPrice;
+              const optMove = (exitPrice - ePrice) * delta;
+              optionTrades.push({ date, ticker, pnl: Math.round(optMove * contracts * 100 * 100) / 100 });
+              optHandled = true;
+              break;
             }
+          }
+          if (!optHandled) optSkipped++;
+        }
+
+        if (letfEntryPrice > 0 && letfTick) {
+          const lOptCands = tradeLetfOptCandidates[i];
+          if (lOptCands) {
+            let lOptHandled = false;
+            for (const lOptTick of lOptCands) {
+              const loBars = optBarMap.get(lOptTick);
+              const lPremium = loBars?.get(date);
+              if (lPremium && lPremium > 0) {
+                const lCost = lPremium * 100;
+                if (lCost > capitalPerTrade) letfOptOverCapital++;
+                const lContracts = Math.max(1, Math.floor(capitalPerTrade / lCost));
+                const delta = bias === "BUY" ? 0.50 : -0.50;
+                const lExitPrice = hit ? letfT1Price : letfStopPx;
+                const lOptMove = (lExitPrice - letfEntryPrice) * delta;
+                letfOptionTrades.push({ date, ticker, pnl: Math.round(lOptMove * lContracts * 100 * 100) / 100 });
+                lOptHandled = true;
+                break;
+              }
+            }
+            if (!lOptHandled) letfOptSkipped++;
           }
         }
       }
@@ -2709,6 +2787,8 @@ export async function registerRoutes(
         buildInstrumentPerf("LETF_OPTIONS", letfOptionTrades),
       ].filter(Boolean);
 
+      log(`ROI Insights: Options ${optionTrades.length} trades (${optSkipped} skipped, ${optOverCapital} over $1K), LETF Options ${letfOptionTrades.length} trades (${letfOptSkipped} skipped, ${letfOptOverCapital} over $1K)`, "roi");
+
       res.json({
         totalBacktestTrades: Object.values(bySetup).reduce((s, b) => s + b.count, 0),
         totalActivatedTrades: totalActivated,
@@ -2720,6 +2800,10 @@ export async function registerRoutes(
         qualityScoreBreakdown,
         strategyPerformance,
         instrumentBreakdown,
+        optionsOverCapital: optOverCapital,
+        optionsSkipped: optSkipped,
+        letfOptionsOverCapital: letfOptOverCapital,
+        letfOptionsSkipped: letfOptSkipped,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

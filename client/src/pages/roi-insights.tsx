@@ -113,13 +113,17 @@ interface ROIInsightsData {
   qualityScoreBreakdown: QSBreakdown[];
   strategyPerformance: InstrumentPerf | null;
   instrumentBreakdown: InstrumentPerf[];
+  optionsOverCapital?: number;
+  optionsSkipped?: number;
+  letfOptionsOverCapital?: number;
+  letfOptionsSkipped?: number;
 }
 
 const INSTRUMENT_LABELS: Record<string, string> = {
   SHARES: "Shares",
-  LEVERAGED_ETF: "Leveraged ETF (3x)",
-  OPTIONS: "Options (BS ATM)",
-  LETF_OPTIONS: "LETF Options",
+  LEVERAGED_ETF: "Leveraged ETF",
+  OPTIONS: "Options (Real)",
+  LETF_OPTIONS: "LETF Options (Real)",
 };
 
 const INSTRUMENT_COLORS: Record<string, string> = {
@@ -131,9 +135,9 @@ const INSTRUMENT_COLORS: Record<string, string> = {
 
 const INSTRUMENT_NOTES: Record<string, string> = {
   SHARES: "Baseline — $1,000 capital, real position sizing (floor($1K/entry)), 1% stop, T1 at magnet",
-  LEVERAGED_ETF: "Real LETF bars where mapping exists (UPRO/TQQQ/SOFA/etc), 3x % model fallback for unmapped tickers, ibkrOrders conversion",
-  OPTIONS: "ATM estimation — trailing 60-day realized vol from Polygon daily bars, Black-Scholes premium on underlying, delta=0.50",
-  LETF_OPTIONS: "Options on leveraged ETFs — Black-Scholes ATM on real LETF price, trailing 60-day LETF vol, delta=0.50. Only available for mapped LETF tickers",
+  LEVERAGED_ETF: "Real Polygon LETF daily bars — mapped tickers only (no fallback), ibkrOrders conversion",
+  OPTIONS: "Real Polygon option contracts — ATM strike, ~21 DTE monthly expiry, delta=0.50, real premium for position sizing",
+  LETF_OPTIONS: "Real Polygon LETF option contracts — ATM strike on LETF, ~21 DTE, delta=0.50. Only available for mapped LETF tickers",
 };
 
 export default function ROIInsightsPage() {
@@ -482,10 +486,22 @@ export default function ROIInsightsPage() {
                         </div>
                       )}
 
-                      <div className="rounded-lg border p-3">
+                      <div className="rounded-lg border p-3 space-y-1">
                         <div className="text-[10px] text-muted-foreground">
                           <span className="font-medium text-foreground">Model:</span> {INSTRUMENT_NOTES[inst.instrument]}
                         </div>
+                        {inst.instrument === "OPTIONS" && data && (data.optionsSkipped || data.optionsOverCapital) ? (
+                          <div className="text-[10px] text-muted-foreground">
+                            {data.optionsSkipped ? <span className="mr-3">{data.optionsSkipped} trades skipped (no Polygon option data)</span> : null}
+                            {data.optionsOverCapital ? <span>{data.optionsOverCapital} trades over $1K/contract</span> : null}
+                          </div>
+                        ) : null}
+                        {inst.instrument === "LETF_OPTIONS" && data && (data.letfOptionsSkipped || data.letfOptionsOverCapital) ? (
+                          <div className="text-[10px] text-muted-foreground">
+                            {data.letfOptionsSkipped ? <span className="mr-3">{data.letfOptionsSkipped} trades skipped (no Polygon option data)</span> : null}
+                            {data.letfOptionsOverCapital ? <span>{data.letfOptionsOverCapital} trades over $1K/contract</span> : null}
+                          </div>
+                        ) : null}
                       </div>
                     </TabsContent>
                   ))}
