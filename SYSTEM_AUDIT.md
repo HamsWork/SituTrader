@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
-**Audit Date:** 2026-03-04  
-**Codebase Size:** ~23,960 lines of TypeScript/TSX across 75 source files  
+**Audit Date:** 2026-03-03  
+**Codebase Size:** ~24,200 lines of TypeScript/TSX across 75 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -17,7 +17,7 @@
 │           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
-│  3,708-line routes.ts · 950-line storage.ts · Drizzle ORM          │
+│  3,786-line routes.ts · 950-line storage.ts · Drizzle ORM          │
 │  Session management · CORS · JSON body parsing                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER (server/lib/)                   │
@@ -407,7 +407,7 @@ Backtest results and analysis interface.
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 3,708 lines)
+## 6. API Routes Summary (`server/routes.ts` — 3,824 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -639,5 +639,5 @@ Polygon.io API
 | Setup types | 6 (A–F) |
 | Quality score components | 6 |
 | Robustness tests | 8 |
-| Largest file | `routes.ts` (3,708 lines) |
+| Largest file | `routes.ts` (3,824 lines) |
 | Second largest | `dashboard.tsx` (1,870 lines) |
