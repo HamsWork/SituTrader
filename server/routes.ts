@@ -1207,6 +1207,68 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/btod/status", async (_req, res) => {
+    try {
+      const { getBtodStatus } = await import("./lib/btod");
+      const state = await getBtodStatus();
+      if (!state) {
+        return res.json({ initialized: false, message: "No BTOD state for today" });
+      }
+
+      const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
+      const ranked = state.rankedQueue as any[];
+      const top3 = state.top3Ids as number[];
+
+      const allSignals = await storage.getSignals(undefined, 5000);
+      const enrichedQueue = ranked.map((entry: any) => {
+        const sig = allSignals.find((s) => s.id === entry.signalId);
+        return {
+          ...entry,
+          direction: sig?.direction ?? null,
+          status: sig?.activationStatus ?? null,
+          tier: sig?.tier ?? null,
+          isTop3: top3.includes(entry.signalId),
+        };
+      });
+
+      res.json({
+        initialized: true,
+        enabled: btodEnabled,
+        tradeDate: state.tradeDate,
+        phase: state.phase,
+        gateOpen: state.gateOpen,
+        tradesExecuted: state.tradesExecuted,
+        selectedSignalId: state.selectedSignalId,
+        secondSignalId: state.secondSignalId,
+        phaseChangedAt: state.phaseChangedAt,
+        top3Ids: top3,
+        rankedQueue: enrichedQueue,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/btod/initialize", async (_req, res) => {
+    try {
+      const { initializeBtodForDay } = await import("./lib/btod");
+      const state = await initializeBtodForDay();
+      res.json({ success: true, state });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/btod/toggle", async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      await storage.setSetting("btodEnabled", enabled ? "true" : "false");
+      res.json({ enabled });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/scheduler/toggle", async (req, res) => {
     try {
       const { authorModeEnabled } = req.body;

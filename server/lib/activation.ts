@@ -647,94 +647,148 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
           timestamp: nowIso,
         });
 
-        const qualityOk = (sig.qualityScore ?? 0) >= 80;
-        const wouldExceedOption =
-          instrumentTypeForExecution === "OPTION" &&
-          (hasOptionToday || executedOptionThisRun);
-        const wouldExceedLetf =
-          instrumentTypeForExecution === "LEVERAGED_ETF" &&
-          (hasLetfToday || executedLetfThisRun);
-        const wouldExceedShares =
-          instrumentTypeForExecution === "SHARES" &&
-          (hasSharesToday || executedSharesThisRun);
-
-        let activeProfileCheck: any = null;
+        let btodActive = false;
+        let btodAllowed = true;
         try {
-          activeProfileCheck = await storage.getActiveProfile();
-        } catch {}
-        const profileOk = activeProfileCheck
-          ? activeProfileCheck.allowedSetups.includes(sig.setupType)
-          : true;
-
-        if (qualityOk && profileOk && !wouldExceedOption && !wouldExceedLetf && !wouldExceedShares) {
-          try {
-            const freshSigs = await storage.getSignals(undefined, 5000);
-            const freshSig = freshSigs.find((s: any) => s.id === sig.id);
-            const discordSig = freshSig || sig;
-            const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
-            let discordOk = false;
-            if (instrumentTypeForExecution === "OPTION") {
-              discordOk = await postOptionsAlert(discordSig);
-            } else if (instrumentTypeForExecution === "SHARES") {
-              discordOk = await postSharesAlert(discordSig);
-            } else {
-              discordOk = await postLetfAlert(discordSig);
-            }
-            if (discordOk) {
+          const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
+          if (btodEnabled) {
+            btodActive = true;
+            const { shouldExecuteActivation } = await import("./btod");
+            const btodDecision = await shouldExecuteActivation(sig.id, new Date());
+            if (!btodDecision.execute) {
+              btodAllowed = false;
               log(
-                `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
-                "activation",
-              );
-            } else {
-              log(
-                `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
+                `BTOD: passed over signal ${sig.id} (${ticker} QS=${sig.qualityScore ?? 0}) — reason: ${btodDecision.reason}`,
                 "activation",
               );
             }
-          } catch (discordErr: any) {
-            log(
-              `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
-              "activation",
-            );
           }
+        } catch (btodErr: any) {
+          log(
+            `BTOD: error checking signal ${sig.id}, allowing execution as fallback: ${btodErr.message}`,
+            "activation",
+          );
         }
 
-        try {
-          if (!qualityOk) {
-            log(
-              `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} < 80`,
-              "activation",
-            );
-          } else if (
-            wouldExceedOption ||
-            wouldExceedLetf ||
-            wouldExceedShares
-          ) {
-            log(
-              `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
-              "activation",
-            );
-          } else {
-            const { executeTradeForSignal } = await import("./ibkrOrders");
+        if (btodActive && btodAllowed) {
+          try {
+            const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
             const qty =
               parseInt(
                 (await storage.getSetting("ibkrDefaultQuantity")) || "1",
               ) || 1;
-            await executeTradeForSignal(sig.id, qty);
-            if (instrumentTypeForExecution === "OPTION")
-              executedOptionThisRun = true;
-            else if (instrumentTypeForExecution === "LEVERAGED_ETF")
-              executedLetfThisRun = true;
-            else if (instrumentTypeForExecution === "SHARES")
-              executedSharesThisRun = true;
+            const results = await executeBtodMultiInstrument(sig.id, qty);
+            const successCount = results.filter((r) => r.success).length;
             log(
-              `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
+              `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
+              "activation",
+            );
+            executedOptionThisRun = true;
+            executedLetfThisRun = true;
+            executedSharesThisRun = true;
+
+            await onBtodTradeExecuted(sig.id);
+          } catch (btodExecErr: any) {
+            log(
+              `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,
               "activation",
             );
           }
-        } catch (autoErr: any) {
+        } else if (!btodActive) {
+          const qualityOk = (sig.qualityScore ?? 0) >= 80;
+          const wouldExceedOption =
+            instrumentTypeForExecution === "OPTION" &&
+            (hasOptionToday || executedOptionThisRun);
+          const wouldExceedLetf =
+            instrumentTypeForExecution === "LEVERAGED_ETF" &&
+            (hasLetfToday || executedLetfThisRun);
+          const wouldExceedShares =
+            instrumentTypeForExecution === "SHARES" &&
+            (hasSharesToday || executedSharesThisRun);
+
+          let activeProfileCheck: any = null;
+          try {
+            activeProfileCheck = await storage.getActiveProfile();
+          } catch {}
+          const profileOk = activeProfileCheck
+            ? activeProfileCheck.allowedSetups.includes(sig.setupType)
+            : true;
+
+          if (qualityOk && profileOk && !wouldExceedOption && !wouldExceedLetf && !wouldExceedShares) {
+            try {
+              const freshSigs = await storage.getSignals(undefined, 5000);
+              const freshSig = freshSigs.find((s: any) => s.id === sig.id);
+              const discordSig = freshSig || sig;
+              const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
+              let discordOk = false;
+              if (instrumentTypeForExecution === "OPTION") {
+                discordOk = await postOptionsAlert(discordSig);
+              } else if (instrumentTypeForExecution === "SHARES") {
+                discordOk = await postSharesAlert(discordSig);
+              } else {
+                discordOk = await postLetfAlert(discordSig);
+              }
+              if (discordOk) {
+                log(
+                  `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
+                  "activation",
+                );
+              } else {
+                log(
+                  `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
+                  "activation",
+                );
+              }
+            } catch (discordErr: any) {
+              log(
+                `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
+                "activation",
+              );
+            }
+          }
+
+          try {
+            if (!qualityOk) {
+              log(
+                `Skip IBKR execute for signal ${sig.id}: quality score ${sig.qualityScore ?? 0} < 80`,
+                "activation",
+              );
+            } else if (
+              wouldExceedOption ||
+              wouldExceedLetf ||
+              wouldExceedShares
+            ) {
+              log(
+                `Skip IBKR execute for signal ${sig.id}: already 1 ${instrumentTypeForExecution} trade today (ET)`,
+                "activation",
+              );
+            } else {
+              const { executeTradeForSignal } = await import("./ibkrOrders");
+              const qty =
+                parseInt(
+                  (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+                ) || 1;
+              await executeTradeForSignal(sig.id, qty);
+              if (instrumentTypeForExecution === "OPTION")
+                executedOptionThisRun = true;
+              else if (instrumentTypeForExecution === "LEVERAGED_ETF")
+                executedLetfThisRun = true;
+              else if (instrumentTypeForExecution === "SHARES")
+                executedSharesThisRun = true;
+              log(
+                `Auto-executed IBKR bracket order for signal ${sig.id} on activation (qty: ${qty}, type: ${instrumentTypeForExecution})`,
+                "activation",
+              );
+            }
+          } catch (autoErr: any) {
+            log(
+              `Auto-execute IBKR failed for signal ${sig.id}: ${autoErr.message}`,
+              "activation",
+            );
+          }
+        } else {
           log(
-            `Auto-execute IBKR failed for signal ${sig.id}: ${autoErr.message}`,
+            `Skip execution for signal ${sig.id}: BTOD gate blocked`,
             "activation",
           );
         }

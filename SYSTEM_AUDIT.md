@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
 **Audit Date:** 2026-03-04  
-**Codebase Size:** ~24,800 lines of TypeScript/TSX across 75 source files  
+**Codebase Size:** ~25,300 lines of TypeScript/TSX across 76 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -17,12 +17,12 @@
 │           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
-│  4,028-line routes.ts · 1,079-line storage.ts · Drizzle ORM        │
+│  4,384-line routes.ts · 1,159-line storage.ts · Drizzle ORM        │
 │  Session management · CORS · JSON body parsing                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER (server/lib/)                   │
 │  rules.ts · quality.ts · expectancy.ts · activation.ts             │
-│  alerts.ts · ibkrOrders.ts · ibkr.ts · discord.ts                  │
+│  alerts.ts · ibkrOrders.ts · ibkr.ts · discord.ts · btod.ts       │
 │  polygon.ts · universe.ts · options.ts · leveragedEtf.ts           │
 │  optionMonitor.ts · letfMonitor.ts · backtest.ts · calendar.ts     │
 │  confidence.ts · tradeplan.ts · validate.ts · profitWindows.ts     │
@@ -30,16 +30,17 @@
 │  embedTemplateDefaults.ts · embedTemplateEngine.ts                 │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SCHEDULER & WORKERS (server/jobs/)            │
-│  scheduler.ts (241 lines) · jobFunctions.ts (307 lines)           │
+│  scheduler.ts (268 lines) · jobFunctions.ts (307 lines)           │
 │  backtestWorker.ts (174 lines) · node-cron · Author Mode          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      DATABASE (PostgreSQL)                         │
-│  19 tables · Drizzle ORM · Neon-backed                             │
+│  20 tables · Drizzle ORM · Neon-backed                             │
 │  signals · backtests · ibkr_trades · daily_bars · intraday_bars    │
 │  scheduler_state · universe_members · ticker_stats                  │
 │  setup_expectancy · signal_profiles · symbols · app_settings       │
 │  ibkr_state · time_to_hit_stats · backtest_jobs · robustness_runs  │
 │  roi_trade_cache · roi_cache_meta · pw_trade_cache · pw_cache_meta │
+│  btod_state                                                        │
 ├─────────────────────────────────────────────────────────────────────┤
 │                    EXTERNAL INTEGRATIONS                           │
 │  Polygon.io (market data) · IBKR TWS/Gateway (trade execution)    │
@@ -128,7 +129,23 @@ Cached per-trade Profit Windows results using real Polygon data. Stores computed
 ### 2.19 `pw_cache_meta` (5 columns)
 Cache invalidation metadata for profit windows. Tracks computation status (computing/ready/stale), trade count, and last computed timestamp.
 
-### 2.20 `robustness_runs` (9 columns)
+### 2.20 `btod_state` (13 columns)
+Best Trade of the Day state tracking. One row per trading day. Stores the ranked signal queue, top-3 priority signal IDs, current phase (SELECTIVE before 11am / OPEN after), gate status, selected signal IDs (first and optional second trade), and trades executed count. Manages the BTOD lifecycle: pre-market ranking → selective monitoring → 11am transition → gate reopen after close.
+
+| Key Columns | Purpose |
+|---|---|
+| `id` (serial PK) | Unique identifier |
+| `tradeDate` | Trading date (YYYY-MM-DD, unique) |
+| `phase` | Current phase: SELECTIVE or OPEN |
+| `rankedQueue` (JSONB) | Full ordered list of eligible signals with QS, ticker, setup |
+| `top3Ids` (JSONB) | Array of top 3 priority signal IDs |
+| `selectedSignalId` | First selected signal (nullable) |
+| `secondSignalId` | Second trade if first closed (nullable) |
+| `gateOpen` | Whether new trades are accepted |
+| `tradesExecuted` | Count of trades executed today (max 2) |
+| `phaseChangedAt` | Timestamp of SELECTIVE → OPEN transition |
+
+### 2.21 `robustness_runs` (9 columns)
 Tracks all robustness test executions with parameters, status, and summary metrics.
 
 | Key Columns | Purpose |
@@ -185,7 +202,12 @@ Calculates R-multiple based statistics from resolved signals:
 
 **Exports:** `computeRMultiples()`, `aggregateExpectancy()`, `computeAndStoreExpectancy()`, `recomputeAllExpectancy()`, `getSetupAlertCategory()`
 
-### 3.4 Activation Engine (`server/lib/activation.ts` — 747 lines)
+### 3.4 BTOD Engine (`server/lib/btod.ts` — 414 lines)
+Best Trade of the Day selection system. Guarantees one high-quality trade per day by monitoring top-3 ranked signals (Setups A+C, QS≥62) and executing the first to activate. Dual-phase architecture: SELECTIVE phase (9:30-11am) monitors only top-3 priority signals, OPEN phase (11am+) accepts first fresh activation. Supports max 2 trades/day with gate reopen after all 4 instruments close. Multi-instrument execution spawns separate IBKR trades for SHARES, OPTIONS, LETF, and LETF_OPTIONS simultaneously.
+
+**Exports:** `rankOnDeckSignals()`, `initializeBtodForDay()`, `shouldExecuteActivation()`, `onBtodTradeExecuted()`, `transitionToOpenPhase()`, `onTradeClose()`, `executeBtodMultiInstrument()`
+
+### 3.5 Activation Engine (`server/lib/activation.ts` — 801 lines)
 Monitors intraday price action for entry triggers:
 - Conservative mode: Price must cross entry trigger level with confirming bar
 - Aggressive mode: First touch of trigger level activates
@@ -194,10 +216,11 @@ Monitors intraday price action for entry triggers:
 - Volatility-based stop calculation using ATR
 - **BE stop wired to IBKR:** When BE condition is met, modifies the IBKR stop order price and sends a RAISE_STOP Discord alert
 - **Auto Discord alerts on activation:** When a signal activates with QS >= 80 and passes the active profile's allowed setups, automatically sends Discord alerts (Options/LETF/Shares) respecting the 1-per-day gate per instrument type
+- **BTOD gate check:** When btodEnabled setting is active, activation calls `btod.shouldExecuteActivation()` before IBKR execution. Only BTOD-selected signals execute trades; all signals still get activation status tracked for data integrity.
 
 **Exports:** `runActivationScan()`
 
-### 3.5 Alert Engine (`server/lib/alerts.ts` — 281 lines)
+### 3.6 Alert Engine (`server/lib/alerts.ts` — 281 lines)
 Lifecycle event detection and routing:
 - Events: NEW_SIGNAL, APPROACHING, HIT_T1, MISS, ACTIVATED
 - Tier-based routing: A+ and A tier signals get priority alerts
@@ -206,7 +229,7 @@ Lifecycle event detection and routing:
 
 **Exports:** `runAlerts()`
 
-### 3.6 Discord Integration (`server/lib/discord.ts` — 888 lines)
+### 3.7 Discord Integration (`server/lib/discord.ts` — 888 lines)
 Triple-channel webhook system with instrument-price consistency:
 - **GOAT Alerts:** Options trades → `DISCORD_GOAT_ALERTS_WEBHOOK`
 - **GOAT Swings:** Leveraged ETF trades → `DISCORD_GOAT_SWINGS_WEBHOOK`
@@ -220,19 +243,19 @@ Triple-channel webhook system with instrument-price consistency:
 
 **Exports:** `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postTradeUpdate()`, `sendTestLetfAlert()`
 
-### 3.7 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 720 lines)
+### 3.8 IBKR Integration (`server/lib/ibkr.ts` — 434 lines, `ibkrOrders.ts` — 742 lines)
 Full Interactive Brokers TWS/Gateway integration:
 
 **`ibkr.ts` exports:** `connectIBKR()`, `disconnectIBKR()`, `isConnected()`, `getPositions()`, `getAccountSummary()`, `getOrderStatus()`, `getNextOrderId()`, `makeContract()`, `placeMarketOrder()`, `placeLimitOrder()`, `placeStopOrder()`, `cancelOrder()`, `modifyStopPrice()`, `getIBApi()`
 
 **`ibkrOrders.ts` exports:** `executeTradeForSignal()`, `applyBeStop()`, `applyTimeStop()`, `monitorActiveTrade()`, `monitorActiveTrades()`, `closeTradeManually()`, `getIbkrDashboardData()`
 
-### 3.8 Polygon.io Integration (`server/lib/polygon.ts` — 551 lines)
+### 3.9 Polygon.io Integration (`server/lib/polygon.ts` — 551 lines)
 Market data provider with extensive API surface:
 
 **Exports:** `fetchDailyBars()`, `fetchIntradayBars()`, `fetchDailyBarsCached()`, `fetchIntradayBarsCached()`, `fetchGroupedDaily()`, `fetchOptionsChain()`, `fetchOptionContractDetails()`, `fetchOptionQuote()`, `fetchOptionSnapshot()`, `fetchSnapshot()`, `fetchOptionNbbo()`, `fetchOptionLastTrade()`, `fetchOptionMarkAtTime()`, `fetchStockPriceAtTime()`, `fetchOptionMark()`
 
-### 3.8.1 Bar Cache (`server/lib/barCache/` — 403 lines total)
+### 3.9.1 Bar Cache (`server/lib/barCache/` — 403 lines total)
 Persistent two-tier bar cache system (SQLite + in-memory):
 - **SQLite on-disk** (`bar_cache.db`): WAL mode, permanent storage, survives restarts
 - **In-memory**: 5-minute TTL, 500-entry cap, FIFO eviction
@@ -244,7 +267,7 @@ Persistent two-tier bar cache system (SQLite + in-memory):
 **Exports:** `getBars()`, `getBarCacheStats()`, `openBarCacheDb()`, `getStalenessSeconds()`, `memClear()`
 **Endpoint:** `GET /stats/bar-cache` — returns cache stats (total bars, symbols, DB size, timestamps, WAL mode)
 
-### 3.9 Options Enrichment (`server/lib/options.ts` — 320 lines)
+### 3.10 Options Enrichment (`server/lib/options.ts` — 320 lines)
 Options contract selection and enrichment:
 - Finds optimal strike/expiry based on signal direction and target
 - OI (open interest) and spread checks for liquidity
@@ -253,7 +276,7 @@ Options contract selection and enrichment:
 
 **Exports:** `enrichPendingSignalsWithOptions()`
 
-### 3.10 Leveraged ETF System (`server/lib/leveragedEtf.ts` — 379 lines)
+### 3.11 Leveraged ETF System (`server/lib/leveragedEtf.ts` — 379 lines)
 Dynamic instrument selection:
 - 3x BULL/BEAR ETF mapping for major tickers
 - Automatic selection based on signal direction
@@ -262,7 +285,7 @@ Dynamic instrument selection:
 
 **Exports:** `selectBestLeveragedEtf()`, `fetchStockNbbo()`, `hasLeveragedEtfMapping()`, `getCandidates()`
 
-### 3.11 Universe Management (`server/lib/universe.ts` — 169 lines)
+### 3.12 Universe Management (`server/lib/universe.ts` — 169 lines)
 Automatic ticker discovery and ranking:
 - Scans all US equities via Polygon grouped daily endpoint
 - Ranks by 20-day average dollar volume
@@ -271,7 +294,7 @@ Automatic ticker discovery and ranking:
 
 **Exports:** `rebuildUniverse()`, `getUniverseStatus()`
 
-### 3.12 Reliability & Robustness (`server/lib/reliability.ts` — 994 lines)
+### 3.13 Reliability & Robustness (`server/lib/reliability.ts` — 994 lines)
 Comprehensive robustness testing framework with 8 test implementations and a 10-gate reliability summary:
 
 | Test | Function | Purpose |
@@ -287,7 +310,7 @@ Comprehensive robustness testing framework with 8 test implementations and a 10-
 
 **Exports:** `computeReliabilitySummary()`, `runFeesSlippageTest()`, `runOutOfSampleTest()`, `runWalkForwardTest()`, `runMonteCarloTest()`, `runStressTest()`, `runParameterSweep()`, `runStopSensitivityTest()`, `runRegimeAnalysis()`
 
-### 3.13 Additional Modules
+### 3.14 Additional Modules
 - **`backtest.ts`** (258 lines): `runBacktest()`, `computeProbabilities()`, `computeAndStoreTimeToHitStats()` — ATR-based stop distances stored per trade
 - **`calendar.ts`** (81 lines): `isTradingDay()`, `nextTradingDay()`, `prevTradingDay()`, `formatDate()`, `getDayOfWeek()`, `addDays()`, `getTradingDaysBack()`
 - **`confidence.ts`** (68 lines): `computeConfidence()`, `computeATR()`, `computeAvgVolume()`
@@ -300,7 +323,7 @@ Comprehensive robustness testing framework with 8 test implementations and a 10-
 
 ## 4. Scheduler / Author Mode
 
-### Architecture (`server/jobs/scheduler.ts` — 241 lines, `jobFunctions.ts` — 307 lines, `backtestWorker.ts` — 174 lines)
+### Architecture (`server/jobs/scheduler.ts` — 268 lines, `jobFunctions.ts` — 307 lines, `backtestWorker.ts` — 174 lines)
 
 Three distinct scheduled job types orchestrated by node-cron, plus a background backtest worker:
 
@@ -309,6 +332,7 @@ Three distinct scheduled job types orchestrated by node-cron, plus a background 
 | **After-Close Scan** | 15:10 CT (20:10 UTC) | `runAfterCloseScan()` |
 | **Pre-Open Rescore** | 08:20 CT (14:20 UTC) | `runPreOpenScan()` |
 | **Live Monitor** | Every minute during RTH | `runLiveMonitorTick()` |
+| **BTOD 11am Transition** | 11:00 AM ET daily | `btod.transitionToOpenPhase()` |
 
 **Scheduler exports:** `initScheduler()`, `reconfigureJobs()`, `runAutoNow()`
 
@@ -333,7 +357,7 @@ Wouter-based routing with sidebar navigation:
 
 | Route | Page | Lines |
 |---|---|---|
-| `/` | Dashboard | 1,869 |
+| `/` | Dashboard | 2,016 |
 | `/settings` | Settings | 985 |
 | `/optimization` | Optimization | 1,002 |
 | `/performance` | Performance | 596 |
@@ -343,7 +367,7 @@ Wouter-based routing with sidebar navigation:
 | `/ibkr` | IBKR Dashboard | 401 |
 | `/guide` | Guide | 432 |
 
-### 5.2 Dashboard (`client/src/pages/dashboard.tsx` — 1,869 lines)
+### 5.2 Dashboard (`client/src/pages/dashboard.tsx` — 2,016 lines)
 The primary interface. Features:
 - Signal table with filtering (setup type, tier, status, direction)
 - Auto-refresh system: 60-second interval + on-focus + on-load
@@ -352,6 +376,7 @@ The primary interface. Features:
 - Inline signal activation/deactivation controls
 - Signal detail expansion with trade plan and quality breakdown
 - Quick actions: scan, rescore, activate checks
+- **BTOD Status Panel:** Shows current phase (SELECTIVE/OPEN), top-3 priority signals with ticker/QS/setup, gate status, trades executed count, countdown to 11am phase transition, and enable/disable toggle
 
 ### 5.3 Performance (`client/src/pages/performance.tsx` — 666 lines)
 P&L analytics with exclusive time windows:
@@ -421,7 +446,7 @@ Backtest results and analysis interface.
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 4,028 lines)
+## 6. API Routes Summary (`server/routes.ts` — 4,384 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -515,6 +540,11 @@ Backtest results and analysis interface.
 - `POST /api/discord/test-options` — Test options webhook
 - `POST /api/discord/test-letf` — Test LETF webhook
 
+### BTOD (Best Trade of the Day)
+- `GET /api/btod/status` — Current BTOD state with enriched signal data
+- `POST /api/btod/initialize` — Initialize BTOD ranking for today
+- `POST /api/btod/toggle` — Enable/disable BTOD system
+
 ### Performance
 - `GET /api/performance/analysis` — P&L analytics with time window params
 - `GET /api/performance/roi-insights` — ROI Insights with instrument comparison, cached per-setup results
@@ -571,14 +601,17 @@ Polygon.io API
     │                     │                 │
     │                     └────────┬────────┘
     │                              │
-    │                     IBKR Order Engine
-    │                     (bracket orders)
+    │                     BTOD Gate Check
+    │                     (top-3 priority / fresh-only)
     │                              │
-    │                     ┌────────┴────────┐
-    │                     │                 │
-    │              GOAT Alerts       GOAT Swings
-    │              (Options)         (LETF)
-    │              Discord           Discord
+    │                     IBKR Order Engine
+    │                     (bracket orders × 4 instruments)
+    │                              │
+    │                     ┌────────┼────────┐
+    │                     │        │        │
+    │              GOAT Alerts  GOAT Swings  GOAT Shares
+    │              (Options)    (LETF)       (Shares)
+    │              Discord      Discord      Discord
     │
     └──[Live Quotes]──→ Position Monitors
                         (P&L, stop management)
@@ -645,15 +678,15 @@ Polygon.io API
 
 | Metric | Value |
 |---|---|
-| Total source files | 72 |
-| Total lines of code | ~22,400 |
-| Backend lib modules | 20 |
+| Total source files | 76 |
+| Total lines of code | ~25,300 |
+| Backend lib modules | 21 |
 | Frontend pages | 9 (including not-found) |
 | UI components | 37 (Shadcn) |
-| Database tables | 16 |
-| API endpoints | ~57 |
+| Database tables | 20 |
+| API endpoints | ~60 |
 | Setup types | 6 (A–F) |
 | Quality score components | 6 |
 | Robustness tests | 8 |
-| Largest file | `routes.ts` (4,028 lines) |
-| Second largest | `dashboard.tsx` (1,870 lines) |
+| Largest file | `routes.ts` (4,384 lines) |
+| Second largest | `dashboard.tsx` (2,016 lines) |

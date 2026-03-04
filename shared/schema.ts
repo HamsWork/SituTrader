@@ -653,3 +653,21 @@ export const pwCacheMeta = pgTable("pw_cache_meta", {
 });
 
 export type PwCacheMeta = typeof pwCacheMeta.$inferSelect;
+
+export const btodState = pgTable("btod_state", {
+  id: serial("id").primaryKey(),
+  tradeDate: text("trade_date").notNull().unique(),
+  phase: text("phase").notNull().default("SELECTIVE"),
+  rankedQueue: jsonb("ranked_queue").notNull().default([]),
+  top3Ids: jsonb("top3_ids").notNull().default([]),
+  selectedSignalId: integer("selected_signal_id"),
+  secondSignalId: integer("second_signal_id"),
+  gateOpen: boolean("gate_open").notNull().default(true),
+  tradesExecuted: integer("trades_executed").notNull().default(0),
+  phaseChangedAt: timestamp("phase_changed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type BtodState = typeof btodState.$inferSelect;
+export type InsertBtodState = typeof btodState.$inferInsert;

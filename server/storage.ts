@@ -5,7 +5,7 @@ import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
   ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs, embedTemplates,
-  roiTradeCache, roiCacheMeta, pwTradeCache, pwCacheMeta,
+  roiTradeCache, roiCacheMeta, pwTradeCache, pwCacheMeta, btodState,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
@@ -15,6 +15,7 @@ import {
   type EmbedTemplate, type InsertEmbedTemplate,
   type RoiTradeCache, type InsertRoiTradeCache, type RoiCacheMeta,
   type PwTradeCache, type InsertPwTradeCache, type PwCacheMeta,
+  type BtodState, type InsertBtodState,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -147,6 +148,9 @@ export interface IStorage {
   getPwCacheMeta(cacheKey: string): Promise<PwCacheMeta | null>;
   upsertPwCacheMeta(cacheKey: string, tradeCount: number, status: string): Promise<void>;
   clearPwCacheMeta(): Promise<void>;
+
+  getBtodState(tradeDate: string): Promise<BtodState | null>;
+  upsertBtodState(state: Partial<InsertBtodState> & { tradeDate: string }): Promise<BtodState>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1121,6 +1125,34 @@ export class DatabaseStorage implements IStorage {
 
   async clearPwCacheMeta(): Promise<void> {
     await db.delete(pwCacheMeta);
+  }
+
+  async getBtodState(tradeDate: string): Promise<BtodState | null> {
+    const [result] = await db.select().from(btodState).where(eq(btodState.tradeDate, tradeDate));
+    return result ?? null;
+  }
+
+  async upsertBtodState(state: Partial<InsertBtodState> & { tradeDate: string }): Promise<BtodState> {
+    const existing = await this.getBtodState(state.tradeDate);
+    if (existing) {
+      const [updated] = await db.update(btodState)
+        .set({ ...state, updatedAt: new Date() })
+        .where(eq(btodState.tradeDate, state.tradeDate))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(btodState).values({
+      tradeDate: state.tradeDate,
+      phase: state.phase ?? "SELECTIVE",
+      rankedQueue: state.rankedQueue ?? [],
+      top3Ids: state.top3Ids ?? [],
+      selectedSignalId: state.selectedSignalId ?? null,
+      secondSignalId: state.secondSignalId ?? null,
+      gateOpen: state.gateOpen ?? true,
+      tradesExecuted: state.tradesExecuted ?? 0,
+      phaseChangedAt: state.phaseChangedAt ?? null,
+    }).returning();
+    return created;
   }
 }
 

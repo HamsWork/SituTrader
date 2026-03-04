@@ -119,6 +119,17 @@ export async function initScheduler() {
       }
       log("Pre-Open scan starting (scheduled)...", "scheduler");
       const summary = await runPreOpenScan();
+
+      try {
+        const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
+        if (btodEnabled) {
+          const { initializeBtodForDay } = await import("../lib/btod");
+          await initializeBtodForDay();
+        }
+      } catch (btodErr: any) {
+        log(`BTOD init error: ${btodErr.message}`, "scheduler");
+      }
+
       await storage.updateSchedulerState({
         lastPreOpenRunTs: new Date().toISOString(),
         lastRunSummaryJson: {
@@ -138,6 +149,22 @@ export async function initScheduler() {
       const st = await storage.getSchedulerState();
       if (!st.authorModeEnabled) return;
       if (!isRTH()) return;
+
+      try {
+        const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
+        if (btodEnabled) {
+          const { isSelectivePhaseOver, transitionToOpenPhase, getBtodStatus } = await import("../lib/btod");
+          if (isSelectivePhaseOver()) {
+            const btodStatus = await getBtodStatus();
+            if (btodStatus && btodStatus.phase === "SELECTIVE" && !btodStatus.selectedSignalId) {
+              await transitionToOpenPhase();
+            }
+          }
+        }
+      } catch (btodErr: any) {
+        log(`BTOD phase check error: ${btodErr.message}`, "scheduler");
+      }
+
       log("Live monitor tick starting...", "scheduler");
       const summary = await runLiveMonitorTick();
       await storage.updateSchedulerState({

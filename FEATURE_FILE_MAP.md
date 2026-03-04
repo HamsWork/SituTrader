@@ -84,6 +84,29 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
+## 6b. Best Trade of the Day (BTOD)
+
+| File | Key Exports | Role |
+|---|---|---|
+| `server/lib/btod.ts` | `rankOnDeckSignals()`, `initializeBtodForDay()`, `shouldExecuteActivation()`, `onBtodTradeExecuted()`, `transitionToOpenPhase()`, `onTradeClose()`, `executeBtodMultiInstrument()` | BTOD selection engine: ranking, phase management, gate control, multi-instrument execution |
+| `server/lib/activation.ts` | `runActivationScan()` — BTOD gate check integration | Calls `btod.shouldExecuteActivation()` before IBKR execution when btodEnabled |
+| `server/jobs/scheduler.ts` | `initScheduler()` — BTOD 11am transition cron | Schedules SELECTIVE → OPEN phase transition at 11:00 AM ET |
+| `server/lib/ibkrOrders.ts` | `monitorActiveTrades()` — BTOD onTradeClose hook | Triggers gate reopen when all 4 instruments of BTOD trade close |
+| `shared/schema.ts` | `btod_state` table | BTOD state schema (13 columns) |
+| `server/storage.ts` | `getBtodState()`, `upsertBtodState()` | BTOD state persistence |
+| `server/routes.ts` | `GET /api/btod/status`, `POST /api/btod/initialize`, `POST /api/btod/toggle` | BTOD API endpoints |
+| `client/src/pages/dashboard.tsx` | `BtodStatusPanel` component | BTOD status panel with phase badge, top-3 queue, gate status, countdown timer |
+
+**Design:**
+- Pre-market: ranks On Deck signals (Setups A+C, QS≥62) by quality score desc, top 3 flagged as priority
+- SELECTIVE phase (9:30-11am): only top-3 priority signals execute when activated; first to fire wins
+- OPEN phase (11am+): first fresh activation taken (no stale trades from pre-11am pool)
+- Multi-instrument: one BTOD selection spawns up to 4 IBKR trades (SHARES + OPTIONS + LETF + LETF_OPTIONS)
+- Gate control: max 2 trades/day, gate reopens after all instruments of active trade close
+- `btodEnabled` app setting gates the entire system
+
+---
+
 ## 7. IBKR Integration (Trade Execution)
 
 | File | Key Exports | Role |
@@ -384,14 +407,15 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/rules.ts` | Setup Detection |
 | `server/lib/quality.ts` | Quality Scoring, Time-to-Hit |
 | `server/lib/expectancy.ts` | Expectancy, Optimization |
-| `server/lib/activation.ts` | Activation, Stop Management |
+| `server/lib/btod.ts` | BTOD (Best Trade of the Day) |
+| `server/lib/activation.ts` | Activation, Stop Management, BTOD |
 | `server/lib/alerts.ts` | Discord Alerts |
 | `server/lib/discord.ts` | Discord Alerts, Discord Trades, IBKR Integration |
 | `server/lib/embedTemplateDefaults.ts` | Discord Alerts (24 default embed templates) |
 | `server/lib/embedTemplateEngine.ts` | Discord Alerts (template rendering engine) |
 | `client/src/pages/discord-trades.tsx` | Discord Trades, Embed Template Editor |
 | `server/lib/ibkr.ts` | IBKR Integration |
-| `server/lib/ibkrOrders.ts` | IBKR Integration, Stop Management |
+| `server/lib/ibkrOrders.ts` | IBKR Integration, Stop Management, BTOD |
 | `server/lib/polygon.ts` | Market Data, Universe, Options, Backtesting |
 | `server/lib/barCache/` | Bar Cache (persistent SQLite + in-memory) |
 | `server/lib/options.ts` | Options Enrichment |
@@ -405,10 +429,10 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/optionMonitor.ts` | Options Live Monitoring |
 | `server/lib/letfMonitor.ts` | LETF Live Monitoring |
 | `server/lib/reliability.ts` | Testing & Robustness (8 tests + reliability summary) |
-| `server/jobs/scheduler.ts` | Author Mode |
+| `server/jobs/scheduler.ts` | Author Mode, BTOD |
 | `server/jobs/jobFunctions.ts` | Author Mode, Setup Detection, Activation |
 | `server/jobs/backtestWorker.ts` | Backtesting (bulk worker) |
-| `client/src/pages/dashboard.tsx` | Dashboard, Signals, Profiles, Activation |
+| `client/src/pages/dashboard.tsx` | Dashboard, Signals, Profiles, Activation, BTOD |
 | `client/src/pages/performance.tsx` | Performance Analytics |
 | `client/src/pages/performance-half.tsx` | Performance ½ Study (Split TP) |
 | `client/src/pages/profit-windows.tsx` | Multi-Instrument Profit Windows |

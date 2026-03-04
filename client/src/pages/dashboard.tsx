@@ -54,6 +54,7 @@ import {
   CircleDot,
   Play,
   Pen,
+  Trophy,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Signal, TradePlan, SignalApi, SignalProfile, SetupExpectancy, OptionsData, OptionLive, InstrumentLive, LeveragedEtfSuggestion } from "@shared/schema";
@@ -975,6 +976,150 @@ function getDateRange(mode: string): { type: "exact" | "from"; date: string } | 
   return null;
 }
 
+function BtodStatusPanel() {
+  const btodQuery = useQuery<any>({
+    queryKey: ["/api/btod/status"],
+    refetchInterval: 30000,
+  });
+
+  const toggleBtod = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest("POST", "/api/btod/toggle", { enabled }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/btod/status"] });
+    },
+  });
+
+  const initBtod = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/btod/initialize"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/btod/status"] });
+    },
+  });
+
+  const data = btodQuery.data;
+  if (!data) return null;
+
+  const phaseColors: Record<string, string> = {
+    SELECTIVE: "bg-amber-500/15 text-amber-600 border-amber-500/30",
+    OPEN: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30",
+  };
+
+  const now = new Date();
+  const etHour = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+  const etMin = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }));
+  const minutesToEleven = Math.max(0, 11 * 60 - (etHour * 60 + etMin));
+
+  return (
+    <Card data-testid="card-btod-status">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+        <div className="flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-amber-500" />
+          <CardTitle className="text-sm font-medium">Best Trade of the Day</CardTitle>
+        </div>
+        <div className="flex items-center gap-2">
+          {!data.initialized && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-6"
+              onClick={() => initBtod.mutate()}
+              disabled={initBtod.isPending}
+              data-testid="button-btod-init"
+            >
+              Initialize
+            </Button>
+          )}
+          <Switch
+            checked={data.enabled !== false}
+            onCheckedChange={(v) => toggleBtod.mutate(v)}
+            data-testid="switch-btod-toggle"
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!data.initialized ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-btod-not-init">
+            Not initialized for today. Will auto-initialize during pre-open scan.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Badge className={`text-[10px] border ${phaseColors[data.phase] ?? "bg-muted text-foreground"}`} data-testid="badge-btod-phase">
+                {data.phase}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                Gate: <span className={data.gateOpen ? "text-emerald-600 font-medium" : "text-red-500 font-medium"} data-testid="text-btod-gate">
+                  {data.gateOpen ? "Open" : "Closed"}
+                </span>
+              </span>
+              <span className="text-xs text-muted-foreground" data-testid="text-btod-trades-count">
+                Trades: {data.tradesExecuted}/2
+              </span>
+              {data.phase === "SELECTIVE" && minutesToEleven > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  <Timer className="w-3 h-3 inline mr-0.5" />
+                  {Math.floor(minutesToEleven / 60)}h {minutesToEleven % 60}m to Open Phase
+                </span>
+              )}
+            </div>
+
+            {data.selectedSignalId && (
+              <div className="flex items-center gap-2 text-xs bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-1.5" data-testid="text-btod-selected">
+                <Crosshair className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                  Selected: Signal #{data.selectedSignalId}
+                  {data.rankedQueue?.find((r: any) => r.signalId === data.selectedSignalId)
+                    ? ` (${data.rankedQueue.find((r: any) => r.signalId === data.selectedSignalId)?.ticker} QS=${data.rankedQueue.find((r: any) => r.signalId === data.selectedSignalId)?.qualityScore})`
+                    : ""}
+                </span>
+              </div>
+            )}
+
+            {data.rankedQueue && data.rankedQueue.length > 0 && (
+              <div>
+                <p className="text-xs font-medium mb-1.5 text-muted-foreground">Priority Queue ({data.rankedQueue.length} signals)</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {data.rankedQueue.slice(0, 10).map((entry: any, idx: number) => (
+                    <div
+                      key={entry.signalId}
+                      className={`flex items-center justify-between text-xs px-2 py-1 rounded ${
+                        entry.isTop3
+                          ? "bg-amber-500/10 border border-amber-500/20"
+                          : data.selectedSignalId === entry.signalId
+                            ? "bg-emerald-500/10 border border-emerald-500/20"
+                            : "bg-muted/30"
+                      }`}
+                      data-testid={`row-btod-signal-${entry.signalId}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono w-5 text-muted-foreground">#{entry.rank}</span>
+                        {entry.isTop3 && <Trophy className="w-3 h-3 text-amber-500" />}
+                        <span className="font-medium">{entry.ticker}</span>
+                        <Badge variant="outline" className="text-[9px] px-1 py-0">{entry.setupType}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">QS {entry.qualityScore}</span>
+                        {entry.status === "ACTIVE" && (
+                          <Badge className="text-[9px] bg-emerald-500/20 text-emerald-700 border-emerald-500/30">ACTIVE</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {data.rankedQueue.length > 10 && (
+                    <p className="text-[10px] text-muted-foreground text-center py-1">
+                      +{data.rankedQueue.length - 10} more signals
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Dashboard() {
   const { toast } = useToast();
   const [timeRange, setTimeRange] = useState<string>("today");
@@ -1590,6 +1735,8 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      <BtodStatusPanel />
 
       {universeStatus && universeStatus.memberCount > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap" data-testid="text-universe-info">

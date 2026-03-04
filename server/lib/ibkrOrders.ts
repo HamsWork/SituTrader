@@ -582,6 +582,7 @@ export async function monitorActiveTrade(
 export async function monitorActiveTrades(): Promise<void> {
   const trades = await storage.getActiveIbkrTrades();
   const allSignals = await storage.getSignals(undefined, 1000);
+  const closedSignalIds = new Set<number>();
 
   for (const trade of trades) {
     try {
@@ -590,9 +591,30 @@ export async function monitorActiveTrades(): Promise<void> {
         : null;
       if (!signal) continue;
 
-      await monitorActiveTrade(trade, signal);
+      const result = await monitorActiveTrade(trade, signal);
+      if (result.event && trade.signalId && (result.updatedTrade?.status === "CLOSED" || result.updatedTrade?.status === "CANCELLED")) {
+        closedSignalIds.add(trade.signalId);
+      }
     } catch (err: any) {
       log(`Trade monitor error for trade ${trade.id}: ${err.message}`, "ibkr");
+    }
+  }
+
+  if (closedSignalIds.size > 0) {
+    try {
+      const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
+      if (btodEnabled) {
+        const { checkAllBtodTradesClosed, onTradeClose } = await import("./btod");
+        for (const signalId of closedSignalIds) {
+          const allClosed = await checkAllBtodTradesClosed(signalId);
+          if (allClosed) {
+            await onTradeClose();
+            log(`BTOD: All trades closed for signal ${signalId}, gate check triggered`, "ibkr");
+          }
+        }
+      }
+    } catch (btodErr: any) {
+      log(`BTOD onTradeClose check error: ${btodErr.message}`, "ibkr");
     }
   }
 }

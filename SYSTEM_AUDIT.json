@@ -1,14 +1,14 @@
 {
   "audit_metadata": {
-    "audit_date": "2026-03-03",
-    "codebase_lines": 24200,
-    "source_files": 75,
+    "audit_date": "2026-03-04",
+    "codebase_lines": 25300,
+    "source_files": 76,
     "architecture": "Full-stack TypeScript (React + Express + PostgreSQL)"
   },
   "database": {
     "orm": "drizzle-orm",
     "provider": "PostgreSQL (Neon-backed)",
-    "table_count": 17,
+    "table_count": 20,
     "tables": {
       "signals": {
         "columns": 40,
@@ -141,6 +141,12 @@
         "pk": "id (serial)",
         "purpose": "Cache invalidation metadata for profit windows (computing/ready/stale)",
         "key_columns": ["cacheKey", "status", "tradeCount", "computedAt"]
+      },
+      "btod_state": {
+        "columns": 13,
+        "pk": "id (serial)",
+        "purpose": "Best Trade of the Day state tracking per trading day. Manages ranked signal queue, top-3 priority, phase transitions, gate control, and multi-trade lifecycle.",
+        "key_columns": ["tradeDate", "phase", "rankedQueue", "top3Ids", "selectedSignalId", "secondSignalId", "gateOpen", "tradesExecuted", "phaseChangedAt"]
       }
     }
   },
@@ -148,9 +154,9 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 4322,
+    "routes_lines": 4384,
     "storage_file": "server/storage.ts",
-    "storage_lines": 1122,
+    "storage_lines": 1159,
     "api_endpoints": [
       { "method": "GET", "path": "/api/profiles", "purpose": "List all signal profiles" },
       { "method": "GET", "path": "/api/profiles/active", "purpose": "Get active profile" },
@@ -225,7 +231,10 @@
       { "method": "POST", "path": "/api/analysis/robustness/run-all", "purpose": "Execute all 8 robustness tests sequentially" },
       { "method": "POST", "path": "/api/settings/assumptions", "purpose": "Save fees/slippage cost assumptions" },
       { "method": "POST", "path": "/api/settings/forward-validation/start", "purpose": "Start forward validation tracking" },
-      { "method": "POST", "path": "/api/settings/forward-validation/stop", "purpose": "Stop forward validation tracking" }
+      { "method": "POST", "path": "/api/settings/forward-validation/stop", "purpose": "Stop forward validation tracking" },
+      { "method": "GET", "path": "/api/btod/status", "purpose": "Current BTOD state with enriched signal data" },
+      { "method": "POST", "path": "/api/btod/initialize", "purpose": "Initialize BTOD ranking for today" },
+      { "method": "POST", "path": "/api/btod/toggle", "purpose": "Enable/disable BTOD system" }
     ]
   },
   "service_layer": {
@@ -250,9 +259,15 @@
         "exports": ["computeRMultiples", "aggregateExpectancy", "computeAndStoreExpectancy", "recomputeAllExpectancy", "getSetupAlertCategory"]
       },
       {
+        "file": "btod.ts",
+        "lines": 414,
+        "purpose": "Best Trade of the Day selection engine: top-3 priority ranking, dual-phase lifecycle (SELECTIVE/OPEN), fresh-only fallback, multi-instrument execution (SHARES+OPTIONS+LETF+LETF_OPTIONS), gate control with reopen-after-close",
+        "exports": ["rankOnDeckSignals", "initializeBtodForDay", "shouldExecuteActivation", "onBtodTradeExecuted", "transitionToOpenPhase", "onTradeClose", "executeBtodMultiInstrument"]
+      },
+      {
         "file": "activation.ts",
-        "lines": 747,
-        "purpose": "Signal activation engine with stop management, per-signal IBKR trade monitoring, and automatic Discord alert dispatch on activation (QS>=80, profile filter, 1-per-day gate)",
+        "lines": 801,
+        "purpose": "Signal activation engine with stop management, per-signal IBKR trade monitoring, automatic Discord alert dispatch on activation (QS>=80, profile filter, 1-per-day gate), and BTOD gate integration",
         "exports": ["runActivationScan"]
       },
       {
@@ -275,7 +290,7 @@
       },
       {
         "file": "ibkrOrders.ts",
-        "lines": 791,
+        "lines": 742,
         "purpose": "IBKR bracket order execution, single-trade monitoring, BE/TIME_STOP stop management, and trade management",
         "exports": ["executeTradeForSignal", "applyBeStop", "applyTimeStop", "monitorActiveTrade", "monitorActiveTrades", "closeTradeManually", "getIbkrDashboardData"]
       },
@@ -369,8 +384,8 @@
     "directory": "server/jobs/",
     "files": {
       "scheduler.ts": {
-        "lines": 241,
-        "purpose": "Cron scheduling and Author Mode orchestration",
+        "lines": 268,
+        "purpose": "Cron scheduling, Author Mode orchestration, and BTOD 11am phase transition cron",
         "exports": ["initScheduler", "reconfigureJobs", "runAutoNow"]
       },
       "jobFunctions.ts": {
@@ -402,6 +417,12 @@
         "function": "runLiveMonitorTick",
         "schedule": "Every minute during RTH (09:30-16:00 ET)",
         "purpose": "Activation checks, stop management, position monitoring"
+      },
+      {
+        "name": "btod_phase_transition",
+        "function": "btod.transitionToOpenPhase",
+        "schedule": "11:00 AM ET daily",
+        "purpose": "Transition BTOD from SELECTIVE to OPEN phase if no top-3 signal activated"
       }
     ]
   },
@@ -417,8 +438,8 @@
       {
         "route": "/",
         "file": "client/src/pages/dashboard.tsx",
-        "lines": 1870,
-        "purpose": "Primary signal dashboard with auto-refresh"
+        "lines": 2016,
+        "purpose": "Primary signal dashboard with auto-refresh and BTOD status panel"
       },
       {
         "route": "/performance",
@@ -546,7 +567,8 @@
       "purpose": "Trade alerts via webhooks",
       "channels": {
         "GOAT Alerts": { "secret": "DISCORD_GOAT_ALERTS_WEBHOOK", "content": "Options trades" },
-        "GOAT Swings": { "secret": "DISCORD_GOAT_SWINGS_WEBHOOK", "content": "Leveraged ETF swing trades" }
+        "GOAT Swings": { "secret": "DISCORD_GOAT_SWINGS_WEBHOOK", "content": "Leveraged ETF swing trades" },
+        "GOAT Shares": { "secret": "DISCORD_GOAT_SHARES_WEBHOOK", "content": "Shares trades" }
       }
     }
   },
