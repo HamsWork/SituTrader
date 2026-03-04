@@ -192,11 +192,13 @@ This document maps every major feature to the specific files and key functions/e
 |---|---|---|
 | `client/src/pages/roi-insights.tsx` | ROI Insights page component | Backtest edge analysis, strategy simulation |
 | `server/routes.ts` | `GET /api/performance/roi-insights` | Setup rankings, top/avoid tickers, instrument P&L |
+| `server/lib/leveragedEtf.ts` | `getCandidates()` | LETF ticker mapping + leverage for instrument simulation |
+| `server/lib/polygon.ts` | `fetchDailyBarsCached()` | Real LETF daily bars + stock vol calculation |
 
 **Features mapped:**
 - Setup rankings with activated win rates and lift
 - Recommended strategy P&L (best setup + top tickers + activated trades)
-- Instrument comparison: Shares (1x baseline), LETF (3x leverage), Options (5x leverage) — all with proportional stop losses
+- Instrument comparison: Shares (real position sizing), LETF (real Polygon bars where mapped, 3x fallback), Options (BS ATM estimation with trailing 60-day realized vol)
 - Strategy equity curve and daily P&L charts
 - Quality score breakdown by bucket
 - Top tickers / avoid list tables

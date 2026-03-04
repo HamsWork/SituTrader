@@ -351,7 +351,7 @@ P&L analytics with exclusive time windows:
 
 ### 5.3b ROI Insights (`client/src/pages/roi-insights.tsx` — 703 lines)
 Dedicated backtest edge analysis page:
-- Instrument comparison: Shares (1x baseline) vs LETF (3x leverage) vs Options (~5x leverage) — all with proportional stop losses, side-by-side P&L simulation
+- Instrument comparison: Shares (real position sizing) vs LETF (real Polygon bars + ibkrOrders conversion, 3x fallback) vs Options (Black-Scholes ATM estimation with trailing 60-day realized vol from Polygon daily bars, delta=0.50) side-by-side P&L simulation
 - Overlay equity curve with all 3 instruments + individual instrument tabs with detailed KPIs/charts
 - Comparison table: trades, win rate, total P&L, avg P&L, best/worst trade per instrument
 - Setup rankings table with activated win rates and lift
@@ -407,7 +407,7 @@ Backtest results and analysis interface.
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 3,705 lines)
+## 6. API Routes Summary (`server/routes.ts` — 3,796 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -639,5 +639,5 @@ Polygon.io API
 | Setup types | 6 (A–F) |
 | Quality score components | 6 |
 | Robustness tests | 8 |
-| Largest file | `routes.ts` (3,705 lines) |
+| Largest file | `routes.ts` (3,796 lines) |
 | Second largest | `dashboard.tsx` (1,870 lines) |

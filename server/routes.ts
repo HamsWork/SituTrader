@@ -21,7 +21,7 @@ import { enrichPendingSignalsWithOptions } from "./lib/options";
 import { startBacktestWorker, pauseBacktestWorker, resumeBacktestWorker, isBacktestWorkerRunning, isBacktestWorkerPaused, autoStartBacktestWorker } from "./jobs/backtestWorker";
 import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSignals } from "./lib/optionMonitor";
 import { fetchOptionMark } from "./lib/polygon";
-import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping } from "./lib/leveragedEtf";
+import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping, getCandidates } from "./lib/leveragedEtf";
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
 import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
@@ -2486,8 +2486,8 @@ export async function registerRoutes(
       const topTickerSet = new Set(topTickers.map(t => t.ticker));
       const capitalPerTrade = 1000;
 
-      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; hit: boolean }[] = [];
-      
+      let minDate = "9999-12-31", maxDate = "0000-01-01";
+      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; bias: "BUY" | "SELL"; hit: boolean }[] = [];
 
       for (const bt of allBacktests) {
         if (bt.setupType !== bestSetup) continue;
@@ -2501,26 +2501,82 @@ export async function registerRoutes(
           const magnetPrice = d.magnetPrice;
           allTradeRecords.push({
             date: d.date, ticker: bt.ticker, ePrice, magnetPrice,
+            bias: magnetPrice >= ePrice ? "BUY" : "SELL",
             hit: !!d.hit,
           });
-          
+          if (d.date < minDate) minDate = d.date;
+          if (d.date > maxDate) maxDate = d.date;
         }
+      }
+
+      const tickerLetfInfo = new Map<string, { bull: { ticker: string; leverage: number; direction: string } | null; bear: { ticker: string; leverage: number; direction: string } | null }>();
+      const uniqueLetfTickers = new Set<string>();
+      for (const tick of topTickerSet) {
+        const bullCands = getCandidates(tick, "BUY");
+        const bearCands = getCandidates(tick, "SELL");
+        const bestBull = bullCands.sort((a, b) => b.leverage - a.leverage)[0] || null;
+        const bestBear = bearCands.sort((a, b) => b.leverage - a.leverage)[0] || null;
+        tickerLetfInfo.set(tick, {
+          bull: bestBull ? { ticker: bestBull.ticker, leverage: bestBull.leverage, direction: bestBull.direction } : null,
+          bear: bestBear ? { ticker: bestBear.ticker, leverage: bestBear.leverage, direction: bestBear.direction } : null,
+        });
+        if (bestBull) uniqueLetfTickers.add(bestBull.ticker);
+        if (bestBear) uniqueLetfTickers.add(bestBear.ticker);
+      }
+
+      const letfBarMap = new Map<string, Map<string, number>>();
+      if (allTradeRecords.length > 0 && uniqueLetfTickers.size > 0) {
+        await Promise.all(Array.from(uniqueLetfTickers).map(async (letfTick) => {
+          try {
+            const bars = await fetchDailyBarsCached(letfTick, minDate, maxDate);
+            const dateMap = new Map<string, number>();
+            for (const bar of bars) {
+              const barDate = new Date(bar.t).toISOString().slice(0, 10);
+              dateMap.set(barDate, bar.c);
+            }
+            letfBarMap.set(letfTick, dateMap);
+          } catch {}
+        }));
+      }
+
+      const tickerBarsMap = new Map<string, { t: number; c: number }[]>();
+      if (allTradeRecords.length > 0) {
+        await Promise.all(Array.from(topTickerSet).map(async (tick) => {
+          try {
+            const bars = await fetchDailyBarsCached(tick, minDate, maxDate);
+            tickerBarsMap.set(tick, bars.map(b => ({ t: b.t, c: b.c })).sort((a, b) => a.t - b.t));
+          } catch {}
+        }));
+      }
+
+      function getTrailingVol(ticker: string, tradeDate: string): number {
+        const bars = tickerBarsMap.get(ticker);
+        if (!bars || bars.length < 20) return 0.30;
+        const tradeDateMs = new Date(tradeDate + "T00:00:00Z").getTime();
+        const trailingBars = bars.filter(b => b.t <= tradeDateMs);
+        const windowBars = trailingBars.slice(-61);
+        if (windowBars.length < 15) return 0.30;
+        const returns: number[] = [];
+        for (let i = 1; i < windowBars.length; i++) {
+          if (windowBars[i - 1].c > 0 && windowBars[i].c > 0) {
+            returns.push(Math.log(windowBars[i].c / windowBars[i - 1].c));
+          }
+        }
+        if (returns.length < 10) return 0.30;
+        const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+        const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
+        return Math.max(0.10, Math.min(1.50, Math.sqrt(variance) * Math.sqrt(252)));
       }
 
       const shareTrades: { date: string; ticker: string; pnl: number }[] = [];
       const letfTrades: { date: string; ticker: string; pnl: number }[] = [];
       const optionTrades: { date: string; ticker: string; pnl: number }[] = [];
 
-      const letfLeverage = 3;
-      const optionsLeverage = 5;
-
       for (const trade of allTradeRecords) {
-        const { date, ticker, ePrice, magnetPrice, hit } = trade;
+        const { date, ticker, ePrice, magnetPrice, bias, hit } = trade;
         const stopDist = ePrice * 0.01;
         const rewardDist = Math.abs(magnetPrice - ePrice);
-
-        const pctReward = rewardDist / ePrice;
-        const pctStop = stopDist / ePrice;
+        const stopPrice = bias === "BUY" ? ePrice - stopDist : ePrice + stopDist;
 
         const sharesQty = Math.floor(capitalPerTrade / ePrice);
         if (sharesQty <= 0) continue;
@@ -2528,13 +2584,49 @@ export async function registerRoutes(
         const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
         shareTrades.push({ date, ticker, pnl: hit ? shareWin : shareLoss });
 
-        const letfWinPnl = Math.round(pctReward * letfLeverage * capitalPerTrade * 100) / 100;
-        const letfLossPnl = Math.round(-pctStop * letfLeverage * capitalPerTrade * 100) / 100;
-        letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
+        const letfInfo = tickerLetfInfo.get(ticker);
+        const letfCand = bias === "BUY" ? letfInfo?.bull : letfInfo?.bear;
+        let letfHandled = false;
+        if (letfCand) {
+          const letfBars = letfBarMap.get(letfCand.ticker);
+          const letfClose = letfBars?.get(date);
+          if (letfClose && letfClose > 0) {
+            const rawLev = letfCand.leverage;
+            const effectiveLev = letfCand.direction === "BEAR" ? -rawLev : rawLev;
+            const letfShares = Math.floor(capitalPerTrade / letfClose);
+            if (letfShares > 0) {
+              const letfT1 = letfClose * (1 + effectiveLev * (magnetPrice - ePrice) / ePrice);
+              const letfStopLevel = letfClose * (1 + effectiveLev * (stopPrice - ePrice) / ePrice);
+              const letfWinPnl = Math.round((letfT1 - letfClose) * letfShares * 100) / 100;
+              const letfLossPnl = Math.round((letfStopLevel - letfClose) * letfShares * 100) / 100;
+              letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
+              letfHandled = true;
+            }
+          }
+        }
+        if (!letfHandled) {
+          const fallbackLev = 3;
+          const pctReward = rewardDist / ePrice;
+          const pctStop = stopDist / ePrice;
+          const letfWinPnl = Math.round(pctReward * fallbackLev * capitalPerTrade * 100) / 100;
+          const letfLossPnl = Math.round(-pctStop * fallbackLev * capitalPerTrade * 100) / 100;
+          letfTrades.push({ date, ticker, pnl: hit ? letfWinPnl : letfLossPnl });
+        }
 
-        const optWinPnl = Math.round(pctReward * optionsLeverage * capitalPerTrade * 100) / 100;
-        const optLossPnl = Math.round(-pctStop * optionsLeverage * capitalPerTrade * 100) / 100;
-        optionTrades.push({ date, ticker, pnl: hit ? optWinPnl : optLossPnl });
+        const vol = getTrailingVol(ticker, date);
+        const dte = 21;
+        const signedDelta = bias === "BUY" ? 0.50 : -0.50;
+        const premium = ePrice * vol * Math.sqrt(dte / 365) * 0.3989;
+        if (premium > 0.01) {
+          const contractCost = premium * 100;
+          const contracts = Math.floor(capitalPerTrade / contractCost);
+          if (contracts > 0) {
+            const stockExitPrice = hit ? magnetPrice : stopPrice;
+            const optionMove = (stockExitPrice - ePrice) * signedDelta;
+            const optPnl = Math.round(optionMove * contracts * 100 * 100) / 100;
+            optionTrades.push({ date, ticker, pnl: optPnl });
+          }
+        }
       }
 
       shareTrades.sort((a, b) => a.date.localeCompare(b.date));

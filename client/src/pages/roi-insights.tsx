@@ -128,9 +128,9 @@ const INSTRUMENT_COLORS: Record<string, string> = {
 };
 
 const INSTRUMENT_NOTES: Record<string, string> = {
-  SHARES: "Baseline — $1,000/trade, 1% stop loss, T1 at magnet price",
-  LEVERAGED_ETF: "3× leverage — amplifies underlying % moves by 3x on both wins and stops",
-  OPTIONS: "~5× leverage — amplifies underlying % moves by 5x on both wins and stops",
+  SHARES: "Baseline — $1,000 capital, real position sizing (floor($1K/entry)), 1% stop, T1 at magnet",
+  LEVERAGED_ETF: "Real LETF bars where mapping exists (UPRO/TQQQ/SOFA/etc), 3x % model fallback for unmapped tickers, ibkrOrders conversion",
+  OPTIONS: "ATM estimation — trailing 60-day realized vol from Polygon daily bars, Black-Scholes premium, delta=0.50",
 };
 
 export default function ROIInsightsPage() {
