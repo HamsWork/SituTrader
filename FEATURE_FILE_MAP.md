@@ -191,14 +191,20 @@ This document maps every major feature to the specific files and key functions/e
 | File | Key Exports | Role |
 |---|---|---|
 | `client/src/pages/roi-insights.tsx` | ROI Insights page component | Backtest edge analysis, strategy simulation |
-| `server/routes.ts` | `GET /api/performance/roi-insights` | Setup rankings, top/avoid tickers, instrument P&L |
+| `server/routes.ts` | `GET /api/performance/roi-insights` | Setup rankings, top/avoid tickers, instrument P&L (cached) |
+| `server/routes.ts` | `POST /api/roi-insights/rebuild` | Force rebuild of ROI trade cache |
+| `server/storage.ts` | `getRoiTradeCache()`, `upsertRoiTradeCacheBatch()`, `clearRoiTradeCache()`, `getRoiCacheMeta()`, `upsertRoiCacheMeta()` | ROI cache CRUD |
+| `shared/schema.ts` | `roiTradeCache`, `roiCacheMeta` | DB table definitions for ROI caching |
 | `server/lib/leveragedEtf.ts` | `getCandidates()` | LETF ticker mapping + leverage for instrument simulation |
 | `server/lib/polygon.ts` | `fetchDailyBarsCached()` | Real LETF daily bars + stock vol calculation |
 
 **Features mapped:**
 - Setup rankings with activated win rates and lift
 - Recommended strategy P&L (best setup + top tickers + activated trades)
-- Instrument comparison: Shares (real position sizing), LETF (real Polygon bars where mapped, 3x fallback), Options (BS ATM on underlying), LETF Options (BS ATM on real LETF price)
+- Instrument comparison: Shares (real position sizing), LETF (real Polygon bars where mapped, no fallback), Options (real Polygon premiums, ATM, ~21 DTE), LETF Options (real Polygon LETF option premiums)
+- ATR-based stop distances matching tradeplan.ts: `Math.max(0.25 * ATR(14), entry * 0.0015)`
+- ROI trade cache (roi_trade_cache table) — computed on first load, served from cache on subsequent loads
+- Cache rebuild button in UI, over-capital trade counts per instrument
 - Strategy equity curve and daily P&L charts
 - Quality score breakdown by bucket
 - Top tickers / avoid list tables

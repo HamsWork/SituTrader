@@ -552,6 +552,7 @@ export interface BacktestDetail {
   mfe?: number;
   magnetPrice: number;
   entryPrice?: number;
+  stopDistance?: number;
   activated?: boolean;
   activationPrice?: number;
   activationTs?: string;
@@ -582,3 +583,37 @@ export interface OptionsData {
   checks?: OptionsChecks;
   tradable: boolean;
 }
+
+export const roiTradeCache = pgTable("roi_trade_cache", {
+  id: serial("id").primaryKey(),
+  setupType: text("setup_type").notNull(),
+  ticker: text("ticker").notNull(),
+  tradeDate: text("trade_date").notNull(),
+  instrument: text("instrument").notNull(),
+  ePrice: real("e_price").notNull(),
+  magnetPrice: real("magnet_price").notNull(),
+  stopDist: real("stop_dist").notNull(),
+  bias: text("bias").notNull(),
+  hit: boolean("hit").notNull(),
+  pnl: real("pnl").notNull(),
+  contracts: integer("contracts").notNull().default(0),
+  instrumentTicker: text("instrument_ticker"),
+  entryPremium: real("entry_premium"),
+  overCapital: boolean("over_capital").notNull().default(false),
+  mfe: real("mfe"),
+  halfwayHit: boolean("halfway_hit").notNull().default(false),
+  computedAt: timestamp("computed_at").defaultNow(),
+});
+
+export type RoiTradeCache = typeof roiTradeCache.$inferSelect;
+export type InsertRoiTradeCache = typeof roiTradeCache.$inferInsert;
+
+export const roiCacheMeta = pgTable("roi_cache_meta", {
+  id: serial("id").primaryKey(),
+  setupType: text("setup_type").notNull().unique(),
+  computedAt: timestamp("computed_at").defaultNow(),
+  tradeCount: integer("trade_count").notNull().default(0),
+  status: text("status").notNull().default("stale"),
+});
+
+export type RoiCacheMeta = typeof roiCacheMeta.$inferSelect;

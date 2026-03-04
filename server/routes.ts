@@ -1047,7 +1047,7 @@ export async function registerRoutes(
           const entryPrice = d.entryPrice;
           const magnetPrice = d.magnetPrice;
           const reward = Math.abs(magnetPrice - entryPrice);
-          const riskR = entryPrice * 0.01;
+          const riskR = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : entryPrice * 0.01;
 
           const tickerAccum = getOrCreate(bt.setupType, bt.ticker);
           const overallAccum = getOrCreate(bt.setupType, null);
@@ -2165,7 +2165,7 @@ export async function registerRoutes(
           const magnetPrice = d.magnetPrice;
           const bias = magnetPrice >= entryPrice ? "BUY" : "SELL";
           const reward = Math.abs(magnetPrice - entryPrice);
-          const stopDist = entryPrice * 0.01;
+          const stopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : entryPrice * 0.01;
 
           const shares = Math.floor(capitalPerTrade / entryPrice);
           if (shares <= 0) continue;
@@ -2485,9 +2485,13 @@ export async function registerRoutes(
 
       const topTickerSet = new Set(topTickers.map(t => t.ticker));
       const capitalPerTrade = 1000;
+      const forceRebuild = req.query.rebuild === "true";
+
+      const cacheMeta = await storage.getRoiCacheMeta(bestSetup);
+      const cacheValid = !forceRebuild && cacheMeta && cacheMeta.status === "ready" && cacheMeta.tradeCount > 0;
 
       let minDate = "9999-12-31", maxDate = "0000-01-01";
-      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; bias: "BUY" | "SELL"; hit: boolean; mfe: number }[] = [];
+      const allTradeRecords: { date: string; ticker: string; ePrice: number; magnetPrice: number; stopDist: number; bias: "BUY" | "SELL"; hit: boolean; mfe: number }[] = [];
 
       for (const bt of allBacktests) {
         if (bt.setupType !== bestSetup) continue;
@@ -2499,8 +2503,9 @@ export async function registerRoutes(
           const ePrice = (d.activationPrice && d.activationPrice > 0) ? d.activationPrice : d.entryPrice;
           if (!ePrice || ePrice <= 0) continue;
           const magnetPrice = d.magnetPrice;
+          const stopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : ePrice * 0.01;
           allTradeRecords.push({
-            date: d.date, ticker: bt.ticker, ePrice, magnetPrice,
+            date: d.date, ticker: bt.ticker, ePrice, magnetPrice, stopDist,
             bias: magnetPrice >= ePrice ? "BUY" : "SELL",
             hit: !!d.hit,
             mfe: d.mfe || 0,
@@ -2509,6 +2514,78 @@ export async function registerRoutes(
           if (d.date > maxDate) maxDate = d.date;
         }
       }
+
+      function buildInstrumentPerf(label: string, trades: { date: string; ticker: string; pnl: number }[]) {
+        if (trades.length === 0) return null;
+        const wins = trades.filter(t => t.pnl > 0).length;
+        const losses = trades.filter(t => t.pnl <= 0).length;
+        const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+        let cumPnl = 0;
+        const equityCurve = trades.map((t, i) => {
+          cumPnl += t.pnl;
+          return { trade: i + 1, date: t.date, ticker: t.ticker, pnl: t.pnl, cumPnl: Math.round(cumPnl * 100) / 100 };
+        });
+        const maxPoints = 500;
+        let sampledCurve = equityCurve;
+        if (equityCurve.length > maxPoints) {
+          const step = Math.ceil(equityCurve.length / maxPoints);
+          sampledCurve = equityCurve.filter((_, i) => i % step === 0 || i === equityCurve.length - 1);
+        }
+        const dailyMap = new Map<string, number>();
+        for (const t of trades) {
+          dailyMap.set(t.date, (dailyMap.get(t.date) ?? 0) + t.pnl);
+        }
+        const dailyPnl = Array.from(dailyMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, pnl]) => ({ date: date.slice(5), pnl: Math.round(pnl * 100) / 100 }));
+        const best = trades.reduce((b, t) => t.pnl > b.pnl ? t : b);
+        const worst = trades.reduce((w, t) => t.pnl < w.pnl ? t : w);
+        return {
+          instrument: label,
+          totalTrades: trades.length,
+          wins,
+          losses,
+          winRate: Math.round(wins / trades.length * 1000) / 10,
+          totalPnl: Math.round(totalPnl * 100) / 100,
+          avgPnl: Math.round(totalPnl / trades.length * 100) / 100,
+          bestTrade: { ticker: best.ticker, pnl: Math.round(best.pnl * 100) / 100 },
+          worstTrade: { ticker: worst.ticker, pnl: Math.round(worst.pnl * 100) / 100 },
+          equityCurve: sampledCurve,
+          dailyPnl,
+        };
+      }
+
+      let shareTrades: { date: string; ticker: string; pnl: number }[] = [];
+      let letfTrades: { date: string; ticker: string; pnl: number }[] = [];
+      let optionTrades: { date: string; ticker: string; pnl: number }[] = [];
+      let letfOptionTrades: { date: string; ticker: string; pnl: number }[] = [];
+      let optOverCapital = 0, letfOptOverCapital = 0, optSkipped = 0, letfOptSkipped = 0;
+      let shareOverCapital = 0, letfOverCapital = 0;
+
+      if (cacheValid) {
+        log(`ROI Insights: serving from cache (${cacheMeta!.tradeCount} cached records for ${bestSetup})`, "roi");
+        const cached = await storage.getRoiTradeCache(bestSetup);
+        for (const c of cached) {
+          const t = { date: c.tradeDate, ticker: c.ticker, pnl: c.pnl };
+          if (c.instrument === "SHARES") {
+            shareTrades.push(t);
+            if (c.overCapital) shareOverCapital++;
+          } else if (c.instrument === "LEVERAGED_ETF") {
+            letfTrades.push(t);
+            if (c.overCapital) letfOverCapital++;
+          } else if (c.instrument === "OPTIONS") {
+            optionTrades.push(t);
+            if (c.overCapital) optOverCapital++;
+          } else if (c.instrument === "LETF_OPTIONS") {
+            letfOptionTrades.push(t);
+            if (c.overCapital) letfOptOverCapital++;
+          }
+        }
+        optSkipped = Math.max(0, allTradeRecords.length - optionTrades.length);
+        letfOptSkipped = Math.max(0, allTradeRecords.length - letfOptionTrades.length);
+      } else {
+        log(`ROI Insights: computing fresh (${allTradeRecords.length} trades for ${bestSetup})...`, "roi");
+        await storage.upsertRoiCacheMeta(bestSetup, 0, "computing");
 
       const tickerLetfInfo = new Map<string, { bull: { ticker: string; leverage: number; direction: string } | null; bear: { ticker: string; leverage: number; direction: string } | null }>();
       const uniqueLetfTickers = new Set<string>();
@@ -2649,26 +2726,28 @@ export async function registerRoutes(
         log(`ROI Insights: got bars for ${optBarMap.size}/${optList.length} option contracts`, "roi");
       }
 
-      const shareTrades: { date: string; ticker: string; pnl: number }[] = [];
-      const letfTrades: { date: string; ticker: string; pnl: number }[] = [];
-      const optionTrades: { date: string; ticker: string; pnl: number }[] = [];
-      const letfOptionTrades: { date: string; ticker: string; pnl: number }[] = [];
-      let optOverCapital = 0;
-      let letfOptOverCapital = 0;
-      let optSkipped = 0;
-      let letfOptSkipped = 0;
+      const cacheRecords: any[] = [];
 
       for (let i = 0; i < allTradeRecords.length; i++) {
-        const { date, ticker, ePrice, magnetPrice, bias, hit } = allTradeRecords[i];
-        const stopDist = ePrice * 0.01;
+        const { date, ticker, ePrice, magnetPrice, stopDist, bias, hit } = allTradeRecords[i];
         const rewardDist = Math.abs(magnetPrice - ePrice);
         const stopPrice = bias === "BUY" ? ePrice - stopDist : ePrice + stopDist;
 
         const sharesQty = Math.floor(capitalPerTrade / ePrice);
-        if (sharesQty <= 0) continue;
-        const shareWin = Math.round(rewardDist * sharesQty * 100) / 100;
-        const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
-        shareTrades.push({ date, ticker, pnl: hit ? shareWin : shareLoss });
+        const shareIsOverCapital = ePrice > capitalPerTrade;
+        if (shareIsOverCapital) shareOverCapital++;
+        if (sharesQty > 0) {
+          const shareWin = Math.round(rewardDist * sharesQty * 100) / 100;
+          const shareLoss = Math.round(-stopDist * sharesQty * 100) / 100;
+          const sharePnl = hit ? shareWin : shareLoss;
+          shareTrades.push({ date, ticker, pnl: sharePnl });
+          cacheRecords.push({
+            setupType: bestSetup, ticker, tradeDate: date, instrument: "SHARES",
+            ePrice, magnetPrice, stopDist, bias, hit, pnl: sharePnl,
+            contracts: sharesQty, instrumentTicker: ticker, entryPremium: null,
+            overCapital: shareIsOverCapital, mfe: allTradeRecords[i].mfe, halfwayHit: false,
+          });
+        }
 
         let letfEntryPrice = 0, letfT1Price = 0, letfStopPx = 0, letfTick = "";
         const letfInfo = tickerLetfInfo.get(ticker);
@@ -2682,7 +2761,16 @@ export async function registerRoutes(
             if (letfShares > 0) {
               letfT1Price = letfClose * (1 + effLev * (magnetPrice - ePrice) / ePrice);
               letfStopPx = letfClose * (1 + effLev * (stopPrice - ePrice) / ePrice);
-              letfTrades.push({ date, ticker, pnl: hit ? Math.round((letfT1Price - letfClose) * letfShares * 100) / 100 : Math.round((letfStopPx - letfClose) * letfShares * 100) / 100 });
+              const letfPnl = hit ? Math.round((letfT1Price - letfClose) * letfShares * 100) / 100 : Math.round((letfStopPx - letfClose) * letfShares * 100) / 100;
+              const letfIsOverCapital = letfClose > capitalPerTrade;
+              if (letfIsOverCapital) letfOverCapital++;
+              letfTrades.push({ date, ticker, pnl: letfPnl });
+              cacheRecords.push({
+                setupType: bestSetup, ticker, tradeDate: date, instrument: "LEVERAGED_ETF",
+                ePrice, magnetPrice, stopDist, bias, hit, pnl: letfPnl,
+                contracts: letfShares, instrumentTicker: letfCand.ticker, entryPremium: letfClose,
+                overCapital: letfIsOverCapital, mfe: allTradeRecords[i].mfe, halfwayHit: false,
+              });
               letfEntryPrice = letfClose;
               letfTick = letfCand.ticker;
             }
@@ -2697,7 +2785,8 @@ export async function registerRoutes(
             const premium = oBars?.get(date);
             if (premium && premium > 0) {
               const costPerContract = premium * 100;
-              if (costPerContract > capitalPerTrade) optOverCapital++;
+              const optIsOverCapital = costPerContract > capitalPerTrade;
+              if (optIsOverCapital) optOverCapital++;
               const contracts = Math.max(1, Math.floor(capitalPerTrade / costPerContract));
               const delta = 0.50;
               const optT1Premium = premium + Math.abs(magnetPrice - ePrice) * delta;
@@ -2712,15 +2801,20 @@ export async function registerRoutes(
                 optPnl = (optT1Premium - premium) * contracts * 100;
               } else if (halfwayHit) {
                 const halfContracts = Math.floor(contracts / 2);
-                const remainContracts = contracts - halfContracts;
                 const halfProfit = (optHalfwayPremium - premium) * halfContracts * 100;
-                const remainPnl = 0;
-                optPnl = halfProfit + remainPnl;
+                optPnl = halfProfit;
               } else {
                 optPnl = (optStopPremium - premium) * contracts * 100;
               }
 
-              optionTrades.push({ date, ticker, pnl: Math.round(optPnl * 100) / 100 });
+              const roundedOptPnl = Math.round(optPnl * 100) / 100;
+              optionTrades.push({ date, ticker, pnl: roundedOptPnl });
+              cacheRecords.push({
+                setupType: bestSetup, ticker, tradeDate: date, instrument: "OPTIONS",
+                ePrice, magnetPrice, stopDist, bias, hit, pnl: roundedOptPnl,
+                contracts, instrumentTicker: optTick, entryPremium: premium,
+                overCapital: optIsOverCapital, mfe: allTradeRecords[i].mfe, halfwayHit,
+              });
               optHandled = true;
               break;
             }
@@ -2737,7 +2831,8 @@ export async function registerRoutes(
               const lPremium = loBars?.get(date);
               if (lPremium && lPremium > 0) {
                 const lCost = lPremium * 100;
-                if (lCost > capitalPerTrade) letfOptOverCapital++;
+                const lOptIsOverCapital = lCost > capitalPerTrade;
+                if (lOptIsOverCapital) letfOptOverCapital++;
                 const lContracts = Math.max(1, Math.floor(capitalPerTrade / lCost));
                 const delta = 0.50;
                 const lOptT1Premium = lPremium + Math.abs(letfT1Price - letfEntryPrice) * delta;
@@ -2745,8 +2840,8 @@ export async function registerRoutes(
                 const lOptHalfwayPremium = lPremium + (lOptT1Premium - lPremium) / 2;
                 const lHalfwayUnderlyingDist = (lOptHalfwayPremium - lPremium) / delta;
                 const lMfeAbsolute = allTradeRecords[i].mfe * ePrice;
-                const effLev = letfEntryPrice > 0 ? Math.abs(letfT1Price - letfEntryPrice) / Math.abs(magnetPrice - ePrice) : 1;
-                const lHalfwayHit = (lMfeAbsolute * effLev) >= lHalfwayUnderlyingDist && lHalfwayUnderlyingDist > 0;
+                const effLev2 = letfEntryPrice > 0 ? Math.abs(letfT1Price - letfEntryPrice) / Math.abs(magnetPrice - ePrice) : 1;
+                const lHalfwayHit = (lMfeAbsolute * effLev2) >= lHalfwayUnderlyingDist && lHalfwayUnderlyingDist > 0;
 
                 let lOptPnl = 0;
                 if (hit) {
@@ -2759,7 +2854,14 @@ export async function registerRoutes(
                   lOptPnl = (lOptStopPremium - lPremium) * lContracts * 100;
                 }
 
-                letfOptionTrades.push({ date, ticker, pnl: Math.round(lOptPnl * 100) / 100 });
+                const roundedLOptPnl = Math.round(lOptPnl * 100) / 100;
+                letfOptionTrades.push({ date, ticker, pnl: roundedLOptPnl });
+                cacheRecords.push({
+                  setupType: bestSetup, ticker, tradeDate: date, instrument: "LETF_OPTIONS",
+                  ePrice, magnetPrice, stopDist, bias, hit, pnl: roundedLOptPnl,
+                  contracts: lContracts, instrumentTicker: lOptTick, entryPremium: lPremium,
+                  overCapital: lOptIsOverCapital, mfe: allTradeRecords[i].mfe, halfwayHit: lHalfwayHit,
+                });
                 lOptHandled = true;
                 break;
               }
@@ -2769,50 +2871,16 @@ export async function registerRoutes(
         }
       }
 
+        await storage.clearRoiTradeCache(bestSetup);
+        await storage.upsertRoiTradeCacheBatch(cacheRecords);
+        await storage.upsertRoiCacheMeta(bestSetup, cacheRecords.length, "ready");
+        log(`ROI Insights: cached ${cacheRecords.length} trade records for setup ${bestSetup}`, "roi");
+      }
+
       shareTrades.sort((a, b) => a.date.localeCompare(b.date));
       letfTrades.sort((a, b) => a.date.localeCompare(b.date));
       optionTrades.sort((a, b) => a.date.localeCompare(b.date));
       letfOptionTrades.sort((a, b) => a.date.localeCompare(b.date));
-
-      function buildInstrumentPerf(label: string, trades: { date: string; ticker: string; pnl: number }[]) {
-        if (trades.length === 0) return null;
-        const wins = trades.filter(t => t.pnl > 0).length;
-        const losses = trades.filter(t => t.pnl <= 0).length;
-        const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
-        let cumPnl = 0;
-        const equityCurve = trades.map((t, i) => {
-          cumPnl += t.pnl;
-          return { trade: i + 1, date: t.date, ticker: t.ticker, pnl: t.pnl, cumPnl: Math.round(cumPnl * 100) / 100 };
-        });
-        const maxPoints = 500;
-        let sampledCurve = equityCurve;
-        if (equityCurve.length > maxPoints) {
-          const step = Math.ceil(equityCurve.length / maxPoints);
-          sampledCurve = equityCurve.filter((_, i) => i % step === 0 || i === equityCurve.length - 1);
-        }
-        const dailyMap = new Map<string, number>();
-        for (const t of trades) {
-          dailyMap.set(t.date, (dailyMap.get(t.date) ?? 0) + t.pnl);
-        }
-        const dailyPnl = Array.from(dailyMap.entries())
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([date, pnl]) => ({ date: date.slice(5), pnl: Math.round(pnl * 100) / 100 }));
-        const best = trades.reduce((b, t) => t.pnl > b.pnl ? t : b);
-        const worst = trades.reduce((w, t) => t.pnl < w.pnl ? t : w);
-        return {
-          instrument: label,
-          totalTrades: trades.length,
-          wins,
-          losses,
-          winRate: Math.round(wins / trades.length * 1000) / 10,
-          totalPnl: Math.round(totalPnl * 100) / 100,
-          avgPnl: Math.round(totalPnl / trades.length * 100) / 100,
-          bestTrade: { ticker: best.ticker, pnl: Math.round(best.pnl * 100) / 100 },
-          worstTrade: { ticker: worst.ticker, pnl: Math.round(worst.pnl * 100) / 100 },
-          equityCurve: sampledCurve,
-          dailyPnl,
-        };
-      }
 
       const strategyPerformance = buildInstrumentPerf("SHARES", shareTrades);
 
@@ -2823,7 +2891,7 @@ export async function registerRoutes(
         buildInstrumentPerf("LETF_OPTIONS", letfOptionTrades),
       ].filter(Boolean);
 
-      log(`ROI Insights: Options ${optionTrades.length} trades (${optSkipped} skipped, ${optOverCapital} over $1K), LETF Options ${letfOptionTrades.length} trades (${letfOptSkipped} skipped, ${letfOptOverCapital} over $1K)`, "roi");
+      log(`ROI Insights: Shares ${shareTrades.length} (${shareOverCapital} >$1K), LETF ${letfTrades.length} (${letfOverCapital} >$1K), Options ${optionTrades.length} (${optSkipped} skipped, ${optOverCapital} >$1K), LETF Options ${letfOptionTrades.length} (${letfOptSkipped} skipped, ${letfOptOverCapital} >$1K)`, "roi");
 
       res.json({
         totalBacktestTrades: Object.values(bySetup).reduce((s, b) => s + b.count, 0),
@@ -2840,7 +2908,24 @@ export async function registerRoutes(
         optionsSkipped: optSkipped,
         letfOptionsOverCapital: letfOptOverCapital,
         letfOptionsSkipped: letfOptSkipped,
+        sharesOverCapital: shareOverCapital,
+        letfOverCapital,
+        cacheStatus: cacheValid ? "cached" : "fresh",
+        cachedAt: cacheMeta?.computedAt ?? null,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/roi-insights/rebuild", async (_req, res) => {
+    try {
+      const allSetups = ["A", "B", "C", "D", "E", "F"];
+      for (const s of allSetups) {
+        await storage.upsertRoiCacheMeta(s, 0, "stale");
+      }
+      await storage.clearRoiTradeCache();
+      res.json({ message: "ROI cache cleared. Next page load will recompute." });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -3093,7 +3178,7 @@ export async function registerRoutes(
           const entryPrice = d.entryPrice;
           const magnetPrice = d.magnetPrice;
           const bias = magnetPrice >= entryPrice ? "BUY" : "SELL";
-          const stopDist = entryPrice * 0.01;
+          const stopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : entryPrice * 0.01;
 
           const shares = Math.floor(capitalPerTrade / entryPrice);
           if (shares <= 0) continue;
@@ -3546,7 +3631,7 @@ export async function registerRoutes(
           const syntheticTP = {
             bias,
             t1: d.magnetPrice,
-            stopDistance: ePrice * 0.01,
+            stopDistance: (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : ePrice * 0.01,
             riskReward: 0,
             entryTrigger: "",
             invalidation: "",
@@ -3749,7 +3834,7 @@ export async function registerRoutes(
 
             const entryPrice = d.entryPrice;
             const magnetPrice = d.magnetPrice;
-            const stopDist = entryPrice * 0.01;
+            const stopDist = (d.stopDistance && d.stopDistance > 0) ? d.stopDistance : entryPrice * 0.01;
             const reward = Math.abs(magnetPrice - entryPrice);
             const rMultiple = d.hit ? reward / stopDist : -1;
 

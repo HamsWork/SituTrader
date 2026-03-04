@@ -5,6 +5,7 @@ import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
   ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs, embedTemplates,
+  roiTradeCache, roiCacheMeta,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
@@ -12,6 +13,7 @@ import {
   type RobustnessRun, type InsertRobustnessRun,
   type DiscordTradeLog, type InsertDiscordTradeLog,
   type EmbedTemplate, type InsertEmbedTemplate,
+  type RoiTradeCache, type InsertRoiTradeCache, type RoiCacheMeta,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -131,6 +133,12 @@ export interface IStorage {
   getEmbedTemplate(instrumentType: string, eventType: string): Promise<EmbedTemplate | null>;
   upsertEmbedTemplate(data: InsertEmbedTemplate): Promise<EmbedTemplate>;
   updateEmbedTemplate(id: number, updates: Partial<InsertEmbedTemplate>): Promise<EmbedTemplate | null>;
+
+  getRoiTradeCache(setupType: string): Promise<RoiTradeCache[]>;
+  upsertRoiTradeCacheBatch(records: InsertRoiTradeCache[]): Promise<void>;
+  clearRoiTradeCache(setupType?: string): Promise<void>;
+  getRoiCacheMeta(setupType: string): Promise<RoiCacheMeta | null>;
+  upsertRoiCacheMeta(setupType: string, tradeCount: number, status: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1028,6 +1036,43 @@ export class DatabaseStorage implements IStorage {
       .where(eq(embedTemplates.id, id))
       .returning();
     return result ?? null;
+  }
+
+  async getRoiTradeCache(setupType: string): Promise<RoiTradeCache[]> {
+    return db.select().from(roiTradeCache).where(eq(roiTradeCache.setupType, setupType));
+  }
+
+  async upsertRoiTradeCacheBatch(records: InsertRoiTradeCache[]): Promise<void> {
+    if (records.length === 0) return;
+    const batchSize = 500;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const chunk = records.slice(i, i + batchSize);
+      await db.insert(roiTradeCache).values(chunk).onConflictDoNothing();
+    }
+  }
+
+  async clearRoiTradeCache(setupType?: string): Promise<void> {
+    if (setupType) {
+      await db.delete(roiTradeCache).where(eq(roiTradeCache.setupType, setupType));
+    } else {
+      await db.delete(roiTradeCache);
+    }
+  }
+
+  async getRoiCacheMeta(setupType: string): Promise<RoiCacheMeta | null> {
+    const [result] = await db.select().from(roiCacheMeta).where(eq(roiCacheMeta.setupType, setupType));
+    return result ?? null;
+  }
+
+  async upsertRoiCacheMeta(setupType: string, tradeCount: number, status: string): Promise<void> {
+    const existing = await this.getRoiCacheMeta(setupType);
+    if (existing) {
+      await db.update(roiCacheMeta)
+        .set({ tradeCount, status, computedAt: new Date() })
+        .where(eq(roiCacheMeta.setupType, setupType));
+    } else {
+      await db.insert(roiCacheMeta).values({ setupType, tradeCount, status, computedAt: new Date() });
+    }
   }
 }
 

@@ -3,8 +3,9 @@ import { detectAllSetups, type SetupResult } from "./rules";
 import { validateMagnetTouch, computeMAEMFE, filterRTHBars } from "./validate";
 import { checkEntryTrigger } from "./activation";
 import { fetchIntradayBarsCached } from "./polygon";
+import { computeATR } from "./confidence";
 import { formatDate } from "./calendar";
-import type { BacktestDetail, Backtest, TimeToHitStat, TradePlan } from "@shared/schema";
+import type { BacktestDetail, Backtest, TimeToHitStat, TradePlan, DailyBar } from "@shared/schema";
 import { log } from "../index";
 
 export async function runBacktest(
@@ -106,6 +107,12 @@ export async function runBacktest(
       if (result.timeToHitMin !== undefined) timesToHit.push(result.timeToHitMin);
     }
 
+    const setupIdx = dailyBars.findIndex(b => formatDate(b.date) >= setup.asofDate);
+    const barsForAtr = setupIdx > 0 ? dailyBars.slice(0, setupIdx) : dailyBars.slice(0, Math.max(1, setupIdx + 1));
+    const atr = computeATR(barsForAtr as DailyBar[], 14);
+    const atrMultiplier = 0.25;
+    const stopDistance = Math.max(atrMultiplier * atr, entryPrice * 0.0015);
+
     let activated = false;
     let activationPrice: number | undefined;
     let activationTs: string | undefined;
@@ -113,7 +120,7 @@ export async function runBacktest(
       const syntheticTradePlan: TradePlan = {
         bias: setup.direction.includes("up") ? "BUY" : "SELL",
         t1: setup.magnetPrice,
-        stopDistance: entryPrice * 0.01,
+        stopDistance,
         riskReward: 0,
         entryTrigger: "",
         invalidation: "",
@@ -140,6 +147,7 @@ export async function runBacktest(
       mfe,
       magnetPrice: setup.magnetPrice,
       entryPrice,
+      stopDistance: Math.round(stopDistance * 100) / 100,
       activated,
       activationPrice,
       activationTs,

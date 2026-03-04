@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,7 +45,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Layers,
+  RefreshCw,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { SETUP_LABELS, type SetupType } from "@shared/schema";
 
 interface SetupRanking {
@@ -117,6 +119,10 @@ interface ROIInsightsData {
   optionsSkipped?: number;
   letfOptionsOverCapital?: number;
   letfOptionsSkipped?: number;
+  sharesOverCapital?: number;
+  letfOverCapital?: number;
+  cacheStatus?: string;
+  cachedAt?: string | null;
 }
 
 const INSTRUMENT_LABELS: Record<string, string> = {
@@ -134,15 +140,16 @@ const INSTRUMENT_COLORS: Record<string, string> = {
 };
 
 const INSTRUMENT_NOTES: Record<string, string> = {
-  SHARES: "Baseline — $1,000 capital, real position sizing (floor($1K/entry)), 1% stop, T1 at magnet",
-  LEVERAGED_ETF: "Real Polygon LETF daily bars — mapped tickers only (no fallback), ibkrOrders conversion",
-  OPTIONS: "Real Polygon option premiums — ATM strike, ~21 DTE, delta=0.50. Split exit: 50% off at halfway to T1 (stop→BE), 100% off at T1",
-  LETF_OPTIONS: "Real Polygon LETF option premiums — ATM on LETF, ~21 DTE, delta=0.50. Split exit: 50% off at halfway, stop→BE on remainder",
+  SHARES: "Baseline — $1,000 capital, real position sizing, ATR-based stop (0.25×ATR14, min 0.15%), T1 at magnet",
+  LEVERAGED_ETF: "Real Polygon LETF daily bars — mapped tickers only (no fallback), ATR-based stops",
+  OPTIONS: "Real Polygon option premiums — ATM strike, ~21 DTE, delta=0.50, ATR stops. Split exit: 50% at halfway (stop→BE), 100% at T1",
+  LETF_OPTIONS: "Real Polygon LETF option premiums — ATM on LETF, ~21 DTE, delta=0.50, ATR stops. Split exit: 50% at halfway, stop→BE",
 };
 
 export default function ROIInsightsPage() {
   const [setupFilter, setSetupFilter] = useState<string>("best");
   const [instrumentTab, setInstrumentTab] = useState<string>("comparison");
+  const qc = useQueryClient();
 
   const { data, isLoading } = useQuery<ROIInsightsData>({
     queryKey: ["/api/performance/roi-insights", setupFilter],
@@ -150,6 +157,17 @@ export default function ROIInsightsPage() {
       const res = await fetch(`/api/performance/roi-insights?setup=${setupFilter}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
+    },
+  });
+
+  const rebuildMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/roi-insights/rebuild", { method: "POST" });
+      if (!res.ok) throw new Error("Rebuild failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/performance/roi-insights"] });
     },
   });
 
@@ -179,7 +197,7 @@ export default function ROIInsightsPage() {
         </p>
       </div>
 
-      <div className="flex items-end gap-4">
+      <div className="flex items-end gap-4 flex-wrap">
         <div className="space-y-1">
           <label className="text-xs font-medium">Focus Setup</label>
           <Select value={setupFilter} onValueChange={setSetupFilter}>
@@ -196,6 +214,24 @@ export default function ROIInsightsPage() {
               <SelectItem value="F">F — Previous Day Level</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => rebuildMutation.mutate()}
+            disabled={rebuildMutation.isPending}
+            data-testid="button-rebuild-cache"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${rebuildMutation.isPending ? "animate-spin" : ""}`} />
+            {rebuildMutation.isPending ? "Rebuilding..." : "Rebuild Cache"}
+          </Button>
+          {data?.cacheStatus && (
+            <Badge variant={data.cacheStatus === "cached" ? "secondary" : "outline"} className="text-xs" data-testid="badge-cache-status">
+              {data.cacheStatus === "cached" ? "Cached" : "Fresh"}
+              {data.cachedAt && ` · ${new Date(data.cachedAt).toLocaleDateString()}`}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -490,18 +526,20 @@ export default function ROIInsightsPage() {
                         <div className="text-[10px] text-muted-foreground">
                           <span className="font-medium text-foreground">Model:</span> {INSTRUMENT_NOTES[inst.instrument]}
                         </div>
-                        {inst.instrument === "OPTIONS" && data && (data.optionsSkipped || data.optionsOverCapital) ? (
-                          <div className="text-[10px] text-muted-foreground">
-                            {data.optionsSkipped ? <span className="mr-3">{data.optionsSkipped} trades skipped (no Polygon option data)</span> : null}
-                            {data.optionsOverCapital ? <span>{data.optionsOverCapital} trades over $1K/contract</span> : null}
-                          </div>
-                        ) : null}
-                        {inst.instrument === "LETF_OPTIONS" && data && (data.letfOptionsSkipped || data.letfOptionsOverCapital) ? (
-                          <div className="text-[10px] text-muted-foreground">
-                            {data.letfOptionsSkipped ? <span className="mr-3">{data.letfOptionsSkipped} trades skipped (no Polygon option data)</span> : null}
-                            {data.letfOptionsOverCapital ? <span>{data.letfOptionsOverCapital} trades over $1K/contract</span> : null}
-                          </div>
-                        ) : null}
+                        {data && (() => {
+                          const overCap = inst.instrument === "SHARES" ? data.sharesOverCapital
+                            : inst.instrument === "LEVERAGED_ETF" ? data.letfOverCapital
+                            : inst.instrument === "OPTIONS" ? data.optionsOverCapital
+                            : inst.instrument === "LETF_OPTIONS" ? data.letfOptionsOverCapital : 0;
+                          const skipped = inst.instrument === "OPTIONS" ? data.optionsSkipped
+                            : inst.instrument === "LETF_OPTIONS" ? data.letfOptionsSkipped : 0;
+                          return (overCap || skipped) ? (
+                            <div className="text-[10px] text-muted-foreground" data-testid={`text-instrument-stats-${inst.instrument}`}>
+                              {skipped ? <span className="mr-3">{skipped} trades skipped (no Polygon data)</span> : null}
+                              {overCap ? <span>{overCap} trades over $1K capital</span> : null}
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     </TabsContent>
                   ))}

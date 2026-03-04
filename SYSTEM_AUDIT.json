@@ -117,6 +117,18 @@
         "pk": "id (serial)",
         "purpose": "Editable Discord embed templates (24 total: 4 instruments × 6 events) with {{variable}} placeholders",
         "key_columns": ["instrumentType", "eventType", "templateName", "embedJson", "isActive", "updatedAt"]
+      },
+      "roi_trade_cache": {
+        "columns": 17,
+        "pk": "id (serial)",
+        "purpose": "Cached per-trade ROI results for each instrument type (SHARES/LETF/OPTIONS/LETF_OPTIONS)",
+        "key_columns": ["setupType", "ticker", "tradeDate", "instrument", "pnl", "contracts", "overCapital", "halfwayHit"]
+      },
+      "roi_cache_meta": {
+        "columns": 5,
+        "pk": "id (serial)",
+        "purpose": "Cache invalidation metadata per setup type (computing/ready/stale)",
+        "key_columns": ["setupType", "status", "tradeCount", "computedAt"]
       }
     }
   },
@@ -124,9 +136,9 @@
     "framework": "Express 5",
     "entry_point": "server/index.ts",
     "routes_file": "server/routes.ts",
-    "routes_lines": 3824,
+    "routes_lines": 4028,
     "storage_file": "server/storage.ts",
-    "storage_lines": 1024,
+    "storage_lines": 1079,
     "api_endpoints": [
       { "method": "GET", "path": "/api/profiles", "purpose": "List all signal profiles" },
       { "method": "GET", "path": "/api/profiles/active", "purpose": "Get active profile" },
@@ -185,6 +197,8 @@
       { "method": "POST", "path": "/api/discord/test-options", "purpose": "Test options webhook" },
       { "method": "POST", "path": "/api/discord/test-letf", "purpose": "Test LETF webhook" },
       { "method": "GET", "path": "/api/performance/analysis", "purpose": "P&L analytics" },
+      { "method": "GET", "path": "/api/performance/roi-insights", "purpose": "ROI Insights with cached instrument comparison" },
+      { "method": "POST", "path": "/api/roi-insights/rebuild", "purpose": "Force rebuild ROI cache for all setups" },
       { "method": "GET", "path": "/api/performance-half/analysis", "purpose": "Split ½ study: 50% at halfway, 50% at T1 vs T1-only" },
       { "method": "POST", "path": "/api/backtest/jobs/start", "purpose": "Start backtest worker" },
       { "method": "POST", "path": "/api/backtest/jobs/pause", "purpose": "Pause backtest worker" },

@@ -1,7 +1,7 @@
 # SITU GOAT Trader — System Audit
 
-**Audit Date:** 2026-03-03  
-**Codebase Size:** ~24,200 lines of TypeScript/TSX across 75 source files  
+**Audit Date:** 2026-03-04  
+**Codebase Size:** ~24,800 lines of TypeScript/TSX across 75 source files  
 **Architecture:** Full-stack TypeScript (React + Express + PostgreSQL)
 
 ---
@@ -17,7 +17,7 @@
 │           Settings, Symbol Detail, Backtest, IBKR Dashboard, Guide │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      EXPRESS API SERVER                             │
-│  3,786-line routes.ts · 950-line storage.ts · Drizzle ORM          │
+│  4,028-line routes.ts · 1,079-line storage.ts · Drizzle ORM        │
 │  Session management · CORS · JSON body parsing                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER (server/lib/)                   │
@@ -115,7 +115,13 @@ Time-to-hit probability distributions per ticker/setup: cumulative probabilities
 ### 2.15 `backtest_jobs` (13 columns)
 Background backtest worker job state. Tracks job lifecycle (pending/running/paused/completed/failed/cancelled), progress (completedCombos/totalCombos), setup types being processed, completed pairs array for checkpoint-based resumption, current ticker/setup, and error tracking.
 
-### 2.16 `robustness_runs` (9 columns)
+### 2.16 `roi_trade_cache` (17 columns)
+Cached per-trade ROI results for each instrument type. Stores computed P&L, position sizing, and over-capital flags. Unique constraint on (setupType, ticker, tradeDate, instrument). Used by ROI Insights endpoint to avoid recomputing expensive instrument simulations.
+
+### 2.17 `roi_cache_meta` (5 columns)
+Cache invalidation metadata per setup type. Tracks computation status (computing/ready/stale), trade count, and last computed timestamp.
+
+### 2.18 `robustness_runs` (9 columns)
 Tracks all robustness test executions with parameters, status, and summary metrics.
 
 | Key Columns | Purpose |
@@ -274,7 +280,7 @@ Comprehensive robustness testing framework with 8 test implementations and a 10-
 **Exports:** `computeReliabilitySummary()`, `runFeesSlippageTest()`, `runOutOfSampleTest()`, `runWalkForwardTest()`, `runMonteCarloTest()`, `runStressTest()`, `runParameterSweep()`, `runStopSensitivityTest()`, `runRegimeAnalysis()`
 
 ### 3.13 Additional Modules
-- **`backtest.ts`** (221 lines): `runBacktest()`, `computeProbabilities()`, `computeAndStoreTimeToHitStats()`
+- **`backtest.ts`** (258 lines): `runBacktest()`, `computeProbabilities()`, `computeAndStoreTimeToHitStats()` — ATR-based stop distances stored per trade
 - **`calendar.ts`** (81 lines): `isTradingDay()`, `nextTradingDay()`, `prevTradingDay()`, `formatDate()`, `getDayOfWeek()`, `addDays()`, `getTradingDaysBack()`
 - **`confidence.ts`** (68 lines): `computeConfidence()`, `computeATR()`, `computeAvgVolume()`
 - **`tradeplan.ts`** (51 lines): `generateTradePlan()`
@@ -349,7 +355,7 @@ P&L analytics with exclusive time windows:
 - KPI cards: capital required, ROI, win rate, best/worst trades
 - Activated Only toggle: filters to trades that moved On Deck → Active during market hours
 
-### 5.3b ROI Insights (`client/src/pages/roi-insights.tsx` — 703 lines)
+### 5.3b ROI Insights (`client/src/pages/roi-insights.tsx` — 760 lines)
 Dedicated backtest edge analysis page:
 - Instrument comparison: Shares (real position sizing) vs LETF (real Polygon bars + ibkrOrders conversion, 3x fallback) vs Options (Black-Scholes ATM on underlying, trailing 60-day vol) vs LETF Options (Black-Scholes ATM on real LETF price, trailing 60-day LETF vol) side-by-side P&L simulation
 - Overlay equity curve with all 3 instruments + individual instrument tabs with detailed KPIs/charts
@@ -407,7 +413,7 @@ Backtest results and analysis interface.
 
 ---
 
-## 6. API Routes Summary (`server/routes.ts` — 3,824 lines)
+## 6. API Routes Summary (`server/routes.ts` — 4,028 lines)
 
 ### Signal Profiles
 - `GET /api/profiles` — List all profiles
@@ -503,6 +509,8 @@ Backtest results and analysis interface.
 
 ### Performance
 - `GET /api/performance/analysis` — P&L analytics with time window params
+- `GET /api/performance/roi-insights` — ROI Insights with instrument comparison, cached per-setup results
+- `POST /api/roi-insights/rebuild` — Force rebuild of ROI cache for all setups
 - `GET /api/performance-half/analysis` — Split ½ study: 50% at halfway, 50% at T1 vs T1-only comparison
 - `POST /api/backtests/backfill-activation` — Enriches existing backtest details with activation simulation data
 
@@ -639,5 +647,5 @@ Polygon.io API
 | Setup types | 6 (A–F) |
 | Quality score components | 6 |
 | Robustness tests | 8 |
-| Largest file | `routes.ts` (3,824 lines) |
+| Largest file | `routes.ts` (4,028 lines) |
 | Second largest | `dashboard.tsx` (1,870 lines) |
