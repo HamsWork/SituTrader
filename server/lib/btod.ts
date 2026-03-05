@@ -492,31 +492,51 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
     "btod",
   );
 
+  const stockEntry = signal.entryPriceAtActivation ?? 0;
+  const stockT1 = tp.t1 ?? null;
+  const stockT2 = tp.t2 ?? null;
+  const stockStop = signal.stopPrice ?? null;
+
   for (const inst of instrumentsToExecute) {
     try {
-      let tradeStopPrice = signal.stopPrice ?? null;
-      let tradeTarget1 = tp.t1 ?? null;
-      let tradeTarget2 = tp.t2 ?? null;
+      const { convertStockTargetsToInstrument } = await import("./ibkrOrders");
+      let instrumentEntry = 0;
+      let delta: number | null = null;
+      let leverage = 1;
 
-      if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
-        const letfJson = signal.leveragedEtfJson as any;
-        const letfLeverage = letfJson?.leverage ?? 1;
-        const stockEntry = signal.entryPriceAtActivation ?? 0;
-        const letfEntry = signal.instrumentEntryPrice ?? 0;
-        const optEntry = letfOptionContract.markPrice;
-        const defaultDelta = letfOptionContract.right === "P" ? -0.50 : 0.50;
-        const optDelta = letfOptionContract.delta ?? defaultDelta;
-
-        if (letfEntry > 0 && stockEntry > 0) {
-          const letfStop = letfEntry * (1 + letfLeverage * ((signal.stopPrice ?? stockEntry) - stockEntry) / stockEntry);
-          const letfT1 = tp.t1 != null ? letfEntry * (1 + letfLeverage * (tp.t1 - stockEntry) / stockEntry) : null;
-          const letfT2 = tp.t2 != null ? letfEntry * (1 + letfLeverage * (tp.t2 - stockEntry) / stockEntry) : null;
-
-          tradeStopPrice = Math.max(0.01, optEntry + (letfStop - letfEntry) * optDelta);
-          tradeTarget1 = letfT1 != null ? Math.max(0.01, optEntry + (letfT1 - letfEntry) * optDelta) : null;
-          tradeTarget2 = letfT2 != null ? Math.max(0.01, optEntry + (letfT2 - letfEntry) * optDelta) : null;
+      if (inst.type === "SHARES") {
+        instrumentEntry = stockEntry;
+      } else if (inst.type === "OPTION" && inst.ticker) {
+        instrumentEntry = signal.optionEntryMark ?? 0;
+        try {
+          const { fetchOptionSnapshot } = await import("./polygon");
+          const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
+          delta = optSnap?.delta ?? null;
+        } catch {
+          delta = isBuy ? 0.5 : -0.5;
         }
+      } else if (inst.type === "LEVERAGED_ETF") {
+        instrumentEntry = signal.instrumentEntryPrice ?? 0;
+        leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
+      } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
+        instrumentEntry = letfOptionContract.markPrice;
+        delta = letfOptionContract.delta ?? (letfOptionContract.right === "P" ? -0.5 : 0.5);
+        leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
       }
+
+      const converted = convertStockTargetsToInstrument(
+        stockEntry,
+        instrumentEntry,
+        stockT1,
+        stockT2,
+        stockStop,
+        delta,
+        leverage,
+        inst.type,
+      );
+      const tradeStopPrice = converted.stop;
+      const tradeTarget1 = converted.t1;
+      const tradeTarget2 = converted.t2;
 
       const trade = await storage.createIbkrTrade({
         signalId: signal.id,
@@ -560,8 +580,6 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
       }
 
       try {
-        const { executeTradeForSignal } = await import("./ibkrOrders");
-        void (executeTradeForSignal);
         const { isConnected, connectIBKR, placeMarketOrder, makeContract } = await import("./ibkrOrders") as any;
 
         let ibkrConnected = false;

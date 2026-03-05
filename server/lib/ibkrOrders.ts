@@ -20,7 +20,7 @@ import {
 import { log } from "../index";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
 
-function convertStockTargetsToInstrument(
+export function convertStockTargetsToInstrument(
   stockEntry: number,
   instrumentEntry: number,
   stockT1: number | null,
@@ -397,6 +397,10 @@ export async function applyBeStop(
   const updatedTrade = await storage.updateIbkrTrade(ibkrTrade.id, {
     stopPrice: beStopPrice,
     stopMovedToBe: true,
+    detailsJson: {
+      ...((ibkrTrade.detailsJson as any) ?? {}),
+      originalStopPrice: ibkrTrade.stopPrice,
+    },
   });
   log(
     `applyBeStop: stop moved to BE $${beStopPrice.toFixed(2)} for trade ${ibkrTrade.id} (signal ${signal.id}) — will trigger market close on hit`,
@@ -437,6 +441,7 @@ export async function applyTimeStop(
     detailsJson: {
       ...((ibkrTrade.detailsJson as any) ?? {}),
       oldStopPrice: oldIbkrStop,
+      originalStopPrice: ibkrTrade.stopPrice,
       underlyingNewStop: newUnderlyingStop,
       underlyingOldStop: signal.stopPrice,
       timeStopTightenFactor: tightenFactor,
@@ -499,17 +504,6 @@ export async function monitorActiveTrade(
   const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
   const isBuy = trade.side === "BUY";
 
-  const stockSnap = await fetchSnapshot(signal.ticker);
-  const underlyingPrice = stockSnap?.lastPrice ?? null;
-
-  if (underlyingPrice == null || underlyingPrice <= 0)
-    return { event: null, updatedTrade: null };
-
-  const stockEntry = signal.entryPriceAtActivation ?? 0;
-  const stopLevel = trade.stopPrice ?? 0;
-  const t1Level = tp.t1 ?? 0;
-  const t2Level = tp.t2 ?? 0;
-
   let instrumentPriceForFill: number | null = null;
   if (instrumentType === "OPTION" && optionTicker) {
     try {
@@ -546,13 +540,22 @@ export async function monitorActiveTrade(
     const letfSnap = await fetchSnapshot(instrumentTicker);
     instrumentPriceForFill = letfSnap?.lastPrice ?? null;
   } else {
-    instrumentPriceForFill = underlyingPrice;
+    const stockSnap = await fetchSnapshot(signal.ticker);
+    instrumentPriceForFill = stockSnap?.lastPrice ?? null;
   }
+
+  const instrumentPrice = instrumentPriceForFill ?? 0;
+  if (instrumentPrice <= 0) return { event: null, updatedTrade: null };
+
+  const t1Level = trade.target1Price ?? 0;
+  const t2Level = trade.target2Price ?? 0;
+  const stopLevel = trade.stopPrice ?? 0;
+  const stockEntry = signal.entryPriceAtActivation ?? 0;
 
   if (trade.tpHitLevel === 0 && t1Level > 0) {
     const tp1Hit = isBuy
-      ? underlyingPrice >= t1Level
-      : underlyingPrice <= t1Level;
+      ? instrumentPrice >= t1Level
+      : instrumentPrice <= t1Level;
     if (tp1Hit) {
       const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
       const newRemaining = trade.originalQuantity - tp1Qty;
@@ -597,11 +600,15 @@ export async function monitorActiveTrade(
         ...(raiseStopToBe && {
           stopPrice: entryPrice,
           stopMovedToBe: true,
+          detailsJson: {
+            ...((trade.detailsJson as any) ?? {}),
+            originalStopPrice: trade.stopPrice,
+          },
         }),
       });
 
       log(
-        `TP1 hit for trade ${trade.id}: underlying $${underlyingPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}, stop moved to BE $${beStopInstrument.toFixed(2)}`,
+        `TP1 hit for trade ${trade.id}: ${instrumentType} $${instrumentPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}${raiseStopToBe ? `, stop moved to BE $${entryPrice.toFixed(2)}` : " (stop already at BE)"}`,
         "ibkr",
       );
 
@@ -616,8 +623,8 @@ export async function monitorActiveTrade(
 
   if (trade.tpHitLevel === 1 && t2Level > 0) {
     const tp2Hit = isBuy
-      ? underlyingPrice >= t2Level
-      : underlyingPrice <= t2Level;
+      ? instrumentPrice >= t2Level
+      : instrumentPrice <= t2Level;
     if (tp2Hit) {
       const tp2Qty = trade.remainingQuantity;
 
@@ -653,11 +660,13 @@ export async function monitorActiveTrade(
       const totalPnlPct = trade.entryPrice
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
-        const instrStopDist = trade.entryPrice && stopLevel > 0
-        ? Math.abs(trade.entryPrice - stopLevel)
-        : (tp.stopDistance ?? 0);
+      const instrEntry = trade.entryPrice ?? 0;
+      const originalStopPrice = (trade.detailsJson as any)?.originalStopPrice ?? trade.stopPrice ?? 0;
+      const instrStopDist = instrEntry > 0 && originalStopPrice > 0
+        ? Math.abs(instrEntry - originalStopPrice)
+        : 0;
       const rMultiple =
-        trade.entryPrice && instrStopDist > 0
+        instrStopDist > 0
           ? totalPnl / (instrStopDist * trade.originalQuantity)
           : null;
 
@@ -675,7 +684,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `TP2 hit for trade ${trade.id}: underlying $${underlyingPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `TP2 hit for trade ${trade.id}: ${instrumentType} $${instrumentPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
@@ -687,8 +696,8 @@ export async function monitorActiveTrade(
 
   if (stopLevel > 0) {
     const stopHit = isBuy
-      ? underlyingPrice <= stopLevel
-      : underlyingPrice >= stopLevel;
+      ? instrumentPrice <= stopLevel
+      : instrumentPrice >= stopLevel;
     if (stopHit) {
       const stoppedQty = trade.remainingQuantity;
 
@@ -724,11 +733,13 @@ export async function monitorActiveTrade(
       const totalPnlPct = trade.entryPrice
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
-        const instrStopDist2 = trade.entryPrice && stopLevel > 0
-        ? Math.abs(trade.entryPrice - stopLevel)
-        : (tp.stopDistance ?? 0);
+      const instrEntry2 = trade.entryPrice ?? 0;
+      const originalStopPrice2 = (trade.detailsJson as any)?.originalStopPrice ?? trade.stopPrice ?? 0;
+      const instrStopDist2 = instrEntry2 > 0 && originalStopPrice2 > 0
+        ? Math.abs(instrEntry2 - originalStopPrice2)
+        : 0;
       const rMultiple =
-        trade.entryPrice && instrStopDist2 > 0
+        instrStopDist2 > 0
           ? totalPnl / (instrStopDist2 * trade.originalQuantity)
           : null;
 
@@ -743,7 +754,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `Stop hit for trade ${trade.id}: underlying $${underlyingPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `Stop hit for trade ${trade.id}: ${instrumentType} $${instrumentPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
