@@ -105,6 +105,16 @@ export async function seedDefaultTemplates(): Promise<number> {
         isActive: true,
       });
       seeded++;
+    } else {
+      const defaultJson = JSON.stringify(t.embedJson);
+      const existingJson = JSON.stringify(existing.embedJson);
+      if (defaultJson !== existingJson) {
+        await storage.updateEmbedTemplate(existing.id, {
+          embedJson: t.embedJson as any,
+          templateName: t.templateName,
+        });
+        log(`Updated embed template: ${t.templateName}`, "discord");
+      }
     }
   }
 
