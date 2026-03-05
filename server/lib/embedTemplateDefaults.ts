@@ -100,7 +100,7 @@ function filledLetfOptions(): TemplateEmbed {
 
 function tp1Options(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} Take Profit HIT**",
+    description: "**🎯 {{ticker}} Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -108,10 +108,10 @@ function tp1Options(): TemplateEmbed {
       { name: "✍️ Strike", value: "{{strike}} {{right}}", inline: true },
       { name: "💵 Option Price", value: "$ {{option_price}}", inline: true },
       { name: "✅ Entry", value: "{{entry_price}}", inline: true },
-      { name: "🎯 TP Hit", value: "{{tp1_fill_price}}", inline: true },
+      { name: "🎯 TP1 Hit", value: "{{tp1_fill_price}}", inline: true },
       { name: "💸 Profit", value: "{{profit_pct}}", inline: true },
       { ...SPACER },
-      { name: "🚨 Status: TP Reached 🚨", value: "\u200b", inline: false },
+      { name: "🚨 Status: TP1 Reached 🚨", value: "\u200b", inline: false },
       { name: "🔍 Position Management", value: "✅ Reduce position by 50% (lock in profit){{tp2_rider_text}}", inline: false },
       { ...SPACER },
       { name: "🛡️ Risk Management", value: "Raising stop loss to {{entry_price}} (break even) on remaining position to secure gains while allowing room to run.", inline: false },
@@ -122,15 +122,15 @@ function tp1Options(): TemplateEmbed {
 
 function tp1Shares(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} Take Profit HIT**",
+    description: "**🎯 {{ticker}} Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
       { name: "✅ Entry", value: "{{entry_price}}", inline: true },
-      { name: "🎯 TP Hit", value: "{{tp1_fill_price}}", inline: true },
+      { name: "🎯 TP1 Hit", value: "{{tp1_fill_price}}", inline: true },
       { name: "💸 Profit", value: "{{profit_pct}}", inline: true },
       { ...SPACER },
-      { name: "🚨 Status: TP Reached 🚨", value: "\u200b", inline: false },
+      { name: "🚨 Status: TP1 Reached 🚨", value: "\u200b", inline: false },
       { name: "🔍 Position Management", value: "✅ Reduce position by 50% (lock in profit){{tp2_rider_text}}", inline: false },
       { ...SPACER },
       { name: "🛡️ Risk Management", value: "Raising stop loss to {{entry_price}} (break even) on remaining position to secure gains while allowing room to run.", inline: false },
@@ -141,7 +141,7 @@ function tp1Shares(): TemplateEmbed {
 
 function tp1Letf(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} → {{letf_ticker}} Take Profit HIT**",
+    description: "**🎯 {{ticker}} → {{letf_ticker}} Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -149,10 +149,10 @@ function tp1Letf(): TemplateEmbed {
       { name: "💵 Leveraged ETF Entry", value: "$ {{entry_price}}", inline: true },
       { name: "📊 Stock Price", value: "$ {{stock_price}}", inline: true },
       { name: "✅ Entry", value: "{{entry_price}}", inline: true },
-      { name: "🎯 TP Hit", value: "{{tp1_fill_price}}", inline: true },
+      { name: "🎯 TP1 Hit", value: "{{tp1_fill_price}}", inline: true },
       { name: "💸 Profit", value: "{{profit_pct}}", inline: true },
       { ...SPACER },
-      { name: "🚨 Status: TP Reached 🚨", value: "\u200b", inline: false },
+      { name: "🚨 Status: TP1 Reached 🚨", value: "\u200b", inline: false },
       { name: "🔍 Position Management", value: "✅ Reduce position by 50% (lock in profit){{tp2_rider_text}}", inline: false },
       { ...SPACER },
       { name: "🛡️ Risk Management", value: "Raising stop loss to {{entry_price}} (break even) on remaining position to secure gains while allowing room to run.", inline: false },
@@ -163,7 +163,7 @@ function tp1Letf(): TemplateEmbed {
 
 function tp1LetfOptions(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} → {{letf_ticker}} Options TP HIT**",
+    description: "**🎯 {{ticker}} → {{letf_ticker}} Options Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -171,10 +171,10 @@ function tp1LetfOptions(): TemplateEmbed {
       { name: "❌ Expiration", value: "{{expiry}}", inline: true },
       { name: "✍️ Strike", value: "{{strike}} {{right}}", inline: true },
       { name: "✅ Entry", value: "{{entry_price}}", inline: true },
-      { name: "🎯 TP Hit", value: "{{tp1_fill_price}}", inline: true },
+      { name: "🎯 TP1 Hit", value: "{{tp1_fill_price}}", inline: true },
       { name: "💸 Profit", value: "{{profit_pct}}", inline: true },
       { ...SPACER },
-      { name: "🚨 Status: TP Reached 🚨", value: "\u200b", inline: false },
+      { name: "🚨 Status: TP1 Reached 🚨", value: "\u200b", inline: false },
       { name: "🔍 Position Management", value: "✅ Reduce position by 50% (lock in profit){{tp2_rider_text}}", inline: false },
       { ...SPACER },
       { name: "🛡️ Risk Management", value: "Raising stop loss to {{entry_price}} (break even) on remaining position to secure gains while allowing room to run.", inline: false },

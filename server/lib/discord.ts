@@ -772,7 +772,7 @@ export async function postTradeUpdate(
 
     case "TP1_HIT": {
       color = GREEN;
-      heading = `**\u{1F3AF} ${signal.ticker}${letfLabel} Take Profit HIT**`;
+      heading = `**\u{1F3AF} ${signal.ticker}${letfLabel} Take Profit 1 HIT**`;
       const instrEntry1 = trade.entryPrice ?? 0;
       const instrTp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct1 = instrEntry1 > 0 ? fmtPct(instrEntry1, instrTp1Fill) : "?";
@@ -782,10 +782,10 @@ export async function postTradeUpdate(
 
       fields.push(
         { name: "\u2705 Entry", value: `${fmtPrice(instrEntry1)}`, inline: true },
-        { name: "\u{1F3AF} TP Hit", value: `${fmtPrice(instrTp1Fill)}`, inline: true },
+        { name: "\u{1F3AF} TP1 Hit", value: `${fmtPrice(instrTp1Fill)}`, inline: true },
         { name: "\u{1F4B8} Profit", value: `${profitPct1}`, inline: true },
         { ...SPACER },
-        { name: "\u{1F6A8} Status: TP Reached \u{1F6A8}", value: "\u200b", inline: false },
+        { name: "\u{1F6A8} Status: TP1 Reached \u{1F6A8}", value: "\u200b", inline: false },
         {
           name: "\u{1F50D} Position Management",
           value: `\u2705 Reduce position by 50% (lock in profit)${trade.target2Price ? `\n\u{1F3AF} Let remaining 50% ride to TP2 (${fmtPrice(trade.target2Price)})` : ""}`,
