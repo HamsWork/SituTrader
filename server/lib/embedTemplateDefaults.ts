@@ -22,7 +22,7 @@ const FOOTER = "Disclaimer: Not financial advice. Trade at your own risk.";
 
 function filledOptions(): TemplateEmbed {
   return {
-    description: "**🚨 {{ticker}} Options Alert - Situ Trade**",
+    description: "**🚨 {{ticker}} Options Entry - Swing Trade**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker", value: "{{ticker}}", inline: true },
@@ -42,7 +42,7 @@ function filledOptions(): TemplateEmbed {
 
 function filledShares(): TemplateEmbed {
   return {
-    description: "**🚨 {{ticker}} Shares Alert - Situ Trade**",
+    description: "**🚨 {{ticker}} Shares Entry - Swing Trade**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker", value: "{{ticker}}", inline: true },
@@ -59,7 +59,7 @@ function filledShares(): TemplateEmbed {
 
 function filledLetf(): TemplateEmbed {
   return {
-    description: "**🚨 {{ticker}} → {{letf_ticker}} LETF Alert - Situ Trade**",
+    description: "**🚨 {{letf_ticker}} Shares Entry - Swing Trade**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker", value: "{{ticker}}", inline: true },
@@ -79,7 +79,7 @@ function filledLetf(): TemplateEmbed {
 
 function filledLetfOptions(): TemplateEmbed {
   return {
-    description: "**🚨 {{ticker}} → {{letf_ticker}} LETF Options Alert - Situ Trade**",
+    description: "**🚨 {{letf_ticker}} Options Entry - Swing Trade**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker", value: "{{ticker}}", inline: true },

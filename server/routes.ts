@@ -1583,11 +1583,12 @@ export async function registerRoutes(
 
   app.post("/api/embed-templates/preview", async (req, res) => {
     try {
-      const { embedJson, variables } = req.body;
+      const { embedJson, variables, instrumentType } = req.body;
       if (!embedJson) return res.status(400).json({ message: "embedJson required" });
       const { renderTemplate } = await import("./lib/embedTemplateEngine");
+      const previewTicker = (instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS") ? "NVDA" : "AAPL";
       const sampleVars: Record<string, string> = {
-        "{{ticker}}": "AAPL",
+        "{{ticker}}": previewTicker,
         "{{stock_price}}": "185.50",
         "{{entry_price}}": "$3.45",
         "{{stop_price}}": "$180.00",

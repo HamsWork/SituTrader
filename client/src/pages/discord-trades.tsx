@@ -342,11 +342,11 @@ function EmbedTemplatesTab() {
     },
   });
 
-  const fetchPreview = useCallback(async (json: string) => {
+  const fetchPreview = useCallback(async (json: string, instrumentType?: string) => {
     try {
       const parsed = JSON.parse(json);
       setPreviewLoading(true);
-      const res = await apiRequest("POST", "/api/embed-templates/preview", { embedJson: parsed });
+      const res = await apiRequest("POST", "/api/embed-templates/preview", { embedJson: parsed, instrumentType });
       const data = await res.json();
       setPreviewData(data);
     } catch {
@@ -361,7 +361,7 @@ function EmbedTemplatesTab() {
     const json = JSON.stringify(t.embedJson, null, 2);
     setEditJson(json);
     setEditName(t.templateName);
-    fetchPreview(json);
+    fetchPreview(json, t.instrumentType);
   };
 
   const handleSave = () => {
@@ -377,7 +377,8 @@ function EmbedTemplatesTab() {
   const handleJsonChange = (val: string) => {
     setEditJson(val);
     if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
-    previewDebounceRef.current = setTimeout(() => fetchPreview(val), 600);
+    const instrumentType = templates?.find((t) => t.id === selectedId)?.instrumentType;
+    previewDebounceRef.current = setTimeout(() => fetchPreview(val, instrumentType), 600);
   };
 
   const insertVariable = (varKey: string) => {
