@@ -786,6 +786,8 @@ export async function postTradeUpdate(
   const fields: DiscordField[] = [];
   const letfLabel = hasLetfInfo ? ` \u2192 ${letfTicker}` : "";
 
+  const titleSymbol = hasLetfInfo ? `${letfTicker}` : signal.ticker;
+
   switch (event) {
     case "FILLED": {
       color = GREEN;
@@ -879,7 +881,7 @@ export async function postTradeUpdate(
 
     case "TP1_HIT": {
       color = GREEN;
-      heading = `**\u{1F3AF} ${signal.ticker}${letfLabel} Take Profit 1 HIT**`;
+      heading = `**\u{1F3AF} ${titleSymbol} Take Profit 1 HIT**`;
       const instrEntry1 = trade.entryPrice ?? 0;
       const instrTp1Fill = trade.tp1FillPrice ?? 0;
       const profitPct1 =
@@ -930,7 +932,7 @@ export async function postTradeUpdate(
 
     case "RAISE_STOP": {
       color = GOLD;
-      heading = `**\u{1F6E1}\uFE0F ${signal.ticker}${letfLabel} Stop Loss Raised**`;
+      heading = `**\u{1F6E1}\uFE0F ${titleSymbol} Stop Loss Raised**`;
       const instrEntryRS = trade.entryPrice ?? 0;
       const instrNewStop = trade.stopPrice ?? instrEntryRS;
 
@@ -974,7 +976,7 @@ export async function postTradeUpdate(
 
     case "TIME_STOP": {
       color = GOLD;
-      heading = `**\u23F0 ${signal.ticker}${letfLabel} Time Stop Tightened**`;
+      heading = `**\u23F0 ${titleSymbol} Time Stop Tightened**`;
       const instrEntryTS = trade.entryPrice ?? 0;
       const instrNewStopTS = trade.stopPrice ?? 0;
       const detailsTS = trade.detailsJson as any;
@@ -1030,7 +1032,7 @@ export async function postTradeUpdate(
 
     case "STOPPED_OUT": {
       color = RED;
-      heading = `**\u{1F6D1} ${signal.ticker}${letfLabel} Stop Loss HIT**`;
+      heading = `**\u{1F6D1} ${titleSymbol} Stop Loss HIT**`;
       const instrEntrySO = trade.entryPrice ?? 0;
       const instrExitSO = trade.exitPrice ?? 0;
       const lossPct =
@@ -1083,7 +1085,7 @@ export async function postTradeUpdate(
 
     case "STOPPED_OUT_AFTER_TP": {
       color = GOLD;
-      heading = `**\u{1F504} ${signal.ticker}${letfLabel} Stopped at BE**`;
+      heading = `**\u{1F504} ${titleSymbol} Stopped at BE**`;
       const instrEntryBE = trade.entryPrice ?? 0;
       const instrTp1FillBE = trade.tp1FillPrice ?? 0;
       const tp1PctBE =
@@ -1144,7 +1146,7 @@ export async function postTradeUpdate(
       const instrT2Closed = trade.target2Price ?? 0;
       color = trade.pnl && trade.pnl > 0 ? GREEN : RED;
       const emoji = trade.pnl && trade.pnl > 0 ? "\u{1F4B0}" : "\u{1F4C9}";
-      heading = `**${emoji} ${signal.ticker}${letfLabel} Trade Closed**`;
+      heading = `**${emoji} ${titleSymbol} Trade Closed**`;
       const pnlPctClosed =
         instrEntryClosed > 0 && instrExitClosed > 0
           ? fmtPct(instrEntryClosed, instrExitClosed)
