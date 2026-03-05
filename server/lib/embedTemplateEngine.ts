@@ -91,7 +91,7 @@ export async function getTemplateForEvent(
 }
 
 export async function seedDefaultTemplates(): Promise<number> {
-  const { getDefaultTemplates } = await import("./embedTemplateDefaults");
+  const { getDefaultTemplates, EVENT_TYPES } = await import("./embedTemplateDefaults");
   const defaults = getDefaultTemplates();
   let seeded = 0;
   for (const t of defaults) {
@@ -107,6 +107,20 @@ export async function seedDefaultTemplates(): Promise<number> {
       seeded++;
     }
   }
+
+  const validEvents = new Set<string>(EVENT_TYPES as readonly string[]);
+  const allTemplates = await storage.getEmbedTemplates();
+  let removed = 0;
+  for (const tmpl of allTemplates) {
+    if (!validEvents.has(tmpl.eventType)) {
+      await storage.deleteEmbedTemplate(tmpl.id);
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    log(`Removed ${removed} obsolete embed templates`, "discord");
+  }
+
   if (seeded > 0) {
     log(`Seeded ${seeded} default embed templates`, "discord");
   }

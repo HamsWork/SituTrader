@@ -135,6 +135,7 @@ export interface IStorage {
   getEmbedTemplate(instrumentType: string, eventType: string): Promise<EmbedTemplate | null>;
   upsertEmbedTemplate(data: InsertEmbedTemplate): Promise<EmbedTemplate>;
   updateEmbedTemplate(id: number, updates: Partial<InsertEmbedTemplate>): Promise<EmbedTemplate | null>;
+  deleteEmbedTemplate(id: number): Promise<void>;
 
   getRoiTradeCache(setupType: string): Promise<RoiTradeCache[]>;
   upsertRoiTradeCacheBatch(records: InsertRoiTradeCache[]): Promise<void>;
@@ -1048,6 +1049,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(embedTemplates.id, id))
       .returning();
     return result ?? null;
+  }
+
+  async deleteEmbedTemplate(id: number): Promise<void> {
+    await db.delete(embedTemplates).where(eq(embedTemplates.id, id));
   }
 
   async getRoiTradeCache(setupType: string): Promise<RoiTradeCache[]> {
