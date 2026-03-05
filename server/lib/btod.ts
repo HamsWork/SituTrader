@@ -412,7 +412,26 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
   const isBuy = tp.bias === "BUY";
   const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
-  const optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
+  let optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
+  const optionsJson = signal.optionsJson as any;
+  const optionHadNoQuote = optionsJson?.checks?.reasonIfFail?.includes("NO_QUOTE") || (optionsJson?.checks?.bid === 0 && optionsJson?.checks?.ask === 0);
+
+  if (optionTicker && optionHadNoQuote) {
+    try {
+      const { fetchOptionSnapshot } = await import("./polygon");
+      const liveSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
+      if (liveSnap && liveSnap.bid != null && liveSnap.bid > 0 && liveSnap.ask != null && liveSnap.ask > 0) {
+        log(`BTOD: Live option quote found for ${optionTicker} — bid=${liveSnap.bid} ask=${liveSnap.ask}, including OPTION`, "btod");
+      } else {
+        log(`BTOD: Live option quote still unavailable for ${optionTicker}, skipping OPTION`, "btod");
+        optionTicker = null;
+      }
+    } catch (err: any) {
+      log(`BTOD: Failed to re-check option quote for ${optionTicker}: ${err.message}`, "btod");
+      optionTicker = null;
+    }
+  }
+
   const letfJson = signal.leveragedEtfJson as any;
   const letfTicker = signal.instrumentTicker || letfJson?.ticker;
 

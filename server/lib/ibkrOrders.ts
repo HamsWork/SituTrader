@@ -478,7 +478,12 @@ export async function monitorActiveTrade(
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) return { event: null, updatedTrade: null };
 
-  if (trade.status !== "FILLED") return { event: null, updatedTrade: null };
+  if (signal.activationStatus !== "ACTIVE")
+    return { event: null, updatedTrade: null };
+
+  const closedStatuses = ["CLOSED"] as const;
+  if (closedStatuses.includes(trade.status as (typeof closedStatuses)[number]))
+    return { event: null, updatedTrade: null };
 
   const instrumentType = trade.instrumentType || "OPTION";
   const optionTicker =
@@ -495,8 +500,19 @@ export async function monitorActiveTrade(
   const closeAction: "BUY" | "SELL" = trade.side === "BUY" ? "SELL" : "BUY";
   const isBuy = trade.side === "BUY";
 
-  let instrumentPrice: number | null = null;
+  const stockSnap = await fetchSnapshot(signal.ticker);
+  const underlyingPrice = stockSnap?.lastPrice ?? null;
 
+  if (underlyingPrice == null || underlyingPrice <= 0)
+    return { event: null, updatedTrade: null };
+
+  const stockEntry = signal.entryPriceAtActivation ?? 0;
+  const stopLevel = trade.stopMovedToBe ? stockEntry : (signal.stopPrice ?? 0);
+  const t1Level = tp.t1 ?? 0;
+  const t2Level = tp.t2 ?? 0;
+  const beStopInstrument = trade.entryPrice ?? 0;
+
+  let instrumentPriceForFill: number | null = null;
   if (instrumentType === "OPTION" && optionTicker) {
     try {
       const optSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
@@ -506,34 +522,44 @@ export async function monitorActiveTrade(
         optSnap.ask != null &&
         (optSnap.bid > 0 || optSnap.ask > 0)
       ) {
-        instrumentPrice = (optSnap.bid + optSnap.ask) / 2;
+        instrumentPriceForFill = (optSnap.bid + optSnap.ask) / 2;
+      }
+    } catch {}
+  } else if (
+    instrumentType === "LETF_OPTIONS" &&
+    instrumentTicker &&
+    trade.instrumentTicker
+  ) {
+    try {
+      const optSnap = await fetchOptionSnapshot(
+        instrumentTicker,
+        trade.instrumentTicker,
+      );
+      if (
+        optSnap &&
+        optSnap.bid != null &&
+        optSnap.ask != null &&
+        (optSnap.bid > 0 || optSnap.ask > 0)
+      ) {
+        instrumentPriceForFill = (optSnap.bid + optSnap.ask) / 2;
       }
     } catch {}
   } else if (instrumentType === "LEVERAGED_ETF" && instrumentTicker) {
     const letfSnap = await fetchSnapshot(instrumentTicker);
-    instrumentPrice = letfSnap?.lastPrice ?? null;
+    instrumentPriceForFill = letfSnap?.lastPrice ?? null;
   } else {
-    const stockSnap = await fetchSnapshot(signal.ticker);
-    instrumentPrice = stockSnap?.lastPrice ?? null;
+    instrumentPriceForFill = underlyingPrice;
   }
-
-  if (instrumentPrice == null || instrumentPrice <= 0)
-    return { event: null, updatedTrade: null };
-
-  const stopLevel = trade.stopPrice ?? 0;
-  const t1Level = trade.target1Price ?? 0;
-  const t2Level = trade.target2Price ?? 0;
-  const beStopInstrument = trade.entryPrice ?? 0;
 
   if (trade.tpHitLevel === 0 && t1Level > 0) {
     const tp1Hit = isBuy
-      ? instrumentPrice >= t1Level
-      : instrumentPrice <= t1Level;
+      ? underlyingPrice >= t1Level
+      : underlyingPrice <= t1Level;
     if (tp1Hit) {
       const tp1Qty = Math.max(1, Math.floor(trade.originalQuantity / 2));
       const newRemaining = trade.originalQuantity - tp1Qty;
 
-      let tp1FillPrice = instrumentPrice;
+      let tp1FillPrice = instrumentPriceForFill ?? 0;
       try {
         if (isConnected()) {
           const { orderId, promise } = await placeMarketOrder(
@@ -573,7 +599,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `TP1 hit for trade ${trade.id}: ${instrumentType} price $${instrumentPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}, stop moved to BE $${beStopInstrument.toFixed(2)}`,
+        `TP1 hit for trade ${trade.id}: underlying $${underlyingPrice.toFixed(2)} crossed T1 $${t1Level.toFixed(2)}, closed ${tp1Qty} @ $${tp1FillPrice.toFixed(2)}, P&L: $${tp1Pnl.toFixed(2)}, stop moved to BE $${beStopInstrument.toFixed(2)}`,
         "ibkr",
       );
 
@@ -585,12 +611,12 @@ export async function monitorActiveTrade(
 
   if (trade.tpHitLevel === 1 && t2Level > 0) {
     const tp2Hit = isBuy
-      ? instrumentPrice >= t2Level
-      : instrumentPrice <= t2Level;
+      ? underlyingPrice >= t2Level
+      : underlyingPrice <= t2Level;
     if (tp2Hit) {
       const tp2Qty = trade.remainingQuantity;
 
-      let tp2FillPrice = instrumentPrice;
+      let tp2FillPrice = instrumentPriceForFill ?? 0;
       try {
         if (isConnected()) {
           const { orderId, promise } = await placeMarketOrder(
@@ -623,9 +649,9 @@ export async function monitorActiveTrade(
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
       const instrStopDist =
-        trade.entryPrice && stopLevel > 0
-          ? Math.abs(trade.entryPrice - stopLevel)
-          : (tp.stopDistance ?? 0);
+        trade.entryPrice != null && trade.stopPrice != null
+          ? Math.abs(trade.entryPrice - trade.stopPrice)
+          : 0;
       const rMultiple =
         trade.entryPrice && instrStopDist > 0
           ? totalPnl / (instrStopDist * trade.originalQuantity)
@@ -645,7 +671,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `TP2 hit for trade ${trade.id}: ${instrumentType} price $${instrumentPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `TP2 hit for trade ${trade.id}: underlying $${underlyingPrice.toFixed(2)} crossed T2 $${t2Level.toFixed(2)}, all closed @ $${tp2FillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
@@ -657,12 +683,12 @@ export async function monitorActiveTrade(
 
   if (stopLevel > 0) {
     const stopHit = isBuy
-      ? instrumentPrice <= stopLevel
-      : instrumentPrice >= stopLevel;
+      ? underlyingPrice <= stopLevel
+      : underlyingPrice >= stopLevel;
     if (stopHit) {
       const stoppedQty = trade.remainingQuantity;
 
-      let exitFillPrice = instrumentPrice;
+      let exitFillPrice = instrumentPriceForFill ?? 0;
       try {
         if (isConnected()) {
           const { orderId, promise } = await placeMarketOrder(
@@ -695,9 +721,9 @@ export async function monitorActiveTrade(
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
       const instrStopDist2 =
-        trade.entryPrice && stopLevel > 0
-          ? Math.abs(trade.entryPrice - stopLevel)
-          : (tp.stopDistance ?? 0);
+        trade.entryPrice != null && trade.stopPrice != null
+          ? Math.abs(trade.entryPrice - trade.stopPrice)
+          : 0;
       const rMultiple =
         trade.entryPrice && instrStopDist2 > 0
           ? totalPnl / (instrStopDist2 * trade.originalQuantity)
@@ -714,7 +740,7 @@ export async function monitorActiveTrade(
       });
 
       log(
-        `Stop hit for trade ${trade.id}: ${instrumentType} price $${instrumentPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
+        `Stop hit for trade ${trade.id}: underlying $${underlyingPrice.toFixed(2)} crossed stop $${stopLevel.toFixed(2)}, closed ${stoppedQty} @ $${exitFillPrice.toFixed(2)}, total P&L: $${totalPnl.toFixed(2)}`,
         "ibkr",
       );
 
