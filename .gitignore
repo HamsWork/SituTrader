@@ -13,6 +13,7 @@ vite.config.ts.*
 
 .bar_cache.db-shm
 .bar_cache.db-wal
+.bar_cache.db
 
 test/
 
