@@ -352,7 +352,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
             if (beEarned) {
               try {
                 const ibkrTrade = allIbkrTrades.find(
-                  (t) => t.signalId === sig.id && t.status === "FILLED",
+                  (t) => t.signalId === sig.id,
                 );
                 if (ibkrTrade) {
                   const { applyBeStop } = await import("./ibkrOrders");
