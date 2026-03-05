@@ -258,7 +258,7 @@ export async function postOptionsAlert(
   ];
 
   const embed: DiscordEmbed = {
-    description: `**\u{1F6A8} ${signal.ticker} Trade Alert**`,
+    description: `**\u{1F6A8} ${signal.ticker} Options Alert - Situ Trade**`,
     color: GREEN,
     fields,
     footer: { text: DISCLAIMER },
@@ -339,7 +339,7 @@ export async function postLetfAlert(
   ];
 
   const embed: DiscordEmbed = {
-    description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} Swing Alert**`,
+    description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} LETF Alert - Situ Trade**`,
     color: GREEN,
     fields,
     footer: { text: DISCLAIMER },
@@ -408,7 +408,7 @@ export async function postSharesAlert(
   ];
 
   const embed: DiscordEmbed = {
-    description: `**\u{1F6A8} ${signal.ticker} Shares Alert**`,
+    description: `**\u{1F6A8} ${signal.ticker} Shares Alert - Situ Trade**`,
     color: GREEN,
     fields,
     footer: { text: DISCLAIMER },
@@ -523,7 +523,7 @@ export async function postLetfOptionsAlert(
   ];
 
   const embed: DiscordEmbed = {
-    description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} LETF Options Alert**`,
+    description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} LETF Options Alert - Situ Trade**`,
     color: PURPLE,
     fields,
     footer: { text: DISCLAIMER },
