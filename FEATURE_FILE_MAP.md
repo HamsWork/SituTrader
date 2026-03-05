@@ -88,7 +88,7 @@ This document maps every major feature to the specific files and key functions/e
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/btod.ts` | `rankOnDeckSignals()`, `initializeBtodForDay()`, `shouldExecuteActivation()`, `onBtodTradeExecuted()`, `transitionToOpenPhase()`, `onTradeClose()`, `executeBtodMultiInstrument()` | BTOD selection engine: ranking, phase management, gate control, multi-instrument execution |
+| `server/lib/btod.ts` | `rankOnDeckSignals()`, `initializeBtodForDay()`, `shouldExecuteActivation()`, `onBtodTradeExecuted()`, `transitionToOpenPhase()`, `onTradeClose()`, `executeBtodMultiInstrument()`, `findLetfOptionContract()` | BTOD selection engine: ranking, phase management, gate control, multi-instrument execution, LETF option contract lookup |
 | `server/lib/activation.ts` | `runActivationScan()` — BTOD gate check integration | Calls `btod.shouldExecuteActivation()` before IBKR execution when btodEnabled |
 | `server/jobs/scheduler.ts` | `initScheduler()` — BTOD 11am transition cron | Schedules SELECTIVE → OPEN phase transition at 11:00 AM ET |
 | `server/lib/ibkrOrders.ts` | `monitorActiveTrades()` — BTOD onTradeClose hook | Triggers gate reopen when all 4 instruments of BTOD trade close |
@@ -120,11 +120,11 @@ This document maps every major feature to the specific files and key functions/e
 
 ---
 
-## 8. Discord Alerts (Triple-Channel) & Discord Trades Page
+## 8. Discord Alerts (Quad-Channel) & Discord Trades Page
 
 | File | Key Exports | Role |
 |---|---|---|
-| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery; template-first rendering with hardcoded fallback |
+| `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postLetfOptionsAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery; template-first rendering with hardcoded fallback; quad-channel routing (alerts/swings/shares/letf_options) |
 | `server/lib/embedTemplateDefaults.ts` | `getDefaultTemplates()`, `AVAILABLE_VARIABLES`, `INSTRUMENT_TYPES`, `EVENT_TYPES` | 24 default embed templates (4 instruments × 6 events) with variable definitions |
 | `server/lib/embedTemplateEngine.ts` | `renderTemplate()`, `getTemplateForEvent()`, `seedDefaultTemplates()` | Template rendering engine — resolves `{{variables}}`, converts colors, seeds DB |
 | `server/lib/alerts.ts` | `runAlerts()` | Alert lifecycle detection and routing |

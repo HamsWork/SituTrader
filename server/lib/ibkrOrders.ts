@@ -10,7 +10,7 @@ import {
   getAccountSummary,
 } from "./ibkr";
 import { fetchSnapshot, fetchOptionSnapshot } from "./polygon";
-import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./discord";
+import { postOptionsAlert, postLetfAlert, postSharesAlert, postLetfOptionsAlert, postTradeUpdate } from "./discord";
 import { log } from "../index";
 import type { Signal, TradePlan, IbkrTrade } from "@shared/schema";
 
@@ -43,6 +43,18 @@ function convertStockTargetsToInstrument(
     const t1 = stockT1 != null ? instrumentEntry * (1 + leverage * (stockT1 - stockEntry) / stockEntry) : null;
     const t2 = stockT2 != null ? instrumentEntry * (1 + leverage * (stockT2 - stockEntry) / stockEntry) : null;
     const stop = stockStop != null ? instrumentEntry * (1 + leverage * (stockStop - stockEntry) / stockEntry) : null;
+    return {
+      t1: t1 != null ? Math.max(0.01, t1) : null,
+      t2: t2 != null ? Math.max(0.01, t2) : null,
+      stop: stop != null ? Math.max(0.01, stop) : null,
+    };
+  }
+
+  if (instrumentType === "LETF_OPTIONS" && delta != null && Math.abs(delta) > 0 && leverage > 0 && stockEntry > 0) {
+    const effectiveDelta = leverage * delta;
+    const t1 = stockT1 != null ? instrumentEntry + (stockT1 - stockEntry) * effectiveDelta : null;
+    const t2 = stockT2 != null ? instrumentEntry + (stockT2 - stockEntry) * effectiveDelta : null;
+    const stop = stockStop != null ? instrumentEntry + (stockStop - stockEntry) * effectiveDelta : null;
     return {
       t1: t1 != null ? Math.max(0.01, t1) : null,
       t2: t2 != null ? Math.max(0.01, t2) : null,
@@ -231,9 +243,12 @@ export async function executeTradeForSignal(
     let delta: number | null = null;
     let leverage = 1;
 
-    if (instrumentType === "OPTION" && optionTicker) {
+    if ((instrumentType === "OPTION" || instrumentType === "LETF_OPTIONS") && optionTicker) {
       try {
-        const optSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
+        const underlyingForSnap = instrumentType === "LETF_OPTIONS"
+          ? (signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker || signal.ticker)
+          : signal.ticker;
+        const optSnap = await fetchOptionSnapshot(underlyingForSnap, optionTicker);
         delta = optSnap?.delta ?? null;
         if (delta != null) {
           log(`Option delta for ${optionTicker}: ${delta.toFixed(3)}`, "ibkr");
@@ -243,7 +258,7 @@ export async function executeTradeForSignal(
       }
     }
 
-    if (instrumentType === "LEVERAGED_ETF") {
+    if (instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS") {
       const letfJson = signal.leveragedEtfJson as any;
       leverage = letfJson?.leverage ?? 1;
     }

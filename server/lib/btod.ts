@@ -260,6 +260,133 @@ export async function getBtodStatus(): Promise<BtodState | null> {
   return storage.getBtodState(todayET());
 }
 
+export interface LetfOptionContractResult {
+  contractTicker: string;
+  strike: number;
+  expiry: string;
+  right: "C" | "P";
+  delta: number | null;
+  markPrice: number;
+}
+
+export async function findLetfOptionContract(
+  letfTicker: string,
+  bias: "BUY" | "SELL",
+  currentLetfPrice: number,
+): Promise<LetfOptionContractResult | null> {
+  try {
+    const { fetchOptionsChain, fetchOptionSnapshot } = await import("./polygon");
+
+    const contractType: "call" | "put" = bias === "BUY" ? "call" : "put";
+    const right: "C" | "P" = bias === "BUY" ? "C" : "P";
+
+    const now = new Date();
+    const minExpDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const maxExpDate = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    const chain = await fetchOptionsChain(
+      letfTicker,
+      contractType,
+      minExpDate,
+      maxExpDate,
+      50,
+    );
+
+    if (chain.length === 0) {
+      log(`BTOD: No ${contractType} options chain found for LETF ${letfTicker}`, "btod");
+      return null;
+    }
+
+    let candidates = chain.filter(
+      (c) => Math.abs(c.strike_price - currentLetfPrice) / currentLetfPrice < 0.03,
+    );
+
+    if (candidates.length === 0) {
+      candidates = [...chain]
+        .sort((a, b) => Math.abs(a.strike_price - currentLetfPrice) - Math.abs(b.strike_price - currentLetfPrice))
+        .slice(0, 1);
+    }
+
+    candidates.sort(
+      (a, b) => Math.abs(a.strike_price - currentLetfPrice) - Math.abs(b.strike_price - currentLetfPrice),
+    );
+
+    const uniqueExpiries = [...new Set(candidates.map((c) => c.expiration_date))];
+    const closestStrikes = [...new Set(candidates.map((c) => c.strike_price))].slice(0, 3);
+    const pool = candidates.filter(
+      (c) => closestStrikes.includes(c.strike_price) && uniqueExpiries.includes(c.expiration_date),
+    );
+
+    const MIN_OI = 500;
+    const MAX_SPREAD = 0.05;
+
+    let bestByOI: { contract: typeof pool[0]; snapshot: any } | null = null;
+
+    for (const contract of pool) {
+      try {
+        const snapshot = await fetchOptionSnapshot(letfTicker, contract.ticker);
+        if (!snapshot) continue;
+
+        const oi = snapshot.openInterest ?? 0;
+        const bid = snapshot.bid ?? 0;
+        const ask = snapshot.ask ?? 0;
+        const spread = bid > 0 ? (ask - bid) / bid : 999;
+
+        if (!bestByOI || oi > (bestByOI.snapshot.openInterest ?? 0)) {
+          bestByOI = { contract, snapshot };
+        }
+
+        if (oi >= MIN_OI && spread <= MAX_SPREAD) {
+          const mark = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+          log(
+            `BTOD: Found LETF option contract ${contract.ticker} — strike ${contract.strike_price}, OI ${oi}, spread ${(spread * 100).toFixed(1)}%, delta ${snapshot.delta?.toFixed(3) ?? "?"}`,
+            "btod",
+          );
+          return {
+            contractTicker: contract.ticker,
+            strike: contract.strike_price,
+            expiry: contract.expiration_date,
+            right,
+            delta: snapshot.delta,
+            markPrice: mark,
+          };
+        }
+      } catch (err: any) {
+        log(`BTOD: Error checking LETF option ${contract.ticker}: ${err.message}`, "btod");
+      }
+    }
+
+    if (bestByOI) {
+      const s = bestByOI.snapshot;
+      const bid = s.bid ?? 0;
+      const ask = s.ask ?? 0;
+      const mark = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+      log(
+        `BTOD: Using best-available LETF option ${bestByOI.contract.ticker} (OI ${s.openInterest ?? 0}, fallback)`,
+        "btod",
+      );
+      return {
+        contractTicker: bestByOI.contract.ticker,
+        strike: bestByOI.contract.strike_price,
+        expiry: bestByOI.contract.expiration_date,
+        right,
+        delta: s.delta,
+        markPrice: mark,
+      };
+    }
+
+    log(`BTOD: No valid LETF option contract found for ${letfTicker}`, "btod");
+    return null;
+  } catch (err: any) {
+    log(`BTOD: Error in findLetfOptionContract for ${letfTicker}: ${err.message}`, "btod");
+    return null;
+  }
+}
+
 export interface BtodInstrumentResult {
   instrumentType: string;
   success: boolean;
@@ -317,6 +444,30 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
     });
   }
 
+  let letfOptionContract: LetfOptionContractResult | null = null;
+  if (letfTicker) {
+    try {
+      const { fetchSnapshot } = await import("./polygon");
+      const letfSnap = await fetchSnapshot(letfTicker);
+      const letfPrice = letfSnap?.lastPrice ?? signal.instrumentEntryPrice ?? 0;
+      if (letfPrice > 0) {
+        letfOptionContract = await findLetfOptionContract(letfTicker, action, letfPrice);
+        if (letfOptionContract && letfOptionContract.markPrice > 0) {
+          instrumentsToExecute.push({
+            type: "LETF_OPTIONS",
+            ticker: letfOptionContract.contractTicker,
+            discordFn: "postLetfOptionsAlert",
+          });
+        } else if (letfOptionContract && letfOptionContract.markPrice <= 0) {
+          log(`BTOD: Skipping LETF_OPTIONS for ${letfTicker} — markPrice is ${letfOptionContract.markPrice} (no valid quote)`, "btod");
+          letfOptionContract = null;
+        }
+      }
+    } catch (err: any) {
+      log(`BTOD: Failed to find LETF option contract for ${letfTicker}: ${err.message}`, "btod");
+    }
+  }
+
   log(
     `BTOD: Spawning ${instrumentsToExecute.length} instrument trades for signal ${signalId} (${signal.ticker}): [${instrumentsToExecute.map((i) => i.type).join(", ")}]`,
     "btod",
@@ -324,6 +475,30 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
 
   for (const inst of instrumentsToExecute) {
     try {
+      let tradeStopPrice = signal.stopPrice ?? null;
+      let tradeTarget1 = tp.t1 ?? null;
+      let tradeTarget2 = tp.t2 ?? null;
+
+      if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
+        const letfJson = signal.leveragedEtfJson as any;
+        const letfLeverage = letfJson?.leverage ?? 1;
+        const stockEntry = signal.entryPriceAtActivation ?? 0;
+        const letfEntry = signal.instrumentEntryPrice ?? 0;
+        const optEntry = letfOptionContract.markPrice;
+        const defaultDelta = letfOptionContract.right === "P" ? -0.50 : 0.50;
+        const optDelta = letfOptionContract.delta ?? defaultDelta;
+
+        if (letfEntry > 0 && stockEntry > 0) {
+          const letfStop = letfEntry * (1 + letfLeverage * ((signal.stopPrice ?? stockEntry) - stockEntry) / stockEntry);
+          const letfT1 = tp.t1 != null ? letfEntry * (1 + letfLeverage * (tp.t1 - stockEntry) / stockEntry) : null;
+          const letfT2 = tp.t2 != null ? letfEntry * (1 + letfLeverage * (tp.t2 - stockEntry) / stockEntry) : null;
+
+          tradeStopPrice = Math.max(0.01, optEntry + (letfStop - letfEntry) * optDelta);
+          tradeTarget1 = letfT1 != null ? Math.max(0.01, optEntry + (letfT1 - letfEntry) * optDelta) : null;
+          tradeTarget2 = letfT2 != null ? Math.max(0.01, optEntry + (letfT2 - letfEntry) * optDelta) : null;
+        }
+      }
+
       const trade = await storage.createIbkrTrade({
         signalId: signal.id,
         ticker: signal.ticker,
@@ -334,21 +509,28 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         originalQuantity: qty,
         remainingQuantity: qty,
         tpHitLevel: 0,
-        stopPrice: signal.stopPrice ?? null,
-        target1Price: tp.t1 ?? null,
-        target2Price: tp.t2 ?? null,
+        stopPrice: tradeStopPrice,
+        target1Price: tradeTarget1,
+        target2Price: tradeTarget2,
         status: "PENDING",
       });
 
       try {
         const freshSigs = await storage.getSignals(undefined, 5000);
         const freshSig = freshSigs.find((s) => s.id === signalId) ?? signal;
-        const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
+        const { postOptionsAlert, postLetfAlert, postSharesAlert, postLetfOptionsAlert } = await import("./discord");
 
         if (inst.type === "OPTION") {
           await postOptionsAlert(freshSig, { ...trade, entryPrice: signal.optionEntryMark, status: "PENDING" } as any);
         } else if (inst.type === "LEVERAGED_ETF") {
           await postLetfAlert(freshSig, { ...trade, entryPrice: signal.instrumentEntryPrice, status: "PENDING" } as any);
+        } else if (inst.type === "LETF_OPTIONS") {
+          await postLetfOptionsAlert(
+            freshSig,
+            { ...trade, entryPrice: letfOptionContract?.markPrice ?? 0, status: "PENDING" } as any,
+            undefined,
+            letfOptionContract,
+          );
         } else if (inst.type === "SHARES") {
           await postSharesAlert(freshSig, { ...trade, entryPrice: signal.entryPriceAtActivation, status: "PENDING" } as any);
         }
@@ -372,7 +554,13 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         } catch {}
 
         if (ibkrConnected && placeMarketOrder && makeContract) {
-          const contract = makeContract(inst.type, signal.ticker, inst.ticker, inst.type === "OPTION" ? inst.ticker : undefined);
+          const isOptionType = inst.type === "OPTION" || inst.type === "LETF_OPTIONS";
+          const contract = makeContract(
+            isOptionType ? "OPTION" : inst.type,
+            inst.type === "LETF_OPTIONS" ? (letfTicker ?? signal.ticker) : signal.ticker,
+            inst.ticker,
+            isOptionType ? inst.ticker : undefined,
+          );
           const { orderId, promise } = await placeMarketOrder(contract, action, qty);
           await storage.updateIbkrTrade(trade.id, { ibkrOrderId: orderId, status: "SUBMITTED" });
 

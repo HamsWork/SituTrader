@@ -44,7 +44,7 @@
 ├─────────────────────────────────────────────────────────────────────┤
 │                    EXTERNAL INTEGRATIONS                           │
 │  Polygon.io (market data) · IBKR TWS/Gateway (trade execution)    │
-│  Discord Webhooks (dual-channel alerts)                            │
+│  Discord Webhooks (quad-channel alerts)                            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -100,7 +100,7 @@ Customizable filter profiles with: allowed setups, min tier, min quality score, 
 Watchlist symbols with enabled flag and watchlist membership.
 
 ### 2.11 `discord_trade_logs` (17 columns)
-Audit trail for every Discord webhook post. Tracks event type (FILLED/TP1_HIT/TP2_HIT/STOPPED_OUT/etc), channel (alerts/swings/shares), instrument type/ticker, all prices shown in the embed (entry/target/stop/exit), profit %, full embed JSON payload, webhook status (sent/failed), Discord message ID, and foreign keys to `ibkr_trades` and `signals`.
+Audit trail for every Discord webhook post. Tracks event type (FILLED/TP1_HIT/TP2_HIT/STOPPED_OUT/etc), channel (alerts/swings/shares/letf_options), instrument type/ticker, all prices shown in the embed (entry/target/stop/exit), profit %, full embed JSON payload, webhook status (sent/failed), Discord message ID, and foreign keys to `ibkr_trades` and `signals`.
 
 ### 2.12 `embed_templates` (6 columns)
 Editable Discord embed templates. 24 templates (4 instrument types × 6 event types). Each stores a full embed JSON with `{{variable}}` placeholders that get rendered at alert time. Templates can be toggled active/inactive and reset to defaults. Instrument types: OPTIONS, SHARES, LEVERAGED_ETF, LETF_OPTIONS. Event types: FILLED, TP1_HIT, TP2_HIT, RAISE_STOP, STOPPED_OUT, CLOSED.
@@ -202,10 +202,10 @@ Calculates R-multiple based statistics from resolved signals:
 
 **Exports:** `computeRMultiples()`, `aggregateExpectancy()`, `computeAndStoreExpectancy()`, `recomputeAllExpectancy()`, `getSetupAlertCategory()`
 
-### 3.4 BTOD Engine (`server/lib/btod.ts` — 414 lines)
-Best Trade of the Day selection system. Guarantees one high-quality trade per day by monitoring top-3 ranked signals (Setups A+C, QS≥62) and executing the first to activate. Dual-phase architecture: SELECTIVE phase (9:30-11am) monitors only top-3 priority signals, OPEN phase (11am+) accepts first fresh activation. Supports max 2 trades/day with gate reopen after all 4 instruments close. Multi-instrument execution spawns separate IBKR trades for SHARES, OPTIONS, LETF, and LETF_OPTIONS simultaneously.
+### 3.4 BTOD Engine (`server/lib/btod.ts` — 610 lines)
+Best Trade of the Day selection system. Guarantees one high-quality trade per day by monitoring top-3 ranked signals (Setups A+C, QS≥62) and executing the first to activate. Dual-phase architecture: SELECTIVE phase (9:30-11am) monitors only top-3 priority signals, OPEN phase (11am+) accepts first fresh activation. Supports max 2 trades/day with gate reopen after all 4 instruments close. Multi-instrument execution spawns separate IBKR trades for SHARES, OPTIONS, LEVERAGED_ETF, and LETF_OPTIONS simultaneously. LETF Options uses ATM option contracts on the selected LETF ticker with delta-based stop/target premium conversion via `findLetfOptionContract()`.
 
-**Exports:** `rankOnDeckSignals()`, `initializeBtodForDay()`, `shouldExecuteActivation()`, `onBtodTradeExecuted()`, `transitionToOpenPhase()`, `onTradeClose()`, `executeBtodMultiInstrument()`
+**Exports:** `rankOnDeckSignals()`, `initializeBtodForDay()`, `shouldExecuteActivation()`, `onBtodTradeExecuted()`, `transitionToOpenPhase()`, `onTradeClose()`, `executeBtodMultiInstrument()`, `findLetfOptionContract()`
 
 ### 3.5 Activation Engine (`server/lib/activation.ts` — 801 lines)
 Monitors intraday price action for entry triggers:

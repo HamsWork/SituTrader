@@ -28,7 +28,7 @@ The application follows a full-stack architecture.
 - **Universe Builder & Filter:** Automatically discovers and ranks top N US tickers by dollar volume, with configurable parameters and liquidity filtering.
 - **Alert Engine:** Manages alerts for various signal lifecycle events with tier-based routing and rate limiting.
 - **Activation Engine:** Scans intraday bars for entry triggers, managing trade states and advanced stop management. Integrates with BTOD gate check.
-- **Best Trade of the Day (BTOD):** Automated trade selection system guaranteeing one high-quality trade per day. Features pre-market ranking, dual-phase architecture (SELECTIVE/OPEN), and can spawn up to 4 simultaneous IBKR trades.
+- **Best Trade of the Day (BTOD):** Automated trade selection system guaranteeing one high-quality trade per day. Features pre-market ranking, dual-phase architecture (SELECTIVE/OPEN), and spawns up to 4 simultaneous IBKR trades (Shares, Options, LETF, LETF Options). LETF Options uses ATM option contracts on the selected LETF ticker with delta-based stop/target premium conversion.
 - **RTH Validation:** All trade validation and calculations are strictly confined to Regular Trading Hours (09:30-16:00 ET).
 - **Optimization Engine:** Intelligence dashboard that identifies top-performing stocks, grades underperformers, ranks setup effectiveness, and provides time-to-hit distribution insights.
 - **Performance Dashboard:** Capital risk analysis and P&L tracking, simulating trade outcomes with configurable position sizing.
@@ -41,7 +41,7 @@ The application follows a full-stack architecture.
 - **Author Mode:** Automated scheduling for market scans, re-ranking, and activation checks.
 - **Auto Leveraged ETF Mode:** Dynamically selects optimal instruments per signal.
 - **IBKR Integration:** Facilitates full bracket order execution via Interactive Brokers TWS/Gateway.
-- **Discord Alerts:** Triple-channel webhook system with lifecycle embeds for different instrument types. Includes color-coding and 1-per-day gates.
+- **Discord Alerts:** Quad-channel webhook system with lifecycle embeds for different instrument types. Includes color-coding and 1-per-day gates.
 - **Embed Template System:** 24 editable Discord embed templates stored in `embed_templates` DB table, with `{{variable}}` placeholders.
 - **Backtest Worker:** Background job system that processes all universe tickers × 6 setups incrementally, with checkpoint-based resumption and rate-limited Polygon API access.
 - **Bar Cache:** Persistent two-tier caching system (`server/lib/barCache/`) using SQLite for on-disk storage and an in-memory layer.

@@ -405,6 +405,112 @@ export async function postSharesAlert(
   return result.success;
 }
 
+export async function postLetfOptionsAlert(
+  signal: Signal,
+  trade?: IbkrTrade,
+  letfOptionsWebhookUrl?: string,
+  letfOptionContract?: {
+    contractTicker: string;
+    strike: number;
+    expiry: string;
+    right: "C" | "P";
+    delta: number | null;
+    markPrice: number;
+  } | null,
+): Promise<boolean> {
+  const DISCORD_GOAT_LETF_OPTIONS_URL =
+    letfOptionsWebhookUrl ?? (await getWebhookUrl("letf_options"));
+  if (!DISCORD_GOAT_LETF_OPTIONS_URL) return false;
+
+  const tp = signal.tradePlanJson as TradePlan;
+  if (!tp) return false;
+
+  const letfData = signal.leveragedEtfJson as any;
+  if (!letfData) return false;
+
+  const letfTicker = letfData.ticker || signal.instrumentTicker || "?";
+  const leverage = letfData.leverage ?? "?";
+  const direction = letfData.direction ?? "?";
+  const stockEntry = signal.entryPriceAtActivation ?? 0;
+  const stopPrice = signal.stopPrice ?? 0;
+
+  const contractInfo = letfOptionContract;
+  const optionPrice = contractInfo?.markPrice ?? trade?.entryPrice ?? 0;
+  const strike = contractInfo?.strike ?? "?";
+  const expiry = contractInfo?.expiry ? formatExpiry(String(contractInfo.expiry)) : "?";
+  const right = contractInfo?.right === "C" ? "CALL" : contractInfo?.right === "P" ? "PUT" : "?";
+  const delta = contractInfo?.delta;
+
+  const letfEntry = signal.instrumentEntryPrice ?? 0;
+  const letfStop = trade?.stopPrice ?? 0;
+  const letfT1 = trade?.target1Price ?? 0;
+
+  const stopPct =
+    stockEntry > 0
+      ? (((stopPrice - stockEntry) / stockEntry) * 100).toFixed(1)
+      : "?";
+
+  const t1Pct = fmtPct(stockEntry, tp.t1);
+  let targetsStr = `${fmtPrice(tp.t1)} (${t1Pct})`;
+  const t2Pct = tp.t2 ? fmtPct(stockEntry, tp.t2) : null;
+  if (tp.t2) targetsStr += `, ${fmtPrice(tp.t2)} (${t2Pct})`;
+
+  let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
+  if (tp.t2)
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off remaining 50.0% of position.`;
+
+  const fields: DiscordField[] = [
+    { name: "\u{1F7E2} Underlying", value: `${signal.ticker}`, inline: true },
+    {
+      name: "\u{1F4B9} Leveraged ETF",
+      value: `${letfTicker} (${leverage}x ${direction})`,
+      inline: true,
+    },
+    {
+      name: "\u{1F4CA} Stock Price",
+      value: `$ ${stockEntry.toFixed(2)}`,
+      inline: true,
+    },
+    { ...SPACER },
+    { name: "\u274C Expiration", value: `${expiry}`, inline: true },
+    { name: "\u270D\uFE0F Strike", value: `${strike} ${right}`, inline: true },
+    {
+      name: "\u{1F4B5} Option Price",
+      value: `$ ${optionPrice.toFixed(2)}`,
+      inline: true,
+    },
+    { ...SPACER },
+    {
+      name: "\u{1F4C8} Delta",
+      value: delta != null ? delta.toFixed(3) : "?",
+      inline: true,
+    },
+    {
+      name: "\u{1F4B0} LETF Entry",
+      value: letfEntry > 0 ? `$ ${letfEntry.toFixed(2)}` : "Pending",
+      inline: true,
+    },
+    { ...SPACER },
+    {
+      name: "\u{1F4DD} Trade Plan (Stock Levels)",
+      value: `\u{1F3AF} Targets: ${targetsStr}\n\u{1F6D1} Stop Loss: ${fmtPrice(stopPrice)}(${stopPct}%)`,
+      inline: false,
+    },
+    { ...SPACER },
+    { name: "\u{1F4B0} Take Profit Plan", value: tpPlanText, inline: false },
+  ];
+
+  const embed: DiscordEmbed = {
+    description: `**\u{1F6A8} ${signal.ticker} \u2192 ${letfTicker} LETF Options Alert**`,
+    color: PURPLE,
+    fields,
+    footer: { text: DISCLAIMER },
+  };
+
+  const result = await sendWebhook(DISCORD_GOAT_LETF_OPTIONS_URL, `@everyone`, [embed]);
+  return result.success;
+}
+
 export async function postTradeUpdate(
   signalInput: Signal,
   trade: IbkrTrade,

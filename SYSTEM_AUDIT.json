@@ -260,9 +260,9 @@
       },
       {
         "file": "btod.ts",
-        "lines": 414,
-        "purpose": "Best Trade of the Day selection engine: top-3 priority ranking, dual-phase lifecycle (SELECTIVE/OPEN), fresh-only fallback, multi-instrument execution (SHARES+OPTIONS+LETF+LETF_OPTIONS), gate control with reopen-after-close",
-        "exports": ["rankOnDeckSignals", "initializeBtodForDay", "shouldExecuteActivation", "onBtodTradeExecuted", "transitionToOpenPhase", "onTradeClose", "executeBtodMultiInstrument"]
+        "lines": 610,
+        "purpose": "Best Trade of the Day selection engine: top-3 priority ranking, dual-phase lifecycle (SELECTIVE/OPEN), fresh-only fallback, multi-instrument execution (SHARES+OPTIONS+LETF+LETF_OPTIONS), gate control with reopen-after-close, LETF option contract lookup with delta-based premium conversion",
+        "exports": ["rankOnDeckSignals", "initializeBtodForDay", "shouldExecuteActivation", "onBtodTradeExecuted", "transitionToOpenPhase", "onTradeClose", "executeBtodMultiInstrument", "findLetfOptionContract"]
       },
       {
         "file": "activation.ts",
