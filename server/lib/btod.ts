@@ -44,14 +44,14 @@ export function rankOnDeckSignals(signals: Signal[]): RankedSignalEntry[] {
     (s) =>
       s.status === "pending" &&
       s.activationStatus === "NOT_ACTIVE" &&
-      (s.setupType === "A" || s.setupType === "C") &&
+      (s.setupType === "A" || s.setupType === "B" || s.setupType === "C") &&
       (s.qualityScore ?? 0) >= 62,
   );
 
   eligible.sort((a, b) => {
     const qsDiff = (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
     if (qsDiff !== 0) return qsDiff;
-    const setupOrder: Record<string, number> = { A: 0, C: 1 };
+    const setupOrder: Record<string, number> = { A: 0, B: 1, C: 2 };
     const setupDiff = (setupOrder[a.setupType] ?? 99) - (setupOrder[b.setupType] ?? 99);
     if (setupDiff !== 0) return setupDiff;
     return a.ticker.localeCompare(b.ticker);
