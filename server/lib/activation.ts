@@ -334,10 +334,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
             isSell,
           );
           const ibkrTradeForTiming = allIbkrTrades.find(
-            (t) => t.signalId === sig.id && t.status === "FILLED",
+            (t) => t.signalId === sig.id && t.instrumentType === "SHARES",
           );
-          const timingAnchor = ibkrTradeForTiming?.filledAt
-            ? new Date(ibkrTradeForTiming.filledAt).getTime()
+          const timingAnchor = ibkrTradeForTiming?.createdAt
+            ? new Date(ibkrTradeForTiming.createdAt).getTime()
             : sig.activatedTs
               ? new Date(sig.activatedTs).getTime()
               : 0;
@@ -351,11 +351,12 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
               progress >= stopCfg.beProgressThreshold;
             if (beEarned) {
               try {
-                const ibkrTrade = allIbkrTrades.find(
-                  (t) => t.signalId === sig.id && t.status === "FILLED",
+                const closedStatuses = ["CLOSED"];
+                const ibkrTradesForSignal = allIbkrTrades.filter(
+                  (t) => t.signalId === sig.id && !closedStatuses.includes(t.status),
                 );
-                if (ibkrTrade) {
-                  const { applyBeStop } = await import("./ibkrOrders");
+                const { applyBeStop } = await import("./ibkrOrders");
+                for (const ibkrTrade of ibkrTradesForSignal) {
                   const success = await applyBeStop(
                     ibkrTrade,
                     sig,
@@ -369,7 +370,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                     );
                   } else {
                     log(
-                      `Activation BE: IBKR not connected or trade not eligible for signal ${sig.id}`,
+                      `Activation BE: trade ${ibkrTrade.id} not eligible (already BE or other) for signal ${sig.id}`,
                       "activation",
                     );
                   }
@@ -418,11 +419,12 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                 : entryPrice - tightenedDist;
 
               try {
-                const ibkrTrade = allIbkrTrades.find(
-                  (t) => t.signalId === sig.id && t.status === "FILLED",
+                const closedStatuses = ["CLOSED"];
+                const ibkrTradesForSignal = allIbkrTrades.filter(
+                  (t) => t.signalId === sig.id && !closedStatuses.includes(t.status),
                 );
-                if (ibkrTrade) {
-                  const { applyTimeStop } = await import("./ibkrOrders");
+                const { applyTimeStop } = await import("./ibkrOrders");
+                for (const ibkrTrade of ibkrTradesForSignal) {
                   const success = await applyTimeStop(
                     ibkrTrade,
                     sig,
@@ -440,7 +442,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
                     );
                   } else {
                     log(
-                      `Activation TIME_STOP: trade not eligible for signal ${sig.id}`,
+                      `Activation TIME_STOP: trade ${ibkrTrade.id} not eligible for signal ${sig.id}`,
                       "activation",
                     );
                   }
@@ -476,8 +478,9 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         }
 
         try {
+          const closedStatuses = ["CLOSED"];
           const sigTrades = allIbkrTrades.filter(
-            (t) => t.signalId === sig.id && t.status === "FILLED",
+            (t) => t.signalId === sig.id && !closedStatuses.includes(t.status),
           );
           if (sigTrades.length > 0) {
             const { isConnected } = await import("./ibkr");

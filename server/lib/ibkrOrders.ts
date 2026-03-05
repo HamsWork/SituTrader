@@ -307,9 +307,9 @@ export async function applyBeStop(
 ): Promise<boolean> {
   if (ibkrTrade.stopMovedToBe) return false;
 
-  const beStopPrice = signal.entryPriceAtActivation ?? entryPrice;
+  const beStopPrice = ibkrTrade.entryPrice ?? entryPrice;
 
-  await storage.updateIbkrTrade(ibkrTrade.id, {
+  const updatedTrade = await storage.updateIbkrTrade(ibkrTrade.id, {
     stopPrice: beStopPrice,
     stopMovedToBe: true,
   });
@@ -319,7 +319,6 @@ export async function applyBeStop(
   );
 
   try {
-    const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
       await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
       log(
@@ -348,7 +347,7 @@ export async function applyTimeStop(
   nowIso: string,
 ): Promise<boolean> {
   const oldIbkrStop = ibkrTrade.stopPrice;
-  await storage.updateIbkrTrade(ibkrTrade.id, {
+  const updatedTrade = await storage.updateIbkrTrade(ibkrTrade.id, {
     stopPrice: newUnderlyingStop,
     detailsJson: {
       ...((ibkrTrade.detailsJson as any) ?? {}),
@@ -365,9 +364,8 @@ export async function applyTimeStop(
   );
 
   try {
-    const updatedTrade = await storage.getIbkrTrade(ibkrTrade.id);
     if (updatedTrade) {
-      await postTradeUpdate(signal, updatedTrade, "TIME_STOP");
+      await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
       log(
         `applyTimeStop: TIME_STOP Discord alert sent for ${signal.ticker} signal ${signal.id}`,
         "ibkr",
@@ -393,7 +391,11 @@ export async function monitorActiveTrade(
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) return { event: null, updatedTrade: null };
 
-  if (trade.status !== "FILLED")
+  if (signal.activationStatus !== "ACTIVE")
+    return { event: null, updatedTrade: null };
+
+  const closedStatuses = ["CLOSED"] as const;
+  if (closedStatuses.includes(trade.status as typeof closedStatuses[number]))
     return { event: null, updatedTrade: null };
 
   const instrumentType = trade.instrumentType || "OPTION";
@@ -457,6 +459,8 @@ export async function monitorActiveTrade(
         ? (isBuy ? tp1FillPrice - trade.entryPrice : trade.entryPrice - tp1FillPrice) * tp1Qty
         : 0;
 
+      const entryPrice = trade.entryPrice ?? 0;
+      const raiseStopToBe = !trade.stopMovedToBe && entryPrice > 0;
       await storage.updateIbkrTrade(trade.id, {
         tpHitLevel: 1,
         tp1FillPrice,
@@ -464,8 +468,10 @@ export async function monitorActiveTrade(
         tp1PnlRealized: tp1Pnl,
         remainingQuantity: newRemaining,
         pnl: tp1Pnl,
-        stopPrice: beStopInstrument > 0 ? beStopInstrument : null,
-        stopMovedToBe: true,
+        ...(raiseStopToBe && {
+          stopPrice: entryPrice,
+          stopMovedToBe: true,
+        }),
       });
 
       log(
@@ -474,7 +480,10 @@ export async function monitorActiveTrade(
       );
 
       const updatedTrade = await storage.getIbkrTrade(trade.id);
-      if (updatedTrade) await postTradeUpdate(signal, updatedTrade, "TP1_HIT");
+      if (updatedTrade) {
+        await postTradeUpdate(signal, updatedTrade, "TP1_HIT");
+        if (raiseStopToBe) await postTradeUpdate(signal, updatedTrade, "RAISE_STOP");
+      }
       return { event: "TP1_HIT", updatedTrade };
     }
   }
@@ -504,7 +513,7 @@ export async function monitorActiveTrade(
       const totalPnlPct = trade.entryPrice
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
-      const instrStopDist = trade.entryPrice && stopLevel > 0
+        const instrStopDist = trade.entryPrice && stopLevel > 0
         ? Math.abs(trade.entryPrice - stopLevel)
         : (tp.stopDistance ?? 0);
       const rMultiple =
@@ -561,7 +570,7 @@ export async function monitorActiveTrade(
       const totalPnlPct = trade.entryPrice
         ? (totalPnl / (trade.entryPrice * trade.originalQuantity)) * 100
         : null;
-      const instrStopDist2 = trade.entryPrice && stopLevel > 0
+        const instrStopDist2 = trade.entryPrice && stopLevel > 0
         ? Math.abs(trade.entryPrice - stopLevel)
         : (tp.stopDistance ?? 0);
       const rMultiple =

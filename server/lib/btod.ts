@@ -105,8 +105,8 @@ export async function shouldExecuteActivation(signalId: number, activationTs?: D
   const state = await storage.getBtodState(tradeDate);
 
   if (!state) {
-    log(`BTOD: No state for ${tradeDate}, allowing execution as fallback`, "btod");
-    return { execute: true, reason: "no_btod_state_fallback" };
+    log(`BTOD: No state for ${tradeDate}, rejecting execution`, "btod");
+    return { execute: false, reason: "no_btod_state" };
   }
 
   if (!state.gateOpen) {

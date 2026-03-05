@@ -216,7 +216,7 @@ export async function postOptionsAlert(
   const t2Pct = tp.t2 ? fmtPct(stockPrice, tp.t2) : null;
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} close remaining 50%.`;
   }
 
   const fields: DiscordField[] = [
@@ -292,7 +292,7 @@ export async function postLetfAlert(
 
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2)
-    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} close remaining 50%.`;
 
   const fields: DiscordField[] = [
     { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
@@ -365,7 +365,7 @@ export async function postSharesAlert(
   const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} close remaining 50%.`;
   }
 
   const fields: DiscordField[] = [
@@ -457,7 +457,7 @@ export async function postLetfOptionsAlert(
 
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2)
-    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
+    tpPlanText += `\nTake Profit (2): At ${t2Pct} close remaining 50%.`;
 
   const fields: DiscordField[] = [
     { name: "\u{1F7E2} Underlying", value: `${signal.ticker}`, inline: true },
@@ -731,7 +731,7 @@ export async function postTradeUpdate(
       const t2PctFill = instrT2 > 0 && instrEntry > 0 ? fmtPct(instrEntry, instrT2) : null;
       let tpPlanText = `Take Profit (1): At ${t1PctFill} take off 50.0% of position and raise stop loss to break even.`;
       if (instrT2 > 0)
-        tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(instrT2)} but we close here — don't get greedy.`;
+        tpPlanText += `\nTake Profit (2): At ${t2PctFill} close remaining 50%.`;
 
       fields.push(
         { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
