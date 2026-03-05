@@ -115,7 +115,7 @@
       "embed_templates": {
         "columns": 6,
         "pk": "id (serial)",
-        "purpose": "Editable Discord embed templates (24 total: 4 instruments × 6 events) with {{variable}} placeholders",
+        "purpose": "Editable Discord embed templates (20 total: 4 instruments × 5 events) with {{variable}} placeholders",
         "key_columns": ["instrumentType", "eventType", "templateName", "embedJson", "isActive", "updatedAt"]
       },
       "roi_trade_cache": {
@@ -206,7 +206,7 @@
       { "method": "GET", "path": "/api/ibkr/trades", "purpose": "Trade records" },
       { "method": "POST", "path": "/api/ibkr/monitor", "purpose": "Run trade monitor" },
       { "method": "GET", "path": "/api/discord-trades", "purpose": "Discord trade logs with filtering (channel, event, ticker)" },
-      { "method": "GET", "path": "/api/embed-templates", "purpose": "All 24 editable embed templates" },
+      { "method": "GET", "path": "/api/embed-templates", "purpose": "All 20 editable embed templates" },
       { "method": "GET", "path": "/api/embed-templates/variables", "purpose": "Available template placeholder variables" },
       { "method": "PUT", "path": "/api/embed-templates/:id", "purpose": "Update template (embedJson, templateName, isActive)" },
       { "method": "POST", "path": "/api/embed-templates/seed", "purpose": "Seed default templates" },

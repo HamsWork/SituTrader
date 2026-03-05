@@ -125,7 +125,7 @@ This document maps every major feature to the specific files and key functions/e
 | File | Key Exports | Role |
 |---|---|---|
 | `server/lib/discord.ts` | `postOptionsAlert()`, `postLetfAlert()`, `postSharesAlert()`, `postLetfOptionsAlert()`, `postTradeUpdate()` (incl. RAISE_STOP event), `sendTestLetfAlert()` | Webhook message construction and delivery; template-first rendering with hardcoded fallback; quad-channel routing (alerts/swings/shares/letf_options) |
-| `server/lib/embedTemplateDefaults.ts` | `getDefaultTemplates()`, `AVAILABLE_VARIABLES`, `INSTRUMENT_TYPES`, `EVENT_TYPES` | 24 default embed templates (4 instruments × 6 events) with variable definitions |
+| `server/lib/embedTemplateDefaults.ts` | `getDefaultTemplates()`, `AVAILABLE_VARIABLES`, `INSTRUMENT_TYPES`, `EVENT_TYPES` | 20 default embed templates (4 instruments × 5 events) with variable definitions |
 | `server/lib/embedTemplateEngine.ts` | `renderTemplate()`, `getTemplateForEvent()`, `seedDefaultTemplates()` | Template rendering engine — resolves `{{variables}}`, converts colors, seeds DB |
 | `server/lib/alerts.ts` | `runAlerts()` | Alert lifecycle detection and routing |
 | `shared/schema.ts` | `embed_templates` table; `discord_trade_logs` table; `alert_state`, `next_alert_eligible_at` signal columns; `discord_alert_sent`, `discord_update_sent` trade columns | Template + alert state + audit log schema |
@@ -411,7 +411,7 @@ This document maps every major feature to the specific files and key functions/e
 | `server/lib/activation.ts` | Activation, Stop Management, BTOD |
 | `server/lib/alerts.ts` | Discord Alerts |
 | `server/lib/discord.ts` | Discord Alerts, Discord Trades, IBKR Integration |
-| `server/lib/embedTemplateDefaults.ts` | Discord Alerts (24 default embed templates) |
+| `server/lib/embedTemplateDefaults.ts` | Discord Alerts (20 default embed templates) |
 | `server/lib/embedTemplateEngine.ts` | Discord Alerts (template rendering engine) |
 | `client/src/pages/discord-trades.tsx` | Discord Trades, Embed Template Editor |
 | `server/lib/ibkr.ts` | IBKR Integration |

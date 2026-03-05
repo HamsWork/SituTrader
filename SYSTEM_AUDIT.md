@@ -100,10 +100,10 @@ Customizable filter profiles with: allowed setups, min tier, min quality score, 
 Watchlist symbols with enabled flag and watchlist membership.
 
 ### 2.11 `discord_trade_logs` (17 columns)
-Audit trail for every Discord webhook post. Tracks event type (FILLED/TP1_HIT/TP2_HIT/STOPPED_OUT/etc), channel (alerts/swings/shares/letf_options), instrument type/ticker, all prices shown in the embed (entry/target/stop/exit), profit %, full embed JSON payload, webhook status (sent/failed), Discord message ID, and foreign keys to `ibkr_trades` and `signals`.
+Audit trail for every Discord webhook post. Tracks event type (FILLED/TP1_HIT/STOPPED_OUT/CLOSED/etc), channel (alerts/swings/shares/letf_options), instrument type/ticker, all prices shown in the embed (entry/target/stop/exit), profit %, full embed JSON payload, webhook status (sent/failed), Discord message ID, and foreign keys to `ibkr_trades` and `signals`.
 
 ### 2.12 `embed_templates` (6 columns)
-Editable Discord embed templates. 24 templates (4 instrument types × 6 event types). Each stores a full embed JSON with `{{variable}}` placeholders that get rendered at alert time. Templates can be toggled active/inactive and reset to defaults. Instrument types: OPTIONS, SHARES, LEVERAGED_ETF, LETF_OPTIONS. Event types: FILLED, TP1_HIT, TP2_HIT, RAISE_STOP, STOPPED_OUT, CLOSED.
+Editable Discord embed templates. 20 templates (4 instrument types × 5 event types). Each stores a full embed JSON with `{{variable}}` placeholders that get rendered at alert time. Templates can be toggled active/inactive and reset to defaults. Instrument types: OPTIONS, SHARES, LEVERAGED_ETF, LETF_OPTIONS. Event types: FILLED, TP1_HIT, RAISE_STOP, STOPPED_OUT, CLOSED. The CLOSED template includes a risk management note about T2 potential price.
 
 ### 2.13 `app_settings` (3 columns)
 Key-value store for application-wide settings.
@@ -531,7 +531,7 @@ Backtest results and analysis interface.
 
 ### Discord
 - `GET /api/discord-trades` — Discord trade logs with filtering (channel, event, ticker)
-- `GET /api/embed-templates` — All 24 editable embed templates
+- `GET /api/embed-templates` — All 20 editable embed templates
 - `GET /api/embed-templates/variables` — Available template placeholder variables
 - `PUT /api/embed-templates/:id` — Update template (embedJson, templateName, isActive)
 - `POST /api/embed-templates/seed` — Seed default templates

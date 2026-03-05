@@ -531,8 +531,8 @@ export async function monitorActiveTrade(
       );
 
       const updatedTrade = await storage.getIbkrTrade(trade.id);
-      if (updatedTrade) await postTradeUpdate(signal, updatedTrade, "TP2_HIT");
-      return { event: "TP2_HIT", updatedTrade };
+      if (updatedTrade) await postTradeUpdate(signal, updatedTrade, "CLOSED");
+      return { event: "CLOSED", updatedTrade };
     }
   }
 

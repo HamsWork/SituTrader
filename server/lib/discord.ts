@@ -216,7 +216,7 @@ export async function postOptionsAlert(
   const t2Pct = tp.t2 ? fmtPct(stockPrice, tp.t2) : null;
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
+    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
   }
 
   const fields: DiscordField[] = [
@@ -292,7 +292,7 @@ export async function postLetfAlert(
 
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2)
-    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off remaining 50.0% of position.`;
+    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
 
   const fields: DiscordField[] = [
     { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
@@ -365,7 +365,7 @@ export async function postSharesAlert(
   const t2Pct = tp.t2 ? fmtPct(entryPrice, tp.t2) : null;
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2) {
-    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off 50.0% of remaining position.`;
+    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
   }
 
   const fields: DiscordField[] = [
@@ -457,7 +457,7 @@ export async function postLetfOptionsAlert(
 
   let tpPlanText = `Take Profit (1): At ${t1Pct} take off 50.0% of position and raise stop loss to break even.`;
   if (tp.t2)
-    tpPlanText += `\nTake Profit (2): At ${t2Pct} take off remaining 50.0% of position.`;
+    tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(tp.t2)} but we close here — don't get greedy.`;
 
   const fields: DiscordField[] = [
     { name: "\u{1F7E2} Underlying", value: `${signal.ticker}`, inline: true },
@@ -609,9 +609,9 @@ export async function postTradeUpdate(
     }
   }
 
-  const mappedEvent = event === "STOPPED_OUT_AFTER_TP" ? "STOPPED_OUT" : event === "TIME_STOP" ? "RAISE_STOP" : event === "TP3_HIT" ? "TP2_HIT" : event;
+  const mappedEvent = event === "STOPPED_OUT_AFTER_TP" ? "STOPPED_OUT" : event === "TIME_STOP" ? "RAISE_STOP" : event === "TP3_HIT" ? "CLOSED" : event;
   const instrumentTypeForTemplate = isLetfOptions ? "LETF_OPTIONS" : isOption ? "OPTIONS" : isLetf ? "LEVERAGED_ETF" : isShares ? "SHARES" : "OPTIONS";
-  const TEMPLATE_EVENTS = ["FILLED", "TP1_HIT", "TP2_HIT", "RAISE_STOP", "STOPPED_OUT", "CLOSED"];
+  const TEMPLATE_EVENTS = ["FILLED", "TP1_HIT", "RAISE_STOP", "STOPPED_OUT", "CLOSED"];
 
   if (TEMPLATE_EVENTS.includes(mappedEvent)) {
     try {
@@ -629,7 +629,7 @@ export async function postTradeUpdate(
         const t1PctCalc = instrEntry > 0 && instrT1 > 0 ? fmtPct(instrEntry, instrT1) : "?";
         const t2PctCalc = instrT2 > 0 && instrEntry > 0 ? fmtPct(instrEntry, instrT2) : null;
         let tpPlanCalc = `Take Profit (1): At ${t1PctCalc} take off 50.0% of position and raise stop loss to break even.`;
-        if (instrT2 > 0) tpPlanCalc += `\nTake Profit (2): At ${t2PctCalc} take off 50.0% of remaining position.`;
+        if (instrT2 > 0) tpPlanCalc += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(instrT2)} but we close here — don't get greedy.`;
 
         const exitPx = trade.exitPrice ?? trade.tp1FillPrice ?? trade.tp2FillPrice ?? 0;
         const profitPctCalc = instrEntry > 0 && exitPx > 0 ? fmtPct(instrEntry, exitPx) : "—";
@@ -652,6 +652,7 @@ export async function postTradeUpdate(
           "{{letf_direction}}": String(letfDirection),
           "{{tp1_fill_price}}": fmtPrice(trade.tp1FillPrice ?? instrT1),
           "{{tp2_fill_price}}": fmtPrice(trade.tp2FillPrice ?? instrT2),
+          "{{t2_price}}": fmtPrice(instrT2),
           "{{profit_pct}}": profitPctCalc,
           "{{exit_price}}": fmtPrice(exitPx),
           "{{new_stop_price}}": fmtPrice(trade.stopPrice ?? instrEntry),
@@ -730,7 +731,7 @@ export async function postTradeUpdate(
       const t2PctFill = instrT2 > 0 && instrEntry > 0 ? fmtPct(instrEntry, instrT2) : null;
       let tpPlanText = `Take Profit (1): At ${t1PctFill} take off 50.0% of position and raise stop loss to break even.`;
       if (instrT2 > 0)
-        tpPlanText += `\nTake Profit (2): At ${t2PctFill} take off 50.0% of remaining position.`;
+        tpPlanText += `\nTake Profit (2): At T1 close remaining 50%. This trade could reach ${fmtPrice(instrT2)} but we close here — don't get greedy.`;
 
       fields.push(
         { name: "\u{1F7E2} Ticker", value: `${signal.ticker}`, inline: true },
@@ -796,59 +797,6 @@ export async function postTradeUpdate(
           value: `Raising stop loss to ${fmtPrice(instrEntry1)} (break even) on remaining position to secure gains while allowing room to run.`,
           inline: false,
         },
-      );
-      break;
-    }
-
-    case "TP2_HIT": {
-      color = GREEN;
-      heading = `**\u{1F3AF} ${signal.ticker}${letfLabel} Take Profit 2 HIT**`;
-      const instrEntry2 = trade.entryPrice ?? 0;
-      const instrTp2Fill = trade.tp2FillPrice ?? 0;
-      const instrTp1ForRisk = trade.tp1FillPrice ?? trade.target1Price ?? instrEntry2;
-      const profitPct2 = instrEntry2 > 0 ? fmtPct(instrEntry2, instrTp2Fill) : "?";
-
-      fields.push({ name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false });
-      pushInstrumentFields(fields, signal.entryPriceAtActivation ?? instrEntry2);
-
-      fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(instrEntry2)}`, inline: true },
-        { name: "\u{1F3AF} TP2 Hit", value: `${fmtPrice(instrTp2Fill)}`, inline: true },
-        { name: "\u{1F4B8} Profit", value: `${profitPct2}`, inline: true },
-        { ...SPACER },
-        { name: "\u{1F6A8} Status: TP2 Reached \u{1F6A8}", value: "\u200b", inline: false },
-        {
-          name: "\u{1F50D} Position Management",
-          value: `\u2705 Reduce position by 50% of remaining (lock in ${profitPct2})\n\u{1F3AF} Set trailing stop on remaining runners`,
-          inline: false,
-        },
-        { ...SPACER },
-        {
-          name: "\u{1F6E1}\uFE0F Risk Management",
-          value: `Raising stop loss to ${fmtPrice(instrTp1ForRisk)} (TP1 level) on remaining position. Locking in gains while allowing room to run.`,
-          inline: false,
-        },
-      );
-      break;
-    }
-
-    case "TP3_HIT": {
-      color = GREEN;
-      heading = `**\u{1F3AF} ${signal.ticker}${letfLabel} Take Profit 3 HIT**`;
-      const instrEntry3 = trade.entryPrice ?? 0;
-      const instrExit3 = trade.exitPrice ?? trade.tp2FillPrice ?? 0;
-      const profitPct3 = instrEntry3 > 0 ? fmtPct(instrEntry3, instrExit3) : "?";
-
-      fields.push({ name: `\u{1F7E2} Ticker: ${signal.ticker}`, value: `\u200b`, inline: false });
-      pushInstrumentFields(fields, signal.entryPriceAtActivation ?? instrEntry3);
-
-      fields.push(
-        { name: "\u2705 Entry", value: `${fmtPrice(instrEntry3)}`, inline: true },
-        { name: "\u{1F3AF} TP3 Hit", value: `${fmtPrice(instrExit3)}`, inline: true },
-        { name: "\u{1F4B8} Profit", value: `${profitPct3}`, inline: true },
-        { ...SPACER },
-        { name: "\u{1F6A8} Status: Position Closed \u{1F6A8}", value: "\u200b", inline: false },
-        { name: "\u{1F50D} Position Management", value: `\u2705 Full exit \u2014 all targets reached`, inline: false },
       );
       break;
     }
@@ -970,6 +918,7 @@ export async function postTradeUpdate(
     case "CLOSED": {
       const instrEntryClosed = trade.entryPrice ?? 0;
       const instrExitClosed = trade.exitPrice ?? 0;
+      const instrT2Closed = trade.target2Price ?? 0;
       color = trade.pnl && trade.pnl > 0 ? GREEN : RED;
       const emoji = trade.pnl && trade.pnl > 0 ? "\u{1F4B0}" : "\u{1F4C9}";
       heading = `**${emoji} ${signal.ticker}${letfLabel} Trade Closed**`;
@@ -999,6 +948,17 @@ export async function postTradeUpdate(
           value: `${fmtPnl(trade.pnl)} | R-Multiple: ${trade.rMultiple?.toFixed(2) ?? "\u2014"}`,
           inline: false,
         });
+      }
+
+      if (instrT2Closed > 0) {
+        fields.push(
+          { ...SPACER },
+          {
+            name: "\u{1F6E1}\uFE0F Risk Management",
+            value: `We're keeping our assets safe and closing this trade in profit. This trade could technically reach T2 at ${fmtPrice(instrT2Closed)} but we're not getting greedy.`,
+            inline: false,
+          },
+        );
       }
       break;
     }
@@ -1068,7 +1028,7 @@ export async function sendTestLetfAlert(webhookUrl: string): Promise<boolean> {
     {
       name: "\u{1F4B0} Take Profit Plan",
       value:
-        "Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.\nTake Profit (2): At T2 take off remaining 50.0% of position.",
+        "Take Profit (1): At T1 take off 50.0% of position and raise stop loss to break even.\nTake Profit (2): At T1 close remaining 50%. This trade could reach T2 but we close here — don't get greedy.",
       inline: false,
     },
   ];

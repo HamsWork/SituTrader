@@ -42,7 +42,7 @@ The application follows a full-stack architecture.
 - **Auto Leveraged ETF Mode:** Dynamically selects optimal instruments per signal.
 - **IBKR Integration:** Facilitates full bracket order execution via Interactive Brokers TWS/Gateway.
 - **Discord Alerts:** Quad-channel webhook system with lifecycle embeds for different instrument types. Includes color-coding and 1-per-day gates.
-- **Embed Template System:** 24 editable Discord embed templates stored in `embed_templates` DB table, with `{{variable}}` placeholders.
+- **Embed Template System:** 20 editable Discord embed templates stored in `embed_templates` DB table, with `{{variable}}` placeholders. TP2_HIT event removed; CLOSED template includes T2 potential price risk management note.
 - **Backtest Worker:** Background job system that processes all universe tickers × 6 setups incrementally, with checkpoint-based resumption and rate-limited Polygon API access.
 - **Bar Cache:** Persistent two-tier caching system (`server/lib/barCache/`) using SQLite for on-disk storage and an in-memory layer.
 

@@ -1819,11 +1819,11 @@ export async function registerRoutes(
       };
 
       const defaultScenarios: ScenarioConfig[] = [
-        { name: "Option Winner (Full TP2)", events: ["FILLED", "TP1_HIT", "TP2_HIT"], instrumentType: "OPTION", outcome: "WINNER" },
+        { name: "Option Winner (Full Close)", events: ["FILLED", "TP1_HIT", "CLOSED"], instrumentType: "OPTION", outcome: "WINNER" },
         { name: "Option Loser (Stopped Out)", events: ["FILLED", "TIME_STOP", "STOPPED_OUT"], instrumentType: "OPTION", outcome: "LOSER" },
         { name: "LETF Winner (TP1 + BE Stop)", events: ["FILLED", "TP1_HIT", "RAISE_STOP", "STOPPED_OUT_AFTER_TP"], instrumentType: "LEVERAGED_ETF", outcome: "BE_STOP" },
-        { name: "LETF Full Winner (TP2 + Close)", events: ["FILLED", "TP1_HIT", "TP2_HIT", "CLOSED"], instrumentType: "LEVERAGED_ETF", outcome: "WINNER" },
-        { name: "Shares Winner (Full TP2)", events: ["FILLED", "TP1_HIT", "TP2_HIT"], instrumentType: "SHARES", outcome: "WINNER" },
+        { name: "LETF Full Winner (Close)", events: ["FILLED", "TP1_HIT", "CLOSED"], instrumentType: "LEVERAGED_ETF", outcome: "WINNER" },
+        { name: "Shares Winner (Full Close)", events: ["FILLED", "TP1_HIT", "CLOSED"], instrumentType: "SHARES", outcome: "WINNER" },
       ];
 
       const activeScenarios: ScenarioConfig[] = scenarios ?? defaultScenarios;

@@ -1,5 +1,5 @@
 export const INSTRUMENT_TYPES = ["OPTIONS", "SHARES", "LEVERAGED_ETF", "LETF_OPTIONS"] as const;
-export const EVENT_TYPES = ["FILLED", "TP1_HIT", "TP2_HIT", "RAISE_STOP", "STOPPED_OUT", "CLOSED"] as const;
+export const EVENT_TYPES = ["FILLED", "TP1_HIT", "RAISE_STOP", "STOPPED_OUT", "CLOSED"] as const;
 
 export type InstrumentType = typeof INSTRUMENT_TYPES[number];
 export type EventType = typeof EVENT_TYPES[number];
@@ -183,26 +183,6 @@ function tp1LetfOptions(): TemplateEmbed {
   };
 }
 
-function tp2Template(instrumentLabel: string, instrumentFields: TemplateField[]): TemplateEmbed {
-  return {
-    description: `**🎯 {{ticker}}${instrumentLabel} Take Profit 2 HIT**`,
-    color: "#22c55e",
-    fields: [
-      { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
-      ...instrumentFields,
-      { name: "✅ Entry", value: "{{entry_price}}", inline: true },
-      { name: "🎯 TP2 Hit", value: "{{tp2_fill_price}}", inline: true },
-      { name: "💸 Profit", value: "{{profit_pct}}", inline: true },
-      { ...SPACER },
-      { name: "🚨 Status: TP2 Reached 🚨", value: "\u200b", inline: false },
-      { name: "🔍 Position Management", value: "✅ Reduce position by 50% of remaining (lock in {{profit_pct}})\n🎯 Set trailing stop on remaining runners", inline: false },
-      { ...SPACER },
-      { name: "🛡️ Risk Management", value: "Raising stop loss to {{tp1_fill_price}} (TP1 level) on remaining position. Locking in gains while allowing room to run.", inline: false },
-    ],
-    footer: FOOTER,
-  };
-}
-
 function raiseStopTemplate(instrumentLabel: string, instrumentFields: TemplateField[]): TemplateEmbed {
   return {
     description: `**🛡️ {{ticker}}${instrumentLabel} Stop Loss Raised**`,
@@ -253,6 +233,8 @@ function closedTemplate(instrumentLabel: string, instrumentFields: TemplateField
       { ...SPACER },
       { name: "🚨 Status: Position Closed 🚨", value: "\u200b", inline: false },
       { name: "Total P&L", value: "{{pnl_dollar}} | R-Multiple: {{r_multiple}}", inline: false },
+      { ...SPACER },
+      { name: "🛡️ Risk Management", value: "We're keeping our assets safe and closing this trade in profit. This trade could technically reach T2 at {{t2_price}} but we're not getting greedy.", inline: false },
     ],
     footer: FOOTER,
   };
@@ -295,11 +277,6 @@ export function getDefaultTemplates(): Array<{
     { instrumentType: "LEVERAGED_ETF", eventType: "TP1_HIT", templateName: "Leveraged ETF — TP1 Hit", embedJson: tp1Letf() },
     { instrumentType: "LETF_OPTIONS", eventType: "TP1_HIT", templateName: "LETF Options — TP1 Hit", embedJson: tp1LetfOptions() },
 
-    { instrumentType: "OPTIONS", eventType: "TP2_HIT", templateName: "Options — TP2 Hit", embedJson: tp2Template("", optionsInstrFields) },
-    { instrumentType: "SHARES", eventType: "TP2_HIT", templateName: "Shares — TP2 Hit", embedJson: tp2Template("", sharesInstrFields) },
-    { instrumentType: "LEVERAGED_ETF", eventType: "TP2_HIT", templateName: "Leveraged ETF — TP2 Hit", embedJson: tp2Template(" → {{letf_ticker}}", letfInstrFields) },
-    { instrumentType: "LETF_OPTIONS", eventType: "TP2_HIT", templateName: "LETF Options — TP2 Hit", embedJson: tp2Template(" → {{letf_ticker}}", letfOptionsInstrFields) },
-
     { instrumentType: "OPTIONS", eventType: "RAISE_STOP", templateName: "Options — Raise Stop", embedJson: raiseStopTemplate("", optionsInstrFields) },
     { instrumentType: "SHARES", eventType: "RAISE_STOP", templateName: "Shares — Raise Stop", embedJson: raiseStopTemplate("", sharesInstrFields) },
     { instrumentType: "LEVERAGED_ETF", eventType: "RAISE_STOP", templateName: "Leveraged ETF — Raise Stop", embedJson: raiseStopTemplate(" → {{letf_ticker}}", letfInstrFields) },
@@ -334,6 +311,7 @@ export const AVAILABLE_VARIABLES: Record<string, string> = {
   "{{letf_direction}}": "LETF direction (BULL/BEAR)",
   "{{tp1_fill_price}}": "TP1 fill price",
   "{{tp2_fill_price}}": "TP2 fill price",
+  "{{t2_price}}": "T2 target price (magnet + 0.15×ATR)",
   "{{profit_pct}}": "Profit/loss percentage",
   "{{exit_price}}": "Exit/close price",
   "{{new_stop_price}}": "New stop price after raise",
