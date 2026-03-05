@@ -100,7 +100,7 @@ function filledLetfOptions(): TemplateEmbed {
 
 function tp1Options(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} Take Profit 1 HIT**",
+    description: "**🎯 {{ticker}} Options Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -122,7 +122,7 @@ function tp1Options(): TemplateEmbed {
 
 function tp1Shares(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} Take Profit 1 HIT**",
+    description: "**🎯 {{ticker}} Shares Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -141,7 +141,7 @@ function tp1Shares(): TemplateEmbed {
 
 function tp1Letf(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} → {{letf_ticker}} Take Profit 1 HIT**",
+    description: "**🎯 {{letf_ticker}} Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -163,7 +163,7 @@ function tp1Letf(): TemplateEmbed {
 
 function tp1LetfOptions(): TemplateEmbed {
   return {
-    description: "**🎯 {{ticker}} → {{letf_ticker}} Options Take Profit 1 HIT**",
+    description: "**🎯 {{letf_ticker}} Options Take Profit 1 HIT**",
     color: "#22c55e",
     fields: [
       { name: "🟢 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -183,9 +183,11 @@ function tp1LetfOptions(): TemplateEmbed {
   };
 }
 
-function raiseStopTemplate(instrumentLabel: string, instrumentFields: TemplateField[]): TemplateEmbed {
+function raiseStopTemplate(instrumentType: string, instrumentTicker: string, instrumentFields: TemplateField[]): TemplateEmbed {
+  const titleSymbol = instrumentType === "LEVERAGED_ETF"  || instrumentType === "LETF_OPTIONS" ? instrumentTicker : "{{ticker}}";
+  const isSharesString = instrumentType === "SHARES" || instrumentType === "LEVERAGED_ETF" ? "Shares" : "Options";
   return {
-    description: `**🛡️ {{ticker}}${instrumentLabel} Stop Loss Raised**`,
+    description: `**🛡️ ${titleSymbol} ${isSharesString} Stop Loss Raised**`,
     color: "#eab308",
     fields: [
       { name: "🟠 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -201,9 +203,11 @@ function raiseStopTemplate(instrumentLabel: string, instrumentFields: TemplateFi
   };
 }
 
-function stoppedOutTemplate(instrumentLabel: string, instrumentFields: TemplateField[]): TemplateEmbed {
+function stoppedOutTemplate(instrumentType: string, instrumentTicker: string, instrumentFields: TemplateField[]): TemplateEmbed {
+  const titleSymbol = instrumentType === "LEVERAGED_ETF"  || instrumentType === "LETF_OPTIONS" ? instrumentTicker : "{{ticker}}";
+  const isSharesString = instrumentType === "SHARES" || instrumentType === "LEVERAGED_ETF" ? "Shares" : "Options";
   return {
-    description: `**🛑 {{ticker}}${instrumentLabel} Stop Loss HIT**`,
+    description: `**🛑 ${titleSymbol} ${isSharesString} Stop Loss HIT**`,
     color: "#ef4444",
     fields: [
       { name: "🛑 Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -220,9 +224,11 @@ function stoppedOutTemplate(instrumentLabel: string, instrumentFields: TemplateF
   };
 }
 
-function closedTemplate(instrumentLabel: string, instrumentFields: TemplateField[]): TemplateEmbed {
+function closedTemplate(instrumentType: string, instrumentTicker: string, instrumentFields: TemplateField[]): TemplateEmbed {
+  const titleSymbol = instrumentType === "LEVERAGED_ETF"  || instrumentType === "LETF_OPTIONS" ? instrumentTicker : "{{ticker}}";
+  const isSharesString = instrumentType === "SHARES" || instrumentType === "LEVERAGED_ETF" ? "Shares" : "Options";
   return {
-    description: `**{{pnl_emoji}} {{ticker}}${instrumentLabel} Trade Closed**`,
+    description: `**{{pnl_emoji}} ${titleSymbol} ${isSharesString} Trade Closed**`,
     color: "{{pnl_color}}",
     fields: [
       { name: "{{status_emoji}} Ticker: {{ticker}}", value: "\u200b", inline: false },
@@ -277,20 +283,20 @@ export function getDefaultTemplates(): Array<{
     { instrumentType: "LEVERAGED_ETF", eventType: "TP1_HIT", templateName: "Leveraged ETF — TP1 Hit", embedJson: tp1Letf() },
     { instrumentType: "LETF_OPTIONS", eventType: "TP1_HIT", templateName: "LETF Options — TP1 Hit", embedJson: tp1LetfOptions() },
 
-    { instrumentType: "OPTIONS", eventType: "RAISE_STOP", templateName: "Options — Raise Stop", embedJson: raiseStopTemplate("", optionsInstrFields) },
-    { instrumentType: "SHARES", eventType: "RAISE_STOP", templateName: "Shares — Raise Stop", embedJson: raiseStopTemplate("", sharesInstrFields) },
-    { instrumentType: "LEVERAGED_ETF", eventType: "RAISE_STOP", templateName: "Leveraged ETF — Raise Stop", embedJson: raiseStopTemplate(" → {{letf_ticker}}", letfInstrFields) },
-    { instrumentType: "LETF_OPTIONS", eventType: "RAISE_STOP", templateName: "LETF Options — Raise Stop", embedJson: raiseStopTemplate(" → {{letf_ticker}}", letfOptionsInstrFields) },
+    { instrumentType: "OPTIONS", eventType: "RAISE_STOP", templateName: "Options — Raise Stop", embedJson: raiseStopTemplate("OPTIONS", "", optionsInstrFields) },
+    { instrumentType: "SHARES", eventType: "RAISE_STOP", templateName: "Shares — Raise Stop", embedJson: raiseStopTemplate("SHARES", "", sharesInstrFields) },
+    { instrumentType: "LEVERAGED_ETF", eventType: "RAISE_STOP", templateName: "Leveraged ETF — Raise Stop", embedJson: raiseStopTemplate("LEVERAGED_ETF", "{{letf_ticker}}", letfInstrFields) },
+    { instrumentType: "LETF_OPTIONS", eventType: "RAISE_STOP", templateName: "LETF Options — Raise Stop", embedJson: raiseStopTemplate("LETF_OPTIONS", "{{letf_ticker}}", letfOptionsInstrFields) },
 
-    { instrumentType: "OPTIONS", eventType: "STOPPED_OUT", templateName: "Options — Stopped Out", embedJson: stoppedOutTemplate("", optionsInstrFields) },
-    { instrumentType: "SHARES", eventType: "STOPPED_OUT", templateName: "Shares — Stopped Out", embedJson: stoppedOutTemplate("", sharesInstrFields) },
-    { instrumentType: "LEVERAGED_ETF", eventType: "STOPPED_OUT", templateName: "Leveraged ETF — Stopped Out", embedJson: stoppedOutTemplate(" → {{letf_ticker}}", letfInstrFields) },
-    { instrumentType: "LETF_OPTIONS", eventType: "STOPPED_OUT", templateName: "LETF Options — Stopped Out", embedJson: stoppedOutTemplate(" → {{letf_ticker}}", letfOptionsInstrFields) },
+    { instrumentType: "OPTIONS", eventType: "STOPPED_OUT", templateName: "Options — Stopped Out", embedJson: stoppedOutTemplate("OPTIONS", "", optionsInstrFields) },
+    { instrumentType: "SHARES", eventType: "STOPPED_OUT", templateName: "Shares — Stopped Out", embedJson: stoppedOutTemplate("SHARES", "", sharesInstrFields) },
+    { instrumentType: "LEVERAGED_ETF", eventType: "STOPPED_OUT", templateName: "Leveraged ETF — Stopped Out", embedJson: stoppedOutTemplate("LEVERAGED_ETF", "{{letf_ticker}}", letfInstrFields) },
+    { instrumentType: "LETF_OPTIONS", eventType: "STOPPED_OUT", templateName: "LETF Options — Stopped Out", embedJson: stoppedOutTemplate("LETF_OPTIONS", "{{letf_ticker}}", letfOptionsInstrFields) },
 
-    { instrumentType: "OPTIONS", eventType: "CLOSED", templateName: "Options — Trade Closed", embedJson: closedTemplate("", optionsInstrFields) },
-    { instrumentType: "SHARES", eventType: "CLOSED", templateName: "Shares — Trade Closed", embedJson: closedTemplate("", sharesInstrFields) },
-    { instrumentType: "LEVERAGED_ETF", eventType: "CLOSED", templateName: "Leveraged ETF — Trade Closed", embedJson: closedTemplate(" → {{letf_ticker}}", letfInstrFields) },
-    { instrumentType: "LETF_OPTIONS", eventType: "CLOSED", templateName: "LETF Options — Trade Closed", embedJson: closedTemplate(" → {{letf_ticker}}", letfOptionsInstrFields) },
+    { instrumentType: "OPTIONS", eventType: "CLOSED", templateName: "Options — Trade Closed", embedJson: closedTemplate("OPTIONS", "", optionsInstrFields) },
+    { instrumentType: "SHARES", eventType: "CLOSED", templateName: "Shares — Trade Closed", embedJson: closedTemplate("SHARES", "", sharesInstrFields) },
+    { instrumentType: "LEVERAGED_ETF", eventType: "CLOSED", templateName: "Leveraged ETF — Trade Closed", embedJson: closedTemplate("LEVERAGED_ETF", "{{letf_ticker}}", letfInstrFields) },
+    { instrumentType: "LETF_OPTIONS", eventType: "CLOSED", templateName: "LETF Options — Trade Closed", embedJson: closedTemplate("LETF_OPTIONS", "{{letf_ticker}}", letfOptionsInstrFields) },
   ];
 }
 
