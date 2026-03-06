@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { fetchOptionMark, fetchOptionMarkAtTime } from "./polygon";
 import { log } from "../index";
 import { isRTH } from "../jobs/scheduler";
+import { isOptionContractExpired } from "./options";
 import type { Signal, OptionsData, OptionLive } from "@shared/schema";
 
 const optionLiveCache = new Map<number, OptionLive>();
@@ -12,9 +13,15 @@ const RTH_INTERVAL = 10_000;
 const OFF_HOURS_INTERVAL = 5 * 60_000;
 
 function getContractTicker(signal: Signal): string | null {
-  if (signal.optionContractTicker) return signal.optionContractTicker;
+  if (signal.optionContractTicker) {
+    if (isOptionContractExpired(signal.optionContractTicker)) return null;
+    return signal.optionContractTicker;
+  }
   const opts = signal.optionsJson as OptionsData | null;
-  if (opts?.candidate?.contractSymbol) return opts.candidate.contractSymbol;
+  if (opts?.candidate?.contractSymbol) {
+    if (isOptionContractExpired(opts.candidate.contractSymbol)) return null;
+    return opts.candidate.contractSymbol;
+  }
   return null;
 }
 

@@ -121,6 +121,16 @@ export async function initScheduler() {
       const summary = await runPreOpenScan();
 
       try {
+        const { reEnrichExpiredOptions } = await import("../lib/options");
+        const reEnrichResult = await reEnrichExpiredOptions();
+        if (reEnrichResult.checked > 0) {
+          log(`Pre-Open option re-enrichment: checked=${reEnrichResult.checked}, replaced=${reEnrichResult.reEnriched}, errors=${reEnrichResult.errors}`, "scheduler");
+        }
+      } catch (reErr: any) {
+        log(`Pre-Open option re-enrichment error: ${reErr.message}`, "scheduler");
+      }
+
+      try {
         const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
         if (btodEnabled) {
           const { initializeBtodForDay } = await import("../lib/btod");
@@ -144,6 +154,9 @@ export async function initScheduler() {
     }
   }, { timezone: CT });
 
+  let lastOptionReEnrichMs = 0;
+  const OPTION_REENRICH_INTERVAL = 60 * 60 * 1000;
+
   liveMonitorJob = cron.schedule("* * * * *", async () => {
     try {
       const st = await storage.getSchedulerState();
@@ -163,6 +176,19 @@ export async function initScheduler() {
         }
       } catch (btodErr: any) {
         log(`BTOD phase check error: ${btodErr.message}`, "scheduler");
+      }
+
+      try {
+        if (Date.now() - lastOptionReEnrichMs >= OPTION_REENRICH_INTERVAL) {
+          const { reEnrichExpiredOptions } = await import("../lib/options");
+          const result = await reEnrichExpiredOptions();
+          lastOptionReEnrichMs = Date.now();
+          if (result.checked > 0) {
+            log(`Option re-enrichment: checked=${result.checked}, replaced=${result.reEnriched}, errors=${result.errors}`, "scheduler");
+          }
+        }
+      } catch (reEnrichErr: any) {
+        log(`Option re-enrichment error: ${reEnrichErr.message}`, "scheduler");
       }
 
       log("Live monitor tick starting...", "scheduler");
