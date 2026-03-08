@@ -17,3 +17,5 @@ vite.config.ts.*
 
 test/
 
+package-lock.json
+
