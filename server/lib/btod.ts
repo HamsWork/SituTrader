@@ -612,7 +612,17 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
               });
             }
           } catch (fillErr: any) {
-            await storage.updateIbkrTrade(trade.id, { status: "REJECTED", notes: `Order rejected: ${fillErr.message}` });
+            const fallbackEntry = instrumentEntry > 0 ? instrumentEntry : null;
+            if (fallbackEntry != null) {
+              await storage.updateIbkrTrade(trade.id, {
+                status: "FILLED",
+                entryPrice: fallbackEntry,
+                filledAt: new Date().toISOString(),
+                notes: `Order rejected; filled from signal price. Reject: ${fillErr.message}`,
+              });
+            } else {
+              await storage.updateIbkrTrade(trade.id, { status: "REJECTED", notes: `Order rejected: ${fillErr.message}` });
+            }
           }
         } else {
           await storage.updateIbkrTrade(trade.id, {

@@ -928,7 +928,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveIbkrTrades(): Promise<IbkrTrade[]> {
-    return db.select().from(ibkrTrades).where(eq(ibkrTrades.status, "FILLED")).orderBy(desc(ibkrTrades.id));
+    return db
+      .select()
+      .from(ibkrTrades)
+      .where(
+        sql`${ibkrTrades.status} NOT IN ('CANCELLED', 'CLOSED', 'ERROR')`,
+      )
+      .orderBy(desc(ibkrTrades.id));
   }
 
   async getAllIbkrTrades(): Promise<IbkrTrade[]> {

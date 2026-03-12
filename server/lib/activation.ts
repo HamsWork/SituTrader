@@ -802,3 +802,33 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   log(`Activation scan complete: ${events.length} events`, "activation");
   return events;
 }
+
+/**
+ * Ensure a signal has LETF data (leveragedEtfJson, instrumentTicker, etc.) for Discord/alert. Fetches and stores if missing and ticker has mapping.
+ */
+export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null> {
+  const letfData = signal.leveragedEtfJson as any;
+  if (letfData?.ticker || signal.instrumentTicker) {
+    const fresh = await storage.getSignals(undefined, 5000);
+    const s = fresh.find((s: any) => s.id === signal.id);
+    return s ?? signal;
+  }
+  const ticker = signal.ticker;
+  if (!hasLeveragedEtfMapping(ticker)) return null;
+  const tp = signal.tradePlanJson as TradePlan | null;
+  if (!tp) return null;
+  try {
+    const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
+    if (!suggestion) return null;
+    const letfQuote = await fetchStockNbbo(suggestion.ticker);
+    const letfEntry = letfQuote?.mid ?? null;
+    await storage.updateSignalLeveragedEtf(signal.id, suggestion);
+    await storage.updateSignalInstrument(signal.id, "LEVERAGED_ETF", suggestion.ticker, letfEntry);
+    const fresh = await storage.getSignals(undefined, 5000);
+    const s = fresh.find((s: any) => s.id === signal.id);
+    return s ?? signal;
+  } catch (err: any) {
+    log(`ensureLetfForSignal error for signal ${signal.id}: ${err.message}`, "activation");
+    return null;
+  }
+}

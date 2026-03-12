@@ -237,6 +237,16 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
     }
 
     try {
+      const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
+      if (btodEnabled) {
+        const { initializeBtodForDay } = await import("../lib/btod");
+        await initializeBtodForDay();
+      }
+    } catch (btodErr: any) {
+      log(`BTOD init error: ${btodErr.message}`, "scheduler");
+    }
+
+    try {
       const activationEvents = await runActivationScan();
       summary.signalsGenerated = activationEvents.length;
       for (const evt of activationEvents) {

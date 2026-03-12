@@ -178,24 +178,25 @@ export async function postOptionsAlert(
   let optData = signal.optionsJson as any;
   if (!optData?.candidate) {
     try {
-      const { enrichPendingSignalsWithOptions } = await import("./options");
-      await enrichPendingSignalsWithOptions({ force: true });
-      const { storage } = await import("../storage");
-      const freshSigs = await storage.getSignals(undefined, 1000);
-      const freshSig = freshSigs.find((s) => s.id === signal.id);
-      if (freshSig?.optionsJson) {
-        optData = freshSig.optionsJson as any;
-        signal = {
-          ...signal,
-          optionsJson: optData,
-          optionContractTicker:
-            freshSig.optionContractTicker ?? signal.optionContractTicker,
-          optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark,
-        };
+      const { enrichSignalWithOptions } = await import("./options");
+      const enriched = await enrichSignalWithOptions(signal, { force: true });
+      if (enriched) {
+        const { storage } = await import("../storage");
+        const freshSigs = await storage.getSignals(undefined, 1000);
+        const freshSig = freshSigs.find((s) => s.id === signal.id);
+        if (freshSig?.optionsJson) {
+          optData = freshSig.optionsJson as any;
+          signal = {
+            ...signal,
+            optionsJson: freshSig.optionsJson,
+            optionContractTicker: freshSig.optionContractTicker ?? signal.optionContractTicker,
+            optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark,
+          };
+        }
       }
     } catch (err: any) {
       log(
-        `postOptionsAlert: on-demand enrichment failed for signal ${signal.id}: ${err.message}`,
+        `postOptionsAlert: on-demand options enrichment failed for signal ${signal.id}: ${err.message}`,
         "discord",
       );
     }
@@ -282,7 +283,19 @@ export async function postLetfAlert(
   const tp = signal.tradePlanJson as TradePlan;
   if (!tp) return false;
 
-  const letfData = signal.leveragedEtfJson as any;
+  let letfData = signal.leveragedEtfJson as any;
+  if (!letfData) {
+    try {
+      const { ensureLetfForSignal } = await import("./activation");
+      const withLetf = await ensureLetfForSignal(signal);
+      if (withLetf?.leveragedEtfJson) {
+        signal = withLetf;
+        letfData = signal.leveragedEtfJson as any;
+      }
+    } catch (err: any) {
+      log(`postLetfAlert: on-demand LETF fetch failed for signal ${signal.id}: ${err.message}`, "discord");
+    }
+  }
   if (!letfData) return false;
 
   const letfTicker = letfData.ticker || signal.instrumentTicker || "?";
@@ -560,24 +573,25 @@ export async function postTradeUpdate(
   let optData = signal.optionsJson as any;
   if (isOption && !optData?.candidate) {
     try {
-      const { enrichPendingSignalsWithOptions } = await import("./options");
-      await enrichPendingSignalsWithOptions({ force: true });
-      const { storage } = await import("../storage");
-      const freshSigs = await storage.getSignals(undefined, 1000);
-      const freshSig = freshSigs.find((s) => s.id === signal.id);
-      if (freshSig?.optionsJson) {
-        optData = freshSig.optionsJson as any;
-        signal = {
-          ...signal,
-          optionsJson: optData,
-          optionContractTicker:
-            freshSig.optionContractTicker ?? signal.optionContractTicker,
-          optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark,
-        };
+      const { enrichSignalWithOptions } = await import("./options");
+      const enriched = await enrichSignalWithOptions(signal, { force: true });
+      if (enriched) {
+        const { storage } = await import("../storage");
+        const freshSigs = await storage.getSignals(undefined, 1000);
+        const freshSig = freshSigs.find((s) => s.id === signal.id);
+        if (freshSig?.optionsJson) {
+          optData = freshSig.optionsJson as any;
+          signal = {
+            ...signal,
+            optionsJson: freshSig.optionsJson,
+            optionContractTicker: freshSig.optionContractTicker ?? signal.optionContractTicker,
+            optionEntryMark: freshSig.optionEntryMark ?? signal.optionEntryMark,
+          };
+        }
       }
     } catch (err: any) {
       log(
-        `postTradeUpdate: on-demand enrichment failed for signal ${signal.id}: ${err.message}`,
+        `postTradeUpdate: on-demand options enrichment failed for signal ${signal.id}: ${err.message}`,
         "discord",
       );
     }

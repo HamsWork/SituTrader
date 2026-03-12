@@ -130,16 +130,6 @@ export async function initScheduler() {
         log(`Pre-Open option re-enrichment error: ${reErr.message}`, "scheduler");
       }
 
-      try {
-        const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
-        if (btodEnabled) {
-          const { initializeBtodForDay } = await import("../lib/btod");
-          await initializeBtodForDay();
-        }
-      } catch (btodErr: any) {
-        log(`BTOD init error: ${btodErr.message}`, "scheduler");
-      }
-
       await storage.updateSchedulerState({
         lastPreOpenRunTs: new Date().toISOString(),
         lastRunSummaryJson: {
