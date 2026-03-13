@@ -16,6 +16,7 @@ import { runActivationScan, checkEntryTrigger } from "./lib/activation";
 import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
 import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy";
 import { log } from "./index";
+import { getLogEntries, getLogSources } from "./log";
 import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
 import { enrichPendingSignalsWithOptions } from "./lib/options";
 import { startBacktestWorker, pauseBacktestWorker, resumeBacktestWorker, isBacktestWorkerRunning, isBacktestWorkerPaused, autoStartBacktestWorker } from "./jobs/backtestWorker";
@@ -4378,6 +4379,24 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/activity-logs", async (req, res) => {
+    try {
+      const source = req.query.source as string | undefined;
+      const levelParam = req.query.level as string | undefined;
+      const validLevels = ["info", "warn", "error"];
+      const level = levelParam && validLevels.includes(levelParam) ? levelParam : undefined;
+      const rawLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 500;
+      const limit = Math.max(1, Math.min(isNaN(rawLimit) ? 500 : rawLimit, 2000));
+      const sinceParam = req.query.since as string | undefined;
+      const since = sinceParam && !isNaN(Date.parse(sinceParam)) ? sinceParam : undefined;
+      const entries = getLogEntries({ source: source || undefined, level, limit, since });
+      const sources = getLogSources();
+      res.json({ entries, sources, total: entries.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

@@ -20,6 +20,7 @@ import SystemAuditPage from "@/pages/system-audit";
 import ProfitWindowsPage from "@/pages/profit-windows";
 import PerformanceHalfPage from "@/pages/performance-half";
 import ROIInsightsPage from "@/pages/roi-insights";
+import ActivityLogsPage from "@/pages/activity-logs";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/ibkr" component={IbkrDashboard} />
       <Route path="/discord-trades" component={DiscordTradesPage} />
       <Route path="/audit" component={SystemAuditPage} />
+      <Route path="/activity" component={ActivityLogsPage} />
       <Route component={NotFound} />
     </Switch>
   );
