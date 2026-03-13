@@ -86,7 +86,9 @@ export const signals = pgTable("signals", {
   instrumentEntryPrice: real("instrument_entry_price"),
   leveragedEtfJson: jsonb("leveraged_etf_json"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  unique("signals_ticker_setup_asof_target").on(table.ticker, table.setupType, table.asofDate, table.targetDate),
+]);
 
 export const backtests = pgTable("backtests", {
   id: serial("id").primaryKey(),
