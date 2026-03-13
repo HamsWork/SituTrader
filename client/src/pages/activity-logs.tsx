@@ -66,8 +66,8 @@ const typeConfig: Record<string, { label: string; icon: any; color: string; bgCo
 function formatTimestamp(ts: string): { time: string; date: string } {
   const d = new Date(ts);
   return {
-    time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }),
-    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/New_York" }),
+    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" }),
   };
 }
 
@@ -256,7 +256,7 @@ export default function ActivityLogsPage() {
                       </div>
 
                       <div className="text-right shrink-0">
-                        <div className="text-xs text-muted-foreground">{time}</div>
+                        <div className="text-xs text-muted-foreground">{time} <span className="text-[9px] text-muted-foreground/50">ET</span></div>
                         <div className="text-[10px] text-muted-foreground/60">{date}</div>
                       </div>
                     </div>
