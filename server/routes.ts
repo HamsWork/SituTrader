@@ -922,7 +922,7 @@ export async function registerRoutes(
 
   app.get("/stats/bar-cache", async (_req, res) => {
     try {
-      const stats = getBarCacheStats();
+      const stats = await getBarCacheStats();
       res.json(stats);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

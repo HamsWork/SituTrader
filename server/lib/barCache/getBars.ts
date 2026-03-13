@@ -57,9 +57,9 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
     const memHit2 = memGet(memKey);
     if (memHit2) return memHit2;
 
-    const earliestCachedTs = getEarliestCachedTs(symbol, timeframe, adjusted, startTs, endTs);
-    const latestCachedTs = getLatestCachedTs(symbol, timeframe, adjusted, startTs, endTs);
-    const meta = getMeta(symbol, timeframe, adjusted);
+    const earliestCachedTs = await getEarliestCachedTs(symbol, timeframe, adjusted, startTs, endTs);
+    const latestCachedTs = await getLatestCachedTs(symbol, timeframe, adjusted, startTs, endTs);
+    const meta = await getMeta(symbol, timeframe, adjusted);
     const stalenessMs = getStalenessSeconds(timeframe) * 1000;
     const now = Date.now();
     const isFresh = meta != null && now - meta.lastFetched <= stalenessMs;
@@ -71,7 +71,7 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
       latestCachedTs >= endTs;
 
     if (hasFullEdgeCoverage && isFresh) {
-      const bars = queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);
+      const bars = await queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);
       if (!hasInternalGaps(bars, timeframe)) {
         memSet(memKey, bars);
         return bars;
@@ -81,9 +81,9 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
     if (latestCachedTs != null && isFresh && hasFullEdgeCoverage) {
       const allBars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
       if (allBars.length > 0) {
-        upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
+        await upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
       } else {
-        touchMeta(symbol, timeframe, adjusted);
+        await touchMeta(symbol, timeframe, adjusted);
       }
     } else if (latestCachedTs != null) {
       if (earliestCachedTs != null && earliestCachedTs > startTs) {
@@ -93,16 +93,16 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
           endTs: earliestCachedTs - 1,
         });
         if (prefixBars.length > 0) {
-          upsertBarsAndMeta(symbol, timeframe, adjusted, prefixBars);
+          await upsertBarsAndMeta(symbol, timeframe, adjusted, prefixBars);
         }
       }
 
       if (!isFresh) {
         const allBars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
         if (allBars.length > 0) {
-          upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
+          await upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
         } else {
-          touchMeta(symbol, timeframe, adjusted);
+          await touchMeta(symbol, timeframe, adjusted);
         }
       } else {
         const fetchStart = latestCachedTs + 1;
@@ -113,20 +113,20 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
             endTs,
           });
           if (suffixBars.length > 0) {
-            upsertBarsAndMeta(symbol, timeframe, adjusted, suffixBars);
+            await upsertBarsAndMeta(symbol, timeframe, adjusted, suffixBars);
           } else {
-            touchMeta(symbol, timeframe, adjusted);
+            await touchMeta(symbol, timeframe, adjusted);
           }
         } else {
-          touchMeta(symbol, timeframe, adjusted);
+          await touchMeta(symbol, timeframe, adjusted);
         }
       }
     } else {
       const allBars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
-      upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
+      await upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
     }
 
-    const finalBars = queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);
+    const finalBars = await queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);
     memSet(memKey, finalBars);
     return finalBars;
   } finally {

@@ -671,3 +671,27 @@ export const btodState = pgTable("btod_state", {
 
 export type BtodState = typeof btodState.$inferSelect;
 export type InsertBtodState = typeof btodState.$inferInsert;
+
+// Bar cache (Polygon bar cache — used when BAR_CACHE_DB_URL is a Postgres URL)
+export const barCache = pgTable(
+  "bar_cache",
+  {
+    symbol: text("symbol").notNull(),
+    timeframe: text("timeframe").notNull(),
+    adjusted: integer("adjusted").notNull(),
+    timestamp: real("timestamp").notNull(),
+    open: real("open").notNull(),
+    high: real("high").notNull(),
+    low: real("low").notNull(),
+    close: real("close").notNull(),
+    volume: real("volume").notNull(),
+  },
+  (table) => [unique("bar_cache_symbol_tf_adj_ts").on(table.symbol, table.timeframe, table.adjusted, table.timestamp)],
+);
+
+export const barCacheMeta = pgTable("bar_cache_meta", {
+  symbol: text("symbol").notNull(),
+  timeframe: text("timeframe").notNull(),
+  adjusted: integer("adjusted").notNull(),
+  lastFetched: real("last_fetched").notNull(),
+}, (table) => [unique("bar_cache_meta_pkey").on(table.symbol, table.timeframe, table.adjusted)]);
