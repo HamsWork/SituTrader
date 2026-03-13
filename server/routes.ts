@@ -4383,8 +4383,10 @@ export async function registerRoutes(
 
   app.get("/api/activity-feed", async (req, res) => {
     try {
-      const rawLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
-      const limit = Math.max(1, Math.min(isNaN(rawLimit) ? 100 : rawLimit, 500));
+      const rawLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const limit = Math.max(1, Math.min(isNaN(rawLimit) ? 50 : rawLimit, 500));
+      const rawPage = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+      const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
       const typeFilter = req.query.type as string | undefined;
 
       const activities: Array<{
@@ -4546,7 +4548,12 @@ export async function registerRoutes(
 
       const eventTypes = [...new Set(activities.map(a => a.type))].sort();
 
-      res.json({ activities: filtered.slice(0, limit), eventTypes, typeCounts, total: filtered.length });
+      const totalFiltered = filtered.length;
+      const totalPages = Math.ceil(totalFiltered / limit);
+      const offset = (page - 1) * limit;
+      const paged = filtered.slice(offset, offset + limit);
+
+      res.json({ activities: paged, eventTypes, typeCounts, total: totalFiltered, page, totalPages, perPage: limit });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

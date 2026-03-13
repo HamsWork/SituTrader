@@ -26,6 +26,8 @@ import {
   Send,
   DollarSign,
   ArrowUpCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 interface ActivityItem {
@@ -43,6 +45,9 @@ interface FeedResponse {
   eventTypes: string[];
   typeCounts: Record<string, number>;
   total: number;
+  page: number;
+  totalPages: number;
+  perPage: number;
 }
 
 const typeConfig: Record<string, { label: string; icon: any; color: string; bgColor: string }> = {
@@ -70,21 +75,25 @@ function getTypeLabel(type: string): string {
   return typeConfig[type]?.label || type;
 }
 
+const PAGE_SIZE = 50;
+
 export default function ActivityLogsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
 
   const { data, isLoading, isError, refetch } = useQuery<FeedResponse>({
-    queryKey: ["/api/activity-feed", typeFilter !== "all" ? typeFilter : ""],
+    queryKey: ["/api/activity-feed", typeFilter !== "all" ? typeFilter : "", page],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (typeFilter !== "all") params.set("type", typeFilter);
-      params.set("limit", "300");
+      params.set("limit", String(PAGE_SIZE));
+      params.set("page", String(page));
       const res = await fetch(`/api/activity-feed?${params}`);
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
       return res.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: page === 1 ? 30000 : false,
   });
 
   const filteredActivities = (data?.activities ?? []).filter((a) => {
@@ -98,6 +107,13 @@ export default function ActivityLogsPage() {
   });
 
   const typeCounts = data?.typeCounts ?? {};
+  const totalPages = data?.totalPages ?? 1;
+  const totalEvents = data?.total ?? 0;
+
+  function handleTypeChange(newType: string) {
+    setTypeFilter(newType);
+    setPage(1);
+  }
 
   return (
     <div className="p-6 space-y-4" data-testid="page-activity-feed">
@@ -120,7 +136,7 @@ export default function ActivityLogsPage() {
           return (
             <button
               key={type}
-              onClick={() => setTypeFilter(typeFilter === type ? "all" : type)}
+              onClick={() => handleTypeChange(typeFilter === type ? "all" : type)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                 typeFilter === type
                   ? cfg.bgColor + " ring-1 ring-current " + cfg.color
@@ -137,7 +153,7 @@ export default function ActivityLogsPage() {
       </div>
 
       <div className="flex items-center gap-3">
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
+        <Select value={typeFilter} onValueChange={handleTypeChange}>
           <SelectTrigger className="w-[180px] h-8 text-xs" data-testid="select-type-filter">
             <SelectValue placeholder="All Events" />
           </SelectTrigger>
@@ -159,7 +175,7 @@ export default function ActivityLogsPage() {
           />
         </div>
         <span className="text-xs text-muted-foreground whitespace-nowrap" data-testid="text-count">
-          {filteredActivities.length} events
+          {totalEvents} events
         </span>
       </div>
 
@@ -250,6 +266,33 @@ export default function ActivityLogsPage() {
             )}
           </ScrollArea>
         </CardContent>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+              data-testid="button-prev-page"
+            >
+              <ChevronLeft className="w-3 h-3 mr-1" />
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground" data-testid="text-page-info">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage(page + 1)}
+              data-testid="button-next-page"
+            >
+              Next
+              <ChevronRight className="w-3 h-3 ml-1" />
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   );
