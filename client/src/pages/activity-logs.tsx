@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,273 +12,237 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Activity, RefreshCw, Search, Pause, Play, ArrowDown, Filter } from "lucide-react";
+import {
+  Activity,
+  RefreshCw,
+  Search,
+  Target,
+  TrendingUp,
+  TrendingDown,
+  Zap,
+  Trophy,
+  X,
+  ShieldCheck,
+  Send,
+  DollarSign,
+  ArrowUpCircle,
+} from "lucide-react";
 
-interface LogEntry {
+interface ActivityItem {
+  id: string;
+  type: string;
   timestamp: string;
-  source: string;
-  message: string;
-  level: "info" | "warn" | "error";
+  ticker: string;
+  title: string;
+  detail: string;
+  meta?: Record<string, any>;
 }
 
-interface LogResponse {
-  entries: LogEntry[];
-  sources: string[];
+interface FeedResponse {
+  activities: ActivityItem[];
+  eventTypes: string[];
+  typeCounts: Record<string, number>;
   total: number;
 }
 
-const levelColors: Record<string, string> = {
-  info: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  warn: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  error: "bg-red-500/10 text-red-500 border-red-500/20",
+const typeConfig: Record<string, { label: string; icon: any; color: string; bgColor: string }> = {
+  activation: { label: "Activation", icon: Zap, color: "text-green-400", bgColor: "bg-green-500/10 border-green-500/20" },
+  hit: { label: "Hit Target", icon: Target, color: "text-emerald-400", bgColor: "bg-emerald-500/10 border-emerald-500/20" },
+  miss: { label: "Missed", icon: X, color: "text-red-400", bgColor: "bg-red-500/10 border-red-500/20" },
+  stop_moved: { label: "Stop Moved", icon: ShieldCheck, color: "text-blue-400", bgColor: "bg-blue-500/10 border-blue-500/20" },
+  trade_fill: { label: "Trade Fill", icon: DollarSign, color: "text-cyan-400", bgColor: "bg-cyan-500/10 border-cyan-500/20" },
+  trade_tp1: { label: "TP1 Hit", icon: ArrowUpCircle, color: "text-teal-400", bgColor: "bg-teal-500/10 border-teal-500/20" },
+  trade_stopped: { label: "Stopped Out", icon: TrendingDown, color: "text-red-400", bgColor: "bg-red-500/10 border-red-500/20" },
+  trade_closed: { label: "Trade Closed", icon: TrendingUp, color: "text-amber-400", bgColor: "bg-amber-500/10 border-amber-500/20" },
+  discord: { label: "Discord", icon: Send, color: "text-indigo-400", bgColor: "bg-indigo-500/10 border-indigo-500/20" },
+  btod: { label: "BTOD", icon: Trophy, color: "text-orange-400", bgColor: "bg-orange-500/10 border-orange-500/20" },
 };
 
-const sourceColors: Record<string, string> = {
-  scheduler: "bg-purple-500/10 text-purple-400",
-  activation: "bg-green-500/10 text-green-400",
-  btod: "bg-orange-500/10 text-orange-400",
-  optionMonitor: "bg-cyan-500/10 text-cyan-400",
-  letfMonitor: "bg-teal-500/10 text-teal-400",
-  discord: "bg-indigo-500/10 text-indigo-400",
-  ibkr: "bg-pink-500/10 text-pink-400",
-  polygon: "bg-amber-500/10 text-amber-400",
-  options: "bg-violet-500/10 text-violet-400",
-  express: "bg-slate-500/10 text-slate-400",
-};
-
-function formatTime(ts: string): string {
+function formatTimestamp(ts: string): { time: string; date: string } {
   const d = new Date(ts);
-  return d.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
+  return {
+    time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }),
+    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+  };
 }
 
-function formatDate(ts: string): string {
-  const d = new Date(ts);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function getTypeLabel(type: string): string {
+  return typeConfig[type]?.label || type;
 }
 
 export default function ActivityLogsPage() {
-  const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState("");
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery<LogResponse>({
-    queryKey: [
-      "/api/activity-logs",
-      sourceFilter !== "all" ? sourceFilter : "",
-      levelFilter !== "all" ? levelFilter : "",
-    ],
+  const { data, isLoading, isError, refetch } = useQuery<FeedResponse>({
+    queryKey: ["/api/activity-feed", typeFilter !== "all" ? typeFilter : ""],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (sourceFilter !== "all") params.set("source", sourceFilter);
-      if (levelFilter !== "all") params.set("level", levelFilter);
-      params.set("limit", "1000");
-      const res = await fetch(`/api/activity-logs?${params}`);
-      if (!res.ok) {
-        throw new Error(`Failed to fetch logs: ${res.status}`);
-      }
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      params.set("limit", "300");
+      const res = await fetch(`/api/activity-feed?${params}`);
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
       return res.json();
     },
-    refetchInterval: autoRefresh ? 3000 : false,
+    refetchInterval: 30000,
   });
 
-  const filteredEntries = (data?.entries ?? []).filter((e) => {
+  const filteredActivities = (data?.activities ?? []).filter((a) => {
     if (!searchText) return true;
     const lower = searchText.toLowerCase();
     return (
-      e.message.toLowerCase().includes(lower) ||
-      e.source.toLowerCase().includes(lower) ||
-      e.timestamp.toLowerCase().includes(lower)
+      a.ticker.toLowerCase().includes(lower) ||
+      a.title.toLowerCase().includes(lower) ||
+      a.detail.toLowerCase().includes(lower)
     );
   });
 
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      const el = scrollRef.current.querySelector("[data-radix-scroll-area-viewport]");
-      if (el) {
-        el.scrollTop = el.scrollHeight;
-      }
-    }
-  }, [filteredEntries.length, autoScroll]);
-
-  const infoCount = filteredEntries.filter((e) => e.level === "info").length;
-  const warnCount = filteredEntries.filter((e) => e.level === "warn").length;
-  const errorCount = filteredEntries.filter((e) => e.level === "error").length;
+  const typeCounts = data?.typeCounts ?? {};
 
   return (
-    <div className="p-6 space-y-4" data-testid="page-activity-logs">
+    <div className="p-6 space-y-4" data-testid="page-activity-feed">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-primary" />
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Activity Logs</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Activity Feed</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={autoRefresh ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            data-testid="button-toggle-auto-refresh"
-          >
-            {autoRefresh ? <Pause className="w-3 h-3 mr-1" /> : <Play className="w-3 h-3 mr-1" />}
-            {autoRefresh ? "Live" : "Paused"}
-          </Button>
-          <Button
-            variant={autoScroll ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAutoScroll(!autoScroll)}
-            data-testid="button-toggle-auto-scroll"
-          >
-            <ArrowDown className="w-3 h-3 mr-1" />
-            Auto-scroll
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-logs">
-            <RefreshCw className="w-3 h-3 mr-1" />
-            Refresh
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh">
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Refresh
+        </Button>
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-muted-foreground" />
-          <Select value={sourceFilter} onValueChange={setSourceFilter}>
-            <SelectTrigger className="w-[160px] h-8 text-xs" data-testid="select-source-filter">
-              <SelectValue placeholder="All Sources" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sources</SelectItem>
-              {(data?.sources ?? []).map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+        {Object.entries(typeConfig).map(([type, cfg]) => {
+          const count = typeCounts[type] || 0;
+          if (count === 0) return null;
+          const Icon = cfg.icon;
+          return (
+            <button
+              key={type}
+              onClick={() => setTypeFilter(typeFilter === type ? "all" : type)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                typeFilter === type
+                  ? cfg.bgColor + " ring-1 ring-current " + cfg.color
+                  : "bg-card border-border hover:bg-muted/50 text-muted-foreground"
+              }`}
+              data-testid={`filter-${type}`}
+            >
+              <Icon className={`w-3.5 h-3.5 ${typeFilter === type ? cfg.color : ""}`} />
+              <span>{cfg.label}</span>
+              <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 h-4">{count}</Badge>
+            </button>
+          );
+        })}
+      </div>
 
-        <Select value={levelFilter} onValueChange={setLevelFilter}>
-          <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-level-filter">
-            <SelectValue placeholder="All Levels" />
+      <div className="flex items-center gap-3">
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[180px] h-8 text-xs" data-testid="select-type-filter">
+            <SelectValue placeholder="All Events" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Levels</SelectItem>
-            <SelectItem value="info">Info</SelectItem>
-            <SelectItem value="warn">Warning</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
+            <SelectItem value="all">All Events</SelectItem>
+            {(data?.eventTypes ?? []).map((t) => (
+              <SelectItem key={t} value={t}>{getTypeLabel(t)}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
-
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
           <Input
             className="h-8 pl-7 text-xs"
-            placeholder="Search logs..."
+            placeholder="Search by ticker, event..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            data-testid="input-search-logs"
+            data-testid="input-search"
           />
         </div>
-
-        <div className="flex items-center gap-2 text-xs">
-          <Badge variant="outline" className={levelColors.info} data-testid="badge-info-count">
-            {infoCount} info
-          </Badge>
-          <Badge variant="outline" className={levelColors.warn} data-testid="badge-warn-count">
-            {warnCount} warn
-          </Badge>
-          <Badge variant="outline" className={levelColors.error} data-testid="badge-error-count">
-            {errorCount} error
-          </Badge>
-        </div>
+        <span className="text-xs text-muted-foreground whitespace-nowrap" data-testid="text-count">
+          {filteredActivities.length} events
+        </span>
       </div>
 
       <Card>
         <CardHeader className="py-3 px-4">
-          <CardTitle className="text-sm font-medium flex items-center justify-between">
-            <span>
-              System Logs
-              {autoRefresh && (
-                <span className="ml-2 inline-flex items-center">
-                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse mr-1" />
-                  <span className="text-xs text-muted-foreground font-normal">Live</span>
-                </span>
-              )}
-            </span>
-            <span className="text-xs text-muted-foreground font-normal" data-testid="text-log-count">
-              {filteredEntries.length} entries
-            </span>
-          </CardTitle>
+          <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[calc(100vh-280px)]" ref={scrollRef}>
+          <ScrollArea className="h-[calc(100vh-340px)]">
             {isLoading ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground" data-testid="loading-logs">
+              <div className="flex items-center justify-center py-12 text-muted-foreground" data-testid="loading">
                 <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                Loading logs...
+                Loading activity...
               </div>
             ) : isError ? (
-              <div className="flex flex-col items-center justify-center py-12 text-red-400 gap-2" data-testid="error-logs">
-                <span>Failed to load activity logs</span>
-                <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-retry-logs">
-                  Retry
-                </Button>
+              <div className="flex flex-col items-center justify-center py-12 text-red-400 gap-2" data-testid="error">
+                <span>Failed to load activity feed</span>
+                <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-retry">Retry</Button>
               </div>
-            ) : filteredEntries.length === 0 ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground" data-testid="empty-logs">
-                No log entries found
+            ) : filteredActivities.length === 0 ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground" data-testid="empty">
+                No activities found
               </div>
             ) : (
-              <div className="font-mono text-xs">
-                {filteredEntries.map((entry, i) => {
-                  const srcColor = sourceColors[entry.source] || "bg-gray-500/10 text-gray-400";
+              <div className="divide-y divide-border/40">
+                {filteredActivities.map((item) => {
+                  const cfg = typeConfig[item.type] || { label: item.type, icon: Activity, color: "text-gray-400", bgColor: "bg-gray-500/10 border-gray-500/20" };
+                  const Icon = cfg.icon;
+                  const { time, date } = formatTimestamp(item.timestamp);
+                  const pnlPct = item.meta?.pnlPct;
+                  const rMultiple = item.meta?.rMultiple;
+
                   return (
                     <div
-                      key={`${entry.timestamp}-${i}`}
-                      className={`flex items-start gap-2 px-4 py-1.5 border-b border-border/30 hover:bg-muted/40 transition-colors ${
-                        entry.level === "error"
-                          ? "bg-red-500/5"
-                          : entry.level === "warn"
-                            ? "bg-yellow-500/5"
-                            : ""
-                      }`}
-                      data-testid={`log-entry-${i}`}
+                      key={item.id}
+                      className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
+                      data-testid={`activity-${item.id}`}
                     >
-                      <span className="text-muted-foreground whitespace-nowrap shrink-0 w-[62px]">
-                        {formatTime(entry.timestamp)}
-                      </span>
-                      <span className="text-muted-foreground/60 whitespace-nowrap shrink-0 w-[42px]">
-                        {formatDate(entry.timestamp)}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={`${levelColors[entry.level]} text-[10px] px-1.5 py-0 h-4 shrink-0`}
-                      >
-                        {entry.level}
-                      </Badge>
-                      <Badge
-                        variant="secondary"
-                        className={`${srcColor} text-[10px] px-1.5 py-0 h-4 shrink-0 min-w-[80px] justify-center`}
-                      >
-                        {entry.source}
-                      </Badge>
-                      <span
-                        className={`break-all ${
-                          entry.level === "error"
-                            ? "text-red-400"
-                            : entry.level === "warn"
-                              ? "text-yellow-400"
-                              : "text-foreground/80"
-                        }`}
-                      >
-                        {entry.message}
-                      </span>
+                      <div className={`mt-0.5 p-1.5 rounded-md ${cfg.bgColor}`}>
+                        <Icon className={`w-3.5 h-3.5 ${cfg.color}`} />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">{item.ticker}</span>
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${cfg.bgColor} ${cfg.color}`}>
+                            {cfg.label}
+                          </Badge>
+                          {item.meta?.tier && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                              {item.meta.tier}
+                            </Badge>
+                          )}
+                          {item.meta?.setupType && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                              Setup {item.meta.setupType}
+                            </Badge>
+                          )}
+                          {pnlPct != null && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 h-4 ${
+                                pnlPct >= 0
+                                  ? "bg-green-500/10 text-green-400 border-green-500/20"
+                                  : "bg-red-500/10 text-red-400 border-red-500/20"
+                              }`}
+                            >
+                              {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%
+                            </Badge>
+                          )}
+                          {rMultiple != null && (
+                            <span className={`text-[10px] ${rMultiple >= 0 ? "text-green-400" : "text-red-400"}`}>
+                              {rMultiple >= 0 ? "+" : ""}{rMultiple.toFixed(2)}R
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</p>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-xs text-muted-foreground">{time}</div>
+                        <div className="text-[10px] text-muted-foreground/60">{date}</div>
+                      </div>
                     </div>
                   );
                 })}

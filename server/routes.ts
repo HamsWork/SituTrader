@@ -16,7 +16,6 @@ import { runActivationScan, checkEntryTrigger } from "./lib/activation";
 import { rebuildUniverse, getUniverseStatus } from "./lib/universe";
 import { recomputeAllExpectancy, getSetupAlertCategory } from "./lib/expectancy";
 import { log } from "./index";
-import { getLogEntries, getLogSources } from "./log";
 import { initScheduler, reconfigureJobs, runAutoNow, computeNextAfterCloseTs, computeNextPreOpenTs, isRTH, nowCT } from "./jobs/scheduler";
 import { enrichPendingSignalsWithOptions } from "./lib/options";
 import { startBacktestWorker, pauseBacktestWorker, resumeBacktestWorker, isBacktestWorkerRunning, isBacktestWorkerPaused, autoStartBacktestWorker } from "./jobs/backtestWorker";
@@ -4382,19 +4381,172 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/activity-logs", async (req, res) => {
+  app.get("/api/activity-feed", async (req, res) => {
     try {
-      const source = req.query.source as string | undefined;
-      const levelParam = req.query.level as string | undefined;
-      const validLevels = ["info", "warn", "error"];
-      const level = levelParam && validLevels.includes(levelParam) ? levelParam : undefined;
-      const rawLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 500;
-      const limit = Math.max(1, Math.min(isNaN(rawLimit) ? 500 : rawLimit, 2000));
-      const sinceParam = req.query.since as string | undefined;
-      const since = sinceParam && !isNaN(Date.parse(sinceParam)) ? sinceParam : undefined;
-      const entries = getLogEntries({ source: source || undefined, level, limit, since });
-      const sources = getLogSources();
-      res.json({ entries, sources, total: entries.length });
+      const rawLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+      const limit = Math.max(1, Math.min(isNaN(rawLimit) ? 100 : rawLimit, 500));
+      const typeFilter = req.query.type as string | undefined;
+
+      const activities: Array<{
+        id: string;
+        type: string;
+        timestamp: string;
+        ticker: string;
+        title: string;
+        detail: string;
+        meta?: Record<string, any>;
+      }> = [];
+
+      const recentSignals = await storage.getSignals(undefined, 500);
+
+      for (const s of recentSignals) {
+        if (s.activatedTs && s.activationStatus !== "NOT_ACTIVE") {
+          activities.push({
+            id: `activation-${s.id}`,
+            type: "activation",
+            timestamp: s.activatedTs,
+            ticker: s.ticker,
+            title: `${s.ticker} activated — ${s.activationStatus}`,
+            detail: `Setup ${s.setupType} | ${s.direction} | QS ${s.qualityScore} | Tier ${s.tier}`,
+            meta: { signalId: s.id, setupType: s.setupType, direction: s.direction, qualityScore: s.qualityScore, tier: s.tier, entryPrice: s.entryPriceAtActivation, stopPrice: s.stopPrice, activationStatus: s.activationStatus },
+          });
+        }
+
+        if (s.status === "hit" && s.hitTs) {
+          activities.push({
+            id: `hit-${s.id}`,
+            type: "hit",
+            timestamp: s.hitTs,
+            ticker: s.ticker,
+            title: `${s.ticker} HIT target`,
+            detail: `Setup ${s.setupType} | Magnet $${s.magnetPrice?.toFixed(2)} | ${s.timeToHitMin ? Math.round(s.timeToHitMin) + ' min' : ''}`,
+            meta: { signalId: s.id, setupType: s.setupType, magnetPrice: s.magnetPrice, timeToHitMin: s.timeToHitMin, qualityScore: s.qualityScore, tier: s.tier },
+          });
+        }
+
+        if (s.status === "miss") {
+          const missTs = s.targetDate ? new Date(s.targetDate + "T16:00:00").toISOString() : s.asofDate;
+          activities.push({
+            id: `miss-${s.id}`,
+            type: "miss",
+            timestamp: missTs,
+            ticker: s.ticker,
+            title: `${s.ticker} MISSED`,
+            detail: `Setup ${s.setupType} | ${s.missReason || 'expired'} | QS ${s.qualityScore}`,
+            meta: { signalId: s.id, setupType: s.setupType, missReason: s.missReason, qualityScore: s.qualityScore, tier: s.tier },
+          });
+        }
+
+        if (s.stopStage !== "INITIAL" && s.stopMovedToBeTs) {
+          activities.push({
+            id: `stop-move-${s.id}`,
+            type: "stop_moved",
+            timestamp: s.stopMovedToBeTs,
+            ticker: s.ticker,
+            title: `${s.ticker} stop moved to breakeven`,
+            detail: `Setup ${s.setupType} | Stop stage: ${s.stopStage}`,
+            meta: { signalId: s.id, setupType: s.setupType, stopStage: s.stopStage },
+          });
+        }
+      }
+
+      const discordLogs = await storage.getDiscordTradeLogs({ limit: 200 });
+
+      const allTrades = await storage.getAllIbkrTrades();
+
+      const stoppedTradeIds = new Set<number>();
+      for (const d of discordLogs) {
+        if ((d.event === "STOPPED_OUT" || d.event === "STOPPED_OUT_AFTER_TP") && d.tradeId) {
+          stoppedTradeIds.add(d.tradeId);
+        }
+      }
+
+      for (const t of allTrades) {
+        if (t.filledAt) {
+          activities.push({
+            id: `trade-fill-${t.id}`,
+            type: "trade_fill",
+            timestamp: t.filledAt,
+            ticker: t.ticker,
+            title: `${t.ticker} ${t.instrumentType} trade filled`,
+            detail: `${t.side} ${t.quantity} @ $${t.entryPrice?.toFixed(2) ?? '?'} | ${t.instrumentTicker || t.ticker}`,
+            meta: { tradeId: t.id, signalId: t.signalId, instrumentType: t.instrumentType, entryPrice: t.entryPrice, side: t.side },
+          });
+        }
+
+        if (t.tp1FilledAt) {
+          activities.push({
+            id: `trade-tp1-${t.id}`,
+            type: "trade_tp1",
+            timestamp: t.tp1FilledAt,
+            ticker: t.ticker,
+            title: `${t.ticker} TP1 hit`,
+            detail: `${t.instrumentType} | Fill @ $${t.tp1FillPrice?.toFixed(2) ?? '?'} | P&L $${t.tp1PnlRealized?.toFixed(2) ?? '?'}`,
+            meta: { tradeId: t.id, instrumentType: t.instrumentType, tp1FillPrice: t.tp1FillPrice, tp1Pnl: t.tp1PnlRealized },
+          });
+        }
+
+        if (t.closedAt && t.status === "CLOSED") {
+          const wasStopped = stoppedTradeIds.has(t.id);
+          activities.push({
+            id: `trade-close-${t.id}`,
+            type: wasStopped ? "trade_stopped" : "trade_closed",
+            timestamp: t.closedAt,
+            ticker: t.ticker,
+            title: `${t.ticker} ${wasStopped ? "stopped out" : "trade closed"}`,
+            detail: `${t.instrumentType} | Exit $${t.exitPrice?.toFixed(2) ?? '?'} | P&L ${t.pnlPct != null ? (t.pnlPct > 0 ? '+' : '') + t.pnlPct.toFixed(1) + '%' : '?'} | R: ${t.rMultiple?.toFixed(2) ?? '?'}`,
+            meta: { tradeId: t.id, instrumentType: t.instrumentType, exitPrice: t.exitPrice, pnl: t.pnl, pnlPct: t.pnlPct, rMultiple: t.rMultiple, status: t.status },
+          });
+        }
+      }
+
+      for (const d of discordLogs) {
+        if (d.createdAt) {
+          activities.push({
+            id: `discord-${d.id}`,
+            type: "discord",
+            timestamp: new Date(d.createdAt).toISOString(),
+            ticker: d.ticker || "—",
+            title: `Discord: ${d.event}`,
+            detail: `${d.instrumentType || ''} | ${d.channel} | ${d.webhookStatus}`,
+            meta: { logId: d.id, event: d.event, channel: d.channel, instrumentType: d.instrumentType, status: d.webhookStatus },
+          });
+        }
+      }
+
+      const today = new Date();
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split("T")[0];
+        const btod = await storage.getBtodState(dateStr);
+        if (btod) {
+          activities.push({
+            id: `btod-${btod.id}`,
+            type: "btod",
+            timestamp: btod.updatedAt ? new Date(btod.updatedAt).toISOString() : btod.createdAt ? new Date(btod.createdAt).toISOString() : dateStr + "T09:30:00Z",
+            ticker: "BTOD",
+            title: `BTOD ${btod.phase} — ${dateStr}`,
+            detail: `Top-3: [${(btod.top3Ids as number[])?.join(', ') || 'none'}] | Selected: ${btod.selectedSignalId ?? 'none'} | Trades: ${btod.tradesExecuted} | Gate: ${btod.gateOpen ? 'OPEN' : 'CLOSED'}`,
+            meta: { btodId: btod.id, phase: btod.phase, selectedSignalId: btod.selectedSignalId, secondSignalId: btod.secondSignalId, tradesExecuted: btod.tradesExecuted, gateOpen: btod.gateOpen, top3Ids: btod.top3Ids },
+          });
+        }
+      }
+
+      activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      const typeCounts: Record<string, number> = {};
+      for (const a of activities) {
+        typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
+      }
+
+      const filtered = typeFilter
+        ? activities.filter(a => a.type === typeFilter)
+        : activities;
+
+      const eventTypes = [...new Set(activities.map(a => a.type))].sort();
+
+      res.json({ activities: filtered.slice(0, limit), eventTypes, typeCounts, total: filtered.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
