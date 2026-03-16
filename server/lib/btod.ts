@@ -548,6 +548,7 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         originalQuantity: qty,
         remainingQuantity: qty,
         tpHitLevel: 0,
+        entryPrice: instrumentEntry > 0 ? instrumentEntry : undefined,
         stopPrice: tradeStopPrice,
         target1Price: tradeTarget1,
         target2Price: tradeTarget2,
