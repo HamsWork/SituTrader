@@ -15,6 +15,7 @@ import PerformancePage from "@/pages/performance";
 import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
 import TradeSyncPage from "@/pages/trade-sync";
+import DiscordTemplatesPage from "@/pages/discord-templates";
 import SystemAuditPage from "@/pages/system-audit";
 import ProfitWindowsPage from "@/pages/profit-windows";
 import PerformanceHalfPage from "@/pages/performance-half";
@@ -35,6 +36,8 @@ function Router() {
       <Route path="/profit-windows" component={ProfitWindowsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/trade-sync" component={TradeSyncPage} />
+      <Route path="/trade-history" component={TradeSyncPage} />
+      <Route path="/discord-templates" component={DiscordTemplatesPage} />
       <Route path="/audit" component={SystemAuditPage} />
       <Route path="/activity" component={ActivityLogsPage} />
       <Route component={NotFound} />

@@ -5,8 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, ArrowRightLeft, ChevronDown, ChevronRight, Wifi, WifiOff, Target, Shield, CheckCircle2 } from "lucide-react";
+import { Loader2, Radio, ChevronDown, ChevronRight, Wifi, WifiOff, Target, Shield, CheckCircle2 } from "lucide-react";
 
 interface TradeSyncSignal {
   id: string;
@@ -43,15 +42,6 @@ interface TradeSyncSignal {
       raise_stop_loss?: { price?: number; trailing_stop_percent?: number };
     }>;
   };
-}
-
-interface TradeSyncTemplate {
-  instrumentType: string;
-  templates: Array<{
-    type: string;
-    label: string;
-    template: string;
-  }>;
 }
 
 interface TradeSyncStatus {
@@ -95,25 +85,13 @@ function fmtPrice(p: number | string | null | undefined): string {
 
 export default function TradeSyncPage() {
   return (
-    <div className="p-4 space-y-4" data-testid="page-trade-sync">
+    <div className="p-4 space-y-4" data-testid="page-trade-history">
       <div className="flex items-center gap-3">
-        <ArrowRightLeft className="w-6 h-6 text-primary" />
-        <h1 className="text-xl font-bold" data-testid="text-page-title">Trade Sync</h1>
+        <Radio className="w-6 h-6 text-primary" />
+        <h1 className="text-xl font-bold" data-testid="text-page-title">Trade History</h1>
         <ConnectionBadge />
       </div>
-
-      <Tabs defaultValue="trades" className="w-full">
-        <TabsList data-testid="tabs-tradesync">
-          <TabsTrigger value="trades" data-testid="tab-trades">Trade History</TabsTrigger>
-          <TabsTrigger value="templates" data-testid="tab-templates">Discord Templates</TabsTrigger>
-        </TabsList>
-        <TabsContent value="trades">
-          <TradeHistoryTab />
-        </TabsContent>
-        <TabsContent value="templates">
-          <DiscordTemplatesTab />
-        </TabsContent>
-      </Tabs>
+      <TradeHistoryTab />
     </div>
   );
 }
@@ -424,78 +402,3 @@ function DetailItem({ label, value, mono }: { label: string; value: string; mono
   );
 }
 
-function DiscordTemplatesTab() {
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-
-  const { data: templates, isLoading } = useQuery<TradeSyncTemplate[]>({
-    queryKey: ["/api/tradesync/templates"],
-    queryFn: async () => {
-      const res = await fetch("/api/tradesync/templates");
-      if (!res.ok) throw new Error("Failed to fetch templates");
-      return res.json();
-    },
-  });
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12" data-testid="loading-templates">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!templates || templates.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <p className="text-muted-foreground" data-testid="text-no-templates">No Discord templates found in Trade Sync.</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {templates.map((group) => (
-        <Card key={group.instrumentType}>
-          <CardHeader
-            className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors"
-            onClick={() => setExpandedGroup(expandedGroup === group.instrumentType ? null : group.instrumentType)}
-            data-testid={`card-template-group-${group.instrumentType}`}
-          >
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Badge variant="outline" className={instrumentColor(group.instrumentType)}>
-                  {group.instrumentType}
-                </Badge>
-                <span className="text-muted-foreground text-xs">
-                  {group.templates.length} templates
-                </span>
-              </CardTitle>
-              {expandedGroup === group.instrumentType ? (
-                <ChevronDown className="w-4 h-4 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              )}
-            </div>
-          </CardHeader>
-          {expandedGroup === group.instrumentType && (
-            <CardContent className="space-y-3">
-              {group.templates.map((tmpl) => (
-                <div key={tmpl.type} className="rounded border p-3 space-y-2" data-testid={`tmpl-${group.instrumentType}-${tmpl.type}`}>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">{tmpl.type}</Badge>
-                    <span className="text-sm font-medium">{tmpl.label}</span>
-                  </div>
-                  <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-72 overflow-y-auto">
-                    {tmpl.template}
-                  </pre>
-                </div>
-              ))}
-            </CardContent>
-          )}
-        </Card>
-      ))}
-    </div>
-  );
-}
