@@ -324,6 +324,36 @@ export function buildTradeSyncPayloadFromSignal(
   return payload;
 }
 
+export async function fetchTradeHistory(limit: number = 100, status?: string): Promise<TradeSyncResult> {
+  if (!isConfigured()) {
+    return { ok: false, error: "TradeSync not configured" };
+  }
+
+  try {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (status) params.set("status", status);
+
+    const res = await fetch(`${TRADESYNC_BASE_URL}/api/signals?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const body = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      const msg = body?.message || `TradeSync API error (${res.status})`;
+      return { ok: false, error: msg };
+    }
+
+    return { ok: true, data: body };
+  } catch (err: any) {
+    return { ok: false, error: err.message || "Failed to reach TradeSync API" };
+  }
+}
+
 export async function getTradesyncStatus(): Promise<{ configured: boolean; reachable: boolean; error?: string }> {
   if (!isConfigured()) {
     return { configured: false, reachable: false, error: "TRADESYNC_BASE_URL or TRADESYNC_API_KEY not set" };

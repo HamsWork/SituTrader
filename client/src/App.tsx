@@ -14,8 +14,7 @@ import OptimizationPage from "@/pages/optimization";
 import PerformancePage from "@/pages/performance";
 import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
-import IbkrDashboard from "@/pages/ibkr-dashboard";
-import DiscordTradesPage from "@/pages/discord-trades";
+import TradeSyncPage from "@/pages/trade-sync";
 import SystemAuditPage from "@/pages/system-audit";
 import ProfitWindowsPage from "@/pages/profit-windows";
 import PerformanceHalfPage from "@/pages/performance-half";
@@ -35,8 +34,7 @@ function Router() {
       <Route path="/roi-insights" component={ROIInsightsPage} />
       <Route path="/profit-windows" component={ProfitWindowsPage} />
       <Route path="/settings" component={SettingsPage} />
-      <Route path="/ibkr" component={IbkrDashboard} />
-      <Route path="/discord-trades" component={DiscordTradesPage} />
+      <Route path="/trade-sync" component={TradeSyncPage} />
       <Route path="/audit" component={SystemAuditPage} />
       <Route path="/activity" component={ActivityLogsPage} />
       <Route component={NotFound} />
