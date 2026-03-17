@@ -11,9 +11,9 @@ vite.config.ts.*
 .cache/
 .evn
 
-.bar_cache.db-shm
-.bar_cache.db-wal
-.bar_cache.db
+./bar_cache.db-shm
+./bar_cache.db-wal
+./bar_cache.db
 
 test/
 
