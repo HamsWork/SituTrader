@@ -391,7 +391,100 @@ export interface BtodInstrumentResult {
   instrumentType: string;
   success: boolean;
   tradeId?: number;
+  tradesyncSignalId?: number;
   error?: string;
+}
+
+async function fallbackDirectDiscordAndIbkr(
+  signal: Signal,
+  signalId: number,
+  trade: any,
+  inst: { type: string; ticker: string | null },
+  action: "BUY" | "SELL",
+  qty: number,
+  instrumentEntry: number,
+  letfTicker: string | null | undefined,
+  letfOptionContract: LetfOptionContractResult | null | undefined,
+): Promise<void> {
+  try {
+    const freshSigs = await storage.getSignals(undefined, 5000);
+    const freshSig = freshSigs.find((s) => s.id === signalId) ?? signal;
+    const { postOptionsAlert, postLetfAlert, postSharesAlert, postLetfOptionsAlert } = await import("./discord");
+
+    if (inst.type === "OPTION") {
+      await postOptionsAlert(freshSig, { ...trade, entryPrice: signal.optionEntryMark, status: "PENDING" } as any);
+    } else if (inst.type === "LEVERAGED_ETF") {
+      await postLetfAlert(freshSig, { ...trade, entryPrice: signal.instrumentEntryPrice, status: "PENDING" } as any);
+    } else if (inst.type === "LETF_OPTIONS") {
+      await postLetfOptionsAlert(
+        freshSig,
+        { ...trade, entryPrice: letfOptionContract?.markPrice ?? 0, status: "PENDING" } as any,
+        undefined,
+        letfOptionContract,
+      );
+    } else if (inst.type === "SHARES") {
+      await postSharesAlert(freshSig, { ...trade, entryPrice: signal.entryPriceAtActivation, status: "PENDING" } as any);
+    }
+
+    await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
+  } catch (discErr: any) {
+    log(`BTOD: Discord alert failed for ${inst.type} trade ${trade.id}: ${discErr.message}`, "btod");
+  }
+
+  try {
+    const { isConnected, connectIBKR, placeMarketOrder, makeContract } = await import("./ibkr");
+
+    let ibkrConnected = false;
+    try {
+      ibkrConnected = isConnected();
+      if (!ibkrConnected) {
+        ibkrConnected = await connectIBKR();
+      }
+    } catch {}
+
+    if (ibkrConnected) {
+      const isOptionType = inst.type === "OPTION" || inst.type === "LETF_OPTIONS";
+      const contract = makeContract(
+        isOptionType ? "OPTION" : inst.type,
+        inst.type === "LETF_OPTIONS" ? (letfTicker ?? signal.ticker) : signal.ticker,
+        inst.ticker,
+        isOptionType ? inst.ticker : undefined,
+      );
+      const { orderId, promise } = await placeMarketOrder(contract, action, qty);
+      await storage.updateIbkrTrade(trade.id, { ibkrOrderId: orderId, status: "SUBMITTED" });
+
+      try {
+        const fillResult = await promise;
+        const entryPrice = fillResult?.avgFillPrice > 0 ? fillResult.avgFillPrice : null;
+        if (entryPrice) {
+          await storage.updateIbkrTrade(trade.id, {
+            status: "FILLED",
+            entryPrice,
+            filledAt: new Date().toISOString(),
+          });
+        }
+      } catch (fillErr: any) {
+        const fallbackEntry = instrumentEntry > 0 ? instrumentEntry : null;
+        if (fallbackEntry != null) {
+          await storage.updateIbkrTrade(trade.id, {
+            status: "FILLED",
+            entryPrice: fallbackEntry,
+            filledAt: new Date().toISOString(),
+            notes: `Order rejected; filled from signal price. Reject: ${fillErr.message}`,
+          });
+        } else {
+          await storage.updateIbkrTrade(trade.id, { status: "REJECTED", notes: `Order rejected: ${fillErr.message}` });
+        }
+      }
+    } else {
+      await storage.updateIbkrTrade(trade.id, {
+        status: "PENDING",
+        notes: "IBKR not connected; Discord alert sent",
+      });
+    }
+  } catch (ibkrErr: any) {
+    log(`BTOD: IBKR execution failed for ${inst.type} trade: ${ibkrErr.message}`, "btod");
+  }
 }
 
 export async function executeBtodMultiInstrument(signalId: number, qty: number = 1): Promise<BtodInstrumentResult[]> {
@@ -538,6 +631,29 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
       const tradeTarget1 = converted.t1;
       const tradeTarget2 = converted.t2;
 
+      let optionExpiry: string | undefined;
+      let optionStrike: number | undefined;
+      let optionRight: string | undefined;
+
+      if (inst.type === "OPTION" && inst.ticker) {
+        const optData = signal.optionsJson as any;
+        optionExpiry = optData?.candidate?.expiry;
+        optionStrike = optData?.candidate?.strike;
+        optionRight = optData?.candidate?.right === "P" ? "PUT" : "CALL";
+      } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
+        optionExpiry = letfOptionContract.expiry;
+        optionStrike = letfOptionContract.strike;
+        optionRight = letfOptionContract.right === "P" ? "PUT" : "CALL";
+      }
+
+      const webhookMap: Record<string, string> = {
+        SHARES: "DISCORD_GOAT_SHARES_WEBHOOK",
+        OPTION: "DISCORD_GOAT_ALERTS_WEBHOOK",
+        LEVERAGED_ETF: "DISCORD_GOAT_SWINGS_WEBHOOK",
+        LETF_OPTIONS: "DISCORD_GOAT_LETF_OPTIONS_WEBHOOK",
+      };
+      const webhookUrl = process.env[webhookMap[inst.type]] || undefined;
+
       const trade = await storage.createIbkrTrade({
         signalId: signal.id,
         ticker: signal.ticker,
@@ -555,84 +671,43 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         status: "PENDING",
       });
 
-      try {
-        const freshSigs = await storage.getSignals(undefined, 5000);
-        const freshSig = freshSigs.find((s) => s.id === signalId) ?? signal;
-        const { postOptionsAlert, postLetfAlert, postSharesAlert, postLetfOptionsAlert } = await import("./discord");
+      const { isTradeSyncEnabled, sendToTradeSync, buildTradeSyncPayloadFromSignal } = await import("./tradesync");
 
-        if (inst.type === "OPTION") {
-          await postOptionsAlert(freshSig, { ...trade, entryPrice: signal.optionEntryMark, status: "PENDING" } as any);
-        } else if (inst.type === "LEVERAGED_ETF") {
-          await postLetfAlert(freshSig, { ...trade, entryPrice: signal.instrumentEntryPrice, status: "PENDING" } as any);
-        } else if (inst.type === "LETF_OPTIONS") {
-          await postLetfOptionsAlert(
-            freshSig,
-            { ...trade, entryPrice: letfOptionContract?.markPrice ?? 0, status: "PENDING" } as any,
-            undefined,
-            letfOptionContract,
-          );
-        } else if (inst.type === "SHARES") {
-          await postSharesAlert(freshSig, { ...trade, entryPrice: signal.entryPriceAtActivation, status: "PENDING" } as any);
-        }
+      if (isTradeSyncEnabled()) {
+        const tsPayload = buildTradeSyncPayloadFromSignal(
+          signal,
+          inst.type,
+          instrumentEntry,
+          inst.ticker,
+          { t1: tradeTarget1, t2: tradeTarget2, stop: tradeStopPrice },
+          {
+            delta,
+            leverage,
+            optionExpiry,
+            optionStrike,
+            optionRight,
+            letfTicker: letfTicker ?? undefined,
+            webhookUrl,
+          },
+        );
 
-        await storage.updateIbkrTrade(trade.id, { discordAlertSent: true });
-      } catch (discErr: any) {
-        log(`BTOD: Discord alert failed for ${inst.type} trade ${trade.id}: ${discErr.message}`, "btod");
-      }
-
-      try {
-        const { isConnected, connectIBKR, placeMarketOrder, makeContract } = await import("./ibkrOrders") as any;
-
-        let ibkrConnected = false;
-        try {
-          ibkrConnected = isConnected ? isConnected() : false;
-          if (!ibkrConnected && connectIBKR) {
-            ibkrConnected = await connectIBKR();
-          }
-        } catch {}
-
-        if (ibkrConnected && placeMarketOrder && makeContract) {
-          const isOptionType = inst.type === "OPTION" || inst.type === "LETF_OPTIONS";
-          const contract = makeContract(
-            isOptionType ? "OPTION" : inst.type,
-            inst.type === "LETF_OPTIONS" ? (letfTicker ?? signal.ticker) : signal.ticker,
-            inst.ticker,
-            isOptionType ? inst.ticker : undefined,
-          );
-          const { orderId, promise } = await placeMarketOrder(contract, action, qty);
-          await storage.updateIbkrTrade(trade.id, { ibkrOrderId: orderId, status: "SUBMITTED" });
-
-          try {
-            const fillResult = await promise;
-            const entryPrice = fillResult?.avgFillPrice > 0 ? fillResult.avgFillPrice : null;
-            if (entryPrice) {
-              await storage.updateIbkrTrade(trade.id, {
-                status: "FILLED",
-                entryPrice,
-                filledAt: new Date().toISOString(),
-              });
-            }
-          } catch (fillErr: any) {
-            const fallbackEntry = instrumentEntry > 0 ? instrumentEntry : null;
-            if (fallbackEntry != null) {
-              await storage.updateIbkrTrade(trade.id, {
-                status: "FILLED",
-                entryPrice: fallbackEntry,
-                filledAt: new Date().toISOString(),
-                notes: `Order rejected; filled from signal price. Reject: ${fillErr.message}`,
-              });
-            } else {
-              await storage.updateIbkrTrade(trade.id, { status: "REJECTED", notes: `Order rejected: ${fillErr.message}` });
-            }
-          }
-        } else {
+        const tsResult = await sendToTradeSync(tsPayload);
+        if (tsResult.ok) {
+          const tradeSyncId = tsResult.data?.id || tsResult.data?.signal?.id || tsResult.data?.signalId;
           await storage.updateIbkrTrade(trade.id, {
-            status: "PENDING",
-            notes: "IBKR not connected; Discord alert sent",
+            status: "FILLED",
+            discordAlertSent: true,
+            tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined,
+            filledAt: new Date().toISOString(),
+            notes: `Sent to TradeSync (id: ${tradeSyncId}). Discord + IBKR managed by TradeSync.`,
           });
+          log(`BTOD: ${inst.type} signal sent to TradeSync (trade ${trade.id}, ts_id: ${tradeSyncId})`, "btod");
+        } else {
+          log(`BTOD: TradeSync send failed for ${inst.type}: ${tsResult.error}. Falling back to direct Discord.`, "btod");
+          await fallbackDirectDiscordAndIbkr(signal, signalId, trade, inst, action, qty, instrumentEntry, letfTicker, letfOptionContract);
         }
-      } catch (ibkrErr: any) {
-        log(`BTOD: IBKR execution failed for ${inst.type} trade: ${ibkrErr.message}`, "btod");
+      } else {
+        await fallbackDirectDiscordAndIbkr(signal, signalId, trade, inst, action, qty, instrumentEntry, letfTicker, letfOptionContract);
       }
 
       results.push({ instrumentType: inst.type, success: true, tradeId: trade.id });
@@ -655,7 +730,7 @@ export async function checkAllBtodTradesClosed(signalId: number): Promise<boolea
   if (btodTrades.length === 0) return true;
 
   const allClosed = btodTrades.every(
-    (t) => t.status === "CLOSED" || t.status === "CANCELLED",
+    (t) => t.status === "CLOSED" || t.status === "CANCELLED" || t.tradesyncSignalId != null,
   );
 
   return allClosed;

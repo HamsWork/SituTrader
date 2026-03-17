@@ -256,6 +256,7 @@ export const ibkrTrades = pgTable("ibkr_trades", {
   stopMovedToBe: boolean("stop_moved_to_be").notNull().default(false),
   discordAlertSent: boolean("discord_alert_sent").notNull().default(false),
   discordUpdateSent: boolean("discord_update_sent").notNull().default(false),
+  tradesyncSignalId: integer("tradesync_signal_id"),
   notes: text("notes"),
   detailsJson: jsonb("details_json"),
   createdAt: timestamp("created_at").defaultNow(),

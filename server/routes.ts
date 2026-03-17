@@ -1492,6 +1492,32 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/tradesync/status", async (_req, res) => {
+    try {
+      const { getTradesyncStatus, isTradeSyncEnabled } = await import("./lib/tradesync");
+      const status = await getTradesyncStatus();
+      res.json({ ...status, enabled: isTradeSyncEnabled() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/tradesync/templates", async (_req, res) => {
+    try {
+      const { fetchDiscordTemplates, isTradeSyncEnabled } = await import("./lib/tradesync");
+      if (!isTradeSyncEnabled()) {
+        return res.status(400).json({ message: "TradeSync not configured" });
+      }
+      const result = await fetchDiscordTemplates();
+      if (!result.ok) {
+        return res.status(502).json({ message: result.error });
+      }
+      res.json(result.data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/discord-trades", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;

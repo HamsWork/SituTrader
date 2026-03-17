@@ -489,6 +489,10 @@ export async function monitorActiveTrade(
   if (closedStatuses.includes(trade.status as typeof closedStatuses[number]))
     return { event: null, updatedTrade: null };
 
+  if (trade.tradesyncSignalId) {
+    return { event: null, updatedTrade: null };
+  }
+
   const instrumentType = trade.instrumentType || "OPTION";
   const optionTicker =
     signal.optionContractTicker ||

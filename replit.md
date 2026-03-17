@@ -40,9 +40,10 @@ The application follows a full-stack architecture.
 - **Focus Mode:** Prioritizes setups based on expectancy and includes tradeability filtering.
 - **Author Mode:** Automated scheduling for market scans, re-ranking, and activation checks.
 - **Auto Leveraged ETF Mode:** Dynamically selects optimal instruments per signal.
-- **IBKR Integration:** Facilitates full bracket order execution via Interactive Brokers TWS/Gateway.
-- **Discord Alerts:** Quad-channel webhook system with lifecycle embeds for different instrument types. Includes color-coding and 1-per-day gates.
-- **Embed Template System:** 20 editable Discord embed templates stored in `embed_templates` DB table, with `{{variable}}` placeholders. TP2_HIT event removed; CLOSED template includes T2 potential price risk management note.
+- **Trade Sync Integration:** Primary execution path for BTOD trades. When a signal activates, SITU GOAT sends the trade to the Trade Sync API (`server/lib/tradesync.ts`), which handles Discord alerts, IBKR order execution, auto-tracking (target hits, stop loss management), and trade lifecycle updates. Falls back to direct Discord/IBKR if Trade Sync is unavailable. Trades managed by Trade Sync are identified by `tradesyncSignalId` on the `ibkr_trades` table and are skipped by the local monitor.
+- **IBKR Integration:** Facilitates full bracket order execution via Interactive Brokers TWS/Gateway. Used as fallback when Trade Sync is unavailable.
+- **Discord Alerts:** Quad-channel webhook system with lifecycle embeds for different instrument types. Used as fallback when Trade Sync is unavailable. Includes color-coding and 1-per-day gates.
+- **Embed Template System:** 20 editable Discord embed templates stored in `embed_templates` DB table, with `{{variable}}` placeholders. TP2_HIT event removed; CLOSED template includes T2 potential price risk management note. Trade Sync also manages its own template system fetchable via `/api/tradesync/templates`.
 - **Backtest Worker:** Background job system that processes all universe tickers × 6 setups incrementally, with checkpoint-based resumption and rate-limited Polygon API access.
 - **Bar Cache:** Persistent two-tier caching system (`server/lib/barCache/`) using SQLite for on-disk storage and an in-memory layer.
 
@@ -54,4 +55,5 @@ The application follows a full-stack architecture.
 - **@stoqey/ib:** Library for connecting and interacting with Interactive Brokers TWS/Gateway.
 - **node-cron:** Used for scheduling automated tasks.
 - **dayjs:** Utilized for date and time manipulations.
-- **Discord Webhooks:** Used for sending real-time trade and alert notifications.
+- **Trade Sync API:** Centralized trade management hub for Discord alerts, IBKR execution, and auto-tracking. Connected via `TRADESYNC_BASE_URL` and `TRADESYNC_API_KEY` env secrets.
+- **Discord Webhooks:** Used for sending real-time trade and alert notifications (fallback when Trade Sync is unavailable).
