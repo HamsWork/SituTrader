@@ -16,6 +16,7 @@ import SettingsPage from "@/pages/settings";
 import GuidePage from "@/pages/guide";
 import SignalHistoryPage from "@/pages/trade-sync";
 import DiscordTemplatesPage from "@/pages/discord-templates";
+import BacktestPage from "@/pages/backtest";
 import SystemAuditPage from "@/pages/system-audit";
 import ProfitWindowsPage from "@/pages/profit-windows";
 import PerformanceHalfPage from "@/pages/performance-half";
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/symbol/:ticker" component={SymbolDetail} />
       <Route path="/guide" component={GuidePage} />
       <Route path="/optimization" component={OptimizationPage} />
+      <Route path="/backtest" component={BacktestPage} />
       <Route path="/performance" component={PerformancePage} />
       <Route path="/performance-half" component={PerformanceHalfPage} />
       <Route path="/roi-insights" component={ROIInsightsPage} />

@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, FlaskConical, Activity, FileSearch, Layers, ArrowRightLeft, Trophy, ScrollText, Radio, MessageSquare } from "lucide-react";
+import { BarChart3, BookOpen, Home, LineChart, Settings, TrendingUp, FlaskConical, Activity, FileSearch, Layers, ArrowRightLeft, Trophy, ScrollText, Radio, MessageSquare, TestTubeDiagonal } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -19,6 +19,7 @@ const navItems = [
   { title: "Performance ½", url: "/performance-half", icon: ArrowRightLeft },
   { title: "ROI Insights", url: "/roi-insights", icon: Trophy },
   { title: "Profit Windows", url: "/profit-windows", icon: Layers },
+  { title: "Backtest", url: "/backtest", icon: TestTubeDiagonal },
   { title: "Optimization", url: "/optimization", icon: FlaskConical },
   { title: "Signal History", url: "/signal-history", icon: Radio },
   { title: "Discord Templates", url: "/discord-templates", icon: MessageSquare },
