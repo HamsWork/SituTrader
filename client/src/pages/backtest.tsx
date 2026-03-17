@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,28 +139,92 @@ export default function BacktestPage() {
     },
   });
 
-  const runBacktest = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/backtest/run", {
-        tickers: selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker),
-        setups: selectedSetups,
-        startDate,
-        endDate,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
-      toast({ title: "Backtest complete", description: "Results are ready to view." });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Backtest failed", description: error.message, variant: "destructive" });
-    },
-  });
-
   const enabledSymbols = useMemo(
     () => (symbolList ?? []).filter((s) => s.enabled),
     [symbolList]
   );
+
+  const [backtestRunning, setBacktestRunning] = useState(false);
+  const [backtestLogs, setBacktestLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
+  const [backtestProgress, setBacktestProgress] = useState<{ completed: number; total: number; ticker: string; setup: string } | null>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [backtestLogs]);
+
+  const runBacktestStream = useCallback(() => {
+    const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
+    setBacktestRunning(true);
+    setBacktestLogs([]);
+    setBacktestProgress(null);
+
+    fetch("/api/backtest/run-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate }),
+    }).then((response) => {
+      if (!response.ok || !response.body) {
+        setBacktestRunning(false);
+        toast({ title: "Backtest failed", description: "Failed to start stream", variant: "destructive" });
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let hadFatalError = false;
+      let receivedDone = false;
+
+      const processChunk = ({ done, value }: ReadableStreamReadResult<Uint8Array>): Promise<void> | void => {
+        if (done) {
+          setBacktestRunning(false);
+          if (receivedDone && !hadFatalError) {
+            queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
+            toast({ title: "Backtest complete", description: "Results are ready to view." });
+          } else if (hadFatalError) {
+            toast({ title: "Backtest failed", description: "See log for details", variant: "destructive" });
+          }
+          return;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        let eventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7);
+          } else if (line.startsWith("data: ") && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (eventType === "log") {
+                setBacktestLogs((prev) => [...prev, { ...data, ts: Date.now() }]);
+              } else if (eventType === "progress") {
+                setBacktestProgress(data);
+              } else if (eventType === "done") {
+                receivedDone = true;
+                setBacktestLogs((prev) => [...prev, { message: `Backtest complete: ${data.completed} combos processed`, type: "done", ts: Date.now() }]);
+              } else if (eventType === "error") {
+                hadFatalError = true;
+                setBacktestLogs((prev) => [...prev, { message: `Fatal error: ${data.message}`, type: "error", ts: Date.now() }]);
+              }
+            } catch {}
+            eventType = "";
+          }
+        }
+
+        return reader.read().then(processChunk);
+      };
+
+      reader.read().then(processChunk);
+    }).catch((err) => {
+      setBacktestRunning(false);
+      toast({ title: "Backtest failed", description: err.message, variant: "destructive" });
+    });
+  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, toast]);
 
   const filteredSymbols = useMemo(() => {
     if (!tickerSearch.trim()) return enabledSymbols.slice(0, 50);
@@ -556,16 +620,16 @@ export default function BacktestPage() {
 
               <div className="flex gap-2 pt-2">
                 <Button
-                  onClick={() => runBacktest.mutate()}
-                  disabled={runBacktest.isPending || selectedSetups.length === 0}
+                  onClick={runBacktestStream}
+                  disabled={backtestRunning || selectedSetups.length === 0}
                   data-testid="button-run-backtest"
                 >
-                  {runBacktest.isPending ? (
+                  {backtestRunning ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <Play className="w-4 h-4 mr-2" />
                   )}
-                  {runBacktest.isPending
+                  {backtestRunning
                     ? "Running..."
                     : `Run Backtest (${selectedTickers.length || enabledSymbols.length} tickers × ${selectedSetups.length} setups)`}
                 </Button>
@@ -576,6 +640,41 @@ export default function BacktestPage() {
                   </Button>
                 )}
               </div>
+
+              {(backtestLogs.length > 0 || backtestRunning) && (
+                <div className="mt-4 space-y-2">
+                  {backtestProgress && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Processing: {backtestProgress.ticker} setup {backtestProgress.setup}</span>
+                        <span>{backtestProgress.completed}/{backtestProgress.total} combos</span>
+                      </div>
+                      <Progress value={(backtestProgress.completed / backtestProgress.total) * 100} className="h-2" />
+                    </div>
+                  )}
+                  <div
+                    className="bg-zinc-950 rounded-md border border-zinc-800 p-3 max-h-64 overflow-y-auto font-mono text-xs leading-relaxed"
+                    data-testid="backtest-log-panel"
+                  >
+                    {backtestLogs.map((entry, i) => (
+                      <div
+                        key={i}
+                        className={
+                          entry.type === "error" ? "text-red-400" :
+                          entry.type === "success" ? "text-emerald-400" :
+                          entry.type === "done" ? "text-blue-400 font-semibold" :
+                          entry.type === "processing" ? "text-yellow-300" :
+                          "text-zinc-400"
+                        }
+                      >
+                        <span className="text-zinc-600 mr-2">{new Date(entry.ts).toLocaleTimeString()}</span>
+                        {entry.message}
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

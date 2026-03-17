@@ -766,6 +766,71 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/backtest/run-stream", async (req, res) => {
+    const { tickers, setups, startDate, endDate } = req.body;
+    if (!tickers?.length || !setups?.length) {
+      return res.status(400).json({ message: "Tickers and setups required" });
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const send = (event: string, data: any) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      const settings = await storage.getAllSettings();
+      const timeframe = settings.intradayTimeframe || "5";
+      const totalCombos = tickers.length * setups.length;
+      let completed = 0;
+
+      send("log", { message: `Starting backtest: ${tickers.length} tickers × ${setups.length} setups = ${totalCombos} combos`, type: "info" });
+      send("log", { message: `Date range: ${startDate} → ${endDate} | Timeframe: ${timeframe}min`, type: "info" });
+
+      for (const ticker of tickers) {
+        for (const setup of setups) {
+          send("progress", { completed, total: totalCombos, ticker, setup });
+          send("log", { message: `[${completed + 1}/${totalCombos}] Running ${ticker} setup ${setup}...`, type: "processing" });
+
+          try {
+            const result = await runBacktest(ticker, setup, startDate, endDate, timeframe);
+            const saved = await storage.upsertBacktest(result);
+
+            const hitInfo = result.occurrences > 0
+              ? `${result.hits}/${result.occurrences} hits (${(result.hitRate * 100).toFixed(1)}%)`
+              : "0 occurrences";
+            send("log", { message: `  ✓ ${ticker} ${setup}: ${hitInfo}`, type: "success" });
+
+            await computeAndStoreTimeToHitStats(ticker, setup, timeframe);
+          } catch (err: any) {
+            send("log", { message: `  ✗ ${ticker} ${setup}: ${err.message}`, type: "error" });
+          }
+          completed++;
+          send("progress", { completed, total: totalCombos, ticker, setup });
+        }
+      }
+
+      try {
+        send("log", { message: "Recomputing expectancy stats...", type: "info" });
+        await recomputeAllExpectancy();
+        send("log", { message: "Expectancy stats recomputed", type: "success" });
+      } catch (err: any) {
+        send("log", { message: `Expectancy recompute failed: ${err.message}`, type: "error" });
+      }
+
+      send("done", { completed: totalCombos, total: totalCombos });
+      res.end();
+    } catch (err: any) {
+      send("error", { message: err.message });
+      res.end();
+    }
+  });
+
   app.get("/api/time-to-hit-stats/:ticker/:setup", async (req, res) => {
     try {
       const { ticker, setup } = req.params;
