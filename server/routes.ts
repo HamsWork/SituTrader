@@ -612,7 +612,7 @@ export async function registerRoutes(
               missReason,
               tradePlanJson: tradePlan as any,
               confidenceBreakdown: confidence as any,
-              qualityScore: qualityResult.total,
+              qualityScore: Math.round(qualityResult.total),
               tier,
               alertState: "new",
               nextAlertEligibleAt: null,

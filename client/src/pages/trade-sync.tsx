@@ -86,9 +86,11 @@ function directionColor(dir: string): string {
   return "bg-gray-500/20 text-gray-400 border-gray-500/30";
 }
 
-function fmtPrice(p: number | null | undefined): string {
+function fmtPrice(p: number | string | null | undefined): string {
   if (p == null) return "—";
-  return `$${p.toFixed(2)}`;
+  const n = typeof p === "string" ? parseFloat(p) : p;
+  if (isNaN(n)) return "—";
+  return `$${n.toFixed(2)}`;
 }
 
 export default function TradeSyncPage() {

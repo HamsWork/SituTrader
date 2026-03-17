@@ -167,7 +167,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
             direction: setup.direction, confidence: confidence.total,
             status, hitTs, timeToHitMin: null, missReason,
             tradePlanJson: tradePlan as any, confidenceBreakdown: confidence as any,
-            qualityScore: qualityResult.total, tier,
+            qualityScore: Math.round(qualityResult.total), tier,
             alertState: "new", nextAlertEligibleAt: null,
             qualityBreakdown: qualityResult as any,
             pHit60: sigP60, pHit120: sigP120, pHit390: sigP390,
