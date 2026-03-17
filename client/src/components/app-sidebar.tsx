@@ -20,7 +20,7 @@ const navItems = [
   { title: "ROI Insights", url: "/roi-insights", icon: Trophy },
   { title: "Profit Windows", url: "/profit-windows", icon: Layers },
   { title: "Optimization", url: "/optimization", icon: FlaskConical },
-  { title: "Trade History", url: "/trade-history", icon: Radio },
+  { title: "Signal History", url: "/signal-history", icon: Radio },
   { title: "Discord Templates", url: "/discord-templates", icon: MessageSquare },
   { title: "Guide", url: "/guide", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
