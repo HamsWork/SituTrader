@@ -81,6 +81,34 @@ export default function SymbolDetail() {
     enabled: !!ticker,
   });
 
+  const { data: backtests } = useQuery<Backtest[]>({
+    queryKey: ["/api/backtests"],
+    enabled: !!ticker,
+  });
+
+  const { data: tthStats } = useQuery<TimeToHitStat | null>({
+    queryKey: ["/api/time-to-hit-stats", ticker, btSetup],
+    enabled: !!ticker && !!btSetup,
+  });
+
+  const backtestMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/backtest/run", {
+        tickers: [ticker],
+        setups: [btSetup],
+        startDate: null,
+        endDate: null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/time-to-hit-stats", ticker, btSetup] });
+      toast({ title: "Backtest complete", description: `${ticker} setup ${btSetup} backtest finished.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Backtest failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
@@ -106,35 +134,7 @@ export default function SymbolDetail() {
     );
   }
 
-  const { data: backtests } = useQuery<Backtest[]>({
-    queryKey: ["/api/backtests"],
-    enabled: !!ticker,
-  });
-
   const tickerBacktests = (backtests ?? []).filter(bt => bt.ticker === ticker);
-
-  const { data: tthStats } = useQuery<TimeToHitStat | null>({
-    queryKey: ["/api/time-to-hit-stats", ticker, btSetup],
-    enabled: !!ticker && !!btSetup,
-  });
-
-  const backtestMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/backtest/run", {
-        tickers: [ticker],
-        setups: [btSetup],
-        startDate: null,
-        endDate: null,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/time-to-hit-stats", ticker, btSetup] });
-      toast({ title: "Backtest complete", description: `${ticker} setup ${btSetup} backtest finished.` });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Backtest failed", description: error.message, variant: "destructive" });
-    },
-  });
 
   const chartData = symbolData.dailyBars.slice(-120).map((bar) => ({
     date: bar.date,
