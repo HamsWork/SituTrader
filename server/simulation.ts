@@ -55,11 +55,35 @@ export interface RankedSimEntry {
   rank: number;
 }
 
+export interface SimTradeSyncCall {
+  signalId: number;
+  ticker: string;
+  setupType: string;
+  direction: string;
+  entryPrice: number;
+  stopPrice: number | null;
+  targetPrice: number;
+  instruments: string[];
+  status: "SIMULATED";
+  triggerTs: string;
+}
+
+export interface SimBtodStatus {
+  phase: "SELECTIVE" | "OPEN" | "CLOSED";
+  gateOpen: boolean;
+  executedSignalId: number | null;
+  executedTicker: string | null;
+  top3Ids: number[];
+  eligibleCount: number;
+}
+
 export interface SimDayResult {
   date: string;
   phase: string;
   signalsGenerated: SimSignal[];
   btodTop3: RankedSimEntry[];
+  btodStatus: SimBtodStatus;
+  tradeSyncCalls: SimTradeSyncCall[];
   activations: Array<{
     signalId: number;
     ticker: string;
@@ -231,6 +255,15 @@ export async function runSimulation(
       phase: "scan",
       signalsGenerated: [],
       btodTop3: [],
+      btodStatus: {
+        phase: "SELECTIVE",
+        gateOpen: true,
+        executedSignalId: null,
+        executedTicker: null,
+        top3Ids: [],
+        eligibleCount: 0,
+      },
+      tradeSyncCalls: [],
       activations: [],
       hits: [],
       misses: [],
@@ -434,6 +467,15 @@ export async function runSimulation(
     dayResult.btodTop3 = top3;
     const btodSignalIds = new Set(top3.map((r) => r.signalId));
 
+    dayResult.btodStatus = {
+      phase: top3.length > 0 ? "SELECTIVE" : "CLOSED",
+      gateOpen: top3.length > 0,
+      executedSignalId: null,
+      executedTicker: null,
+      top3Ids: top3.map((r) => r.signalId),
+      eligibleCount: pendingForBtod.length,
+    };
+
     if (top3.length > 0) {
       emit("log", {
         message: `  BTOD Top ${top3.length}: ${top3.map((r) => `#${r.rank} ${r.ticker}/${r.setupType} QS=${r.qualityScore}`).join(" | ")}`,
@@ -510,9 +552,35 @@ export async function runSimulation(
                   isBtod: true,
                 });
 
+                dayResult.btodStatus.phase = "CLOSED";
+                dayResult.btodStatus.gateOpen = false;
+                dayResult.btodStatus.executedSignalId = sig.id;
+                dayResult.btodStatus.executedTicker = sig.ticker;
+
+                const instruments: string[] = ["Shares"];
+                if (sig.tradePlan.stopDistance) instruments.push("Options");
+                instruments.push("LETF", "LETF Options");
+
+                dayResult.tradeSyncCalls.push({
+                  signalId: sig.id,
+                  ticker: sig.ticker,
+                  setupType: sig.setupType,
+                  direction: sig.direction,
+                  entryPrice: triggerResult.entryPrice ?? 0,
+                  stopPrice: sig.stopPrice,
+                  targetPrice: sig.magnetPrice,
+                  instruments,
+                  status: "SIMULATED",
+                  triggerTs: triggerResult.triggerTs ?? today,
+                });
+
                 emit("log", {
                   message: `  ★ BTOD ACTIVATION: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${top3.find((r) => r.signalId === sig.id)?.rank})`,
                   type: "success",
+                });
+                emit("log", {
+                  message: `  📡 TradeSync (sim): Would send ${instruments.join(", ")} for ${sig.ticker} ${sig.direction} @$${(triggerResult.entryPrice ?? 0).toFixed(2)} → target $${sig.magnetPrice.toFixed(2)}`,
+                  type: "info",
                 });
               } else if (isBtodCandidate && btodExecutedToday) {
                 emit("log", {
@@ -652,6 +720,8 @@ export async function runSimulation(
       signalsGenerated: dayResult.signalsGenerated.length,
       btodTop3Count: dayResult.btodTop3.length,
       btodTop3: dayResult.btodTop3,
+      btodStatus: dayResult.btodStatus,
+      tradeSyncCalls: dayResult.tradeSyncCalls,
       activations: dayResult.activations.length,
       activationDetails: dayResult.activations,
       hits: dayResult.hits.length,

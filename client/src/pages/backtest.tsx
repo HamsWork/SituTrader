@@ -168,6 +168,28 @@ export default function BacktestPage() {
     activatedTs?: string | null;
   }
 
+  interface SimBtodStatus {
+    phase: "SELECTIVE" | "OPEN" | "CLOSED";
+    gateOpen: boolean;
+    executedSignalId: number | null;
+    executedTicker: string | null;
+    top3Ids: number[];
+    eligibleCount: number;
+  }
+
+  interface SimTradeSyncCall {
+    signalId: number;
+    ticker: string;
+    setupType: string;
+    direction: string;
+    entryPrice: number;
+    stopPrice: number | null;
+    targetPrice: number;
+    instruments: string[];
+    status: "SIMULATED";
+    triggerTs: string;
+  }
+
   interface SimDayDetail {
     date: string;
     dayIndex: number;
@@ -175,6 +197,8 @@ export default function BacktestPage() {
     signalsGenerated: number;
     btodTop3Count: number;
     btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number }>;
+    btodStatus: SimBtodStatus;
+    tradeSyncCalls: SimTradeSyncCall[];
     activations: number;
     activationDetails: Array<{ signalId: number; ticker: string; setupType: string; triggerTs: string; entryPrice: number; isBtod: boolean }>;
     hits: number;
@@ -868,7 +892,7 @@ export default function BacktestPage() {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
                           return (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-violet-400">
                                   <Star className="w-3.5 h-3.5" />
@@ -877,7 +901,7 @@ export default function BacktestPage() {
                                 {currentDay.btodTop3.length > 0 ? (
                                   <div className="space-y-1">
                                     {currentDay.btodTop3.map((entry) => (
-                                      <div key={entry.signalId} className="flex items-center justify-between px-2 py-1.5 rounded bg-violet-500/5 border border-violet-500/10 text-xs">
+                                      <div key={entry.signalId} className="flex items-center justify-between px-2 py-1.5 rounded bg-violet-500/5 border border-violet-500/10 text-xs" data-testid={`sim-btod-entry-${entry.signalId}`}>
                                         <div className="flex items-center gap-2">
                                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-violet-500/10 text-violet-400 border-violet-500/20">
                                             #{entry.rank}
@@ -895,14 +919,53 @@ export default function BacktestPage() {
                               </div>
 
                               <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-cyan-400">
+                                  <Crosshair className="w-3.5 h-3.5" />
+                                  BTOD Status
+                                </div>
+                                {currentDay.btodStatus ? (
+                                  <div className="px-2 py-2 rounded bg-cyan-500/5 border border-cyan-500/10 text-xs space-y-1.5" data-testid="sim-btod-status">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-muted-foreground">Phase</span>
+                                      <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
+                                        currentDay.btodStatus.phase === "SELECTIVE" ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" :
+                                        currentDay.btodStatus.phase === "OPEN" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                        "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                                      }`}>
+                                        {currentDay.btodStatus.phase}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-muted-foreground">Gate</span>
+                                      <span className={currentDay.btodStatus.gateOpen ? "text-emerald-400" : "text-red-400"}>
+                                        {currentDay.btodStatus.gateOpen ? "OPEN" : "CLOSED"}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-muted-foreground">Eligible</span>
+                                      <span>{currentDay.btodStatus.eligibleCount} signals</span>
+                                    </div>
+                                    {currentDay.btodStatus.executedTicker && (
+                                      <div className="flex items-center justify-between pt-1 border-t border-cyan-500/10">
+                                        <span className="text-muted-foreground">Executed</span>
+                                        <span className="font-mono font-semibold text-emerald-400">{currentDay.btodStatus.executedTicker}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-muted-foreground px-2">No BTOD data</p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
                                   <Zap className="w-3.5 h-3.5" />
-                                  Active Signals ({currentDay.activeSignals.length})
+                                  Activated ({currentDay.activeSignals.length})
                                 </div>
                                 {currentDay.activeSignals.length > 0 ? (
                                   <div className="space-y-1 max-h-32 overflow-y-auto">
                                     {currentDay.activeSignals.map((sig) => (
-                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs">
+                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs" data-testid={`sim-active-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
                                           <span className="text-muted-foreground">{sig.setupType}</span>
@@ -930,7 +993,7 @@ export default function BacktestPage() {
                                 {currentDay.onDeckSignals.length > 0 ? (
                                   <div className="space-y-1 max-h-32 overflow-y-auto">
                                     {currentDay.onDeckSignals.slice(0, 10).map((sig) => (
-                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs">
+                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs" data-testid={`sim-ondeck-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
                                           <span className="text-muted-foreground">{sig.setupType}</span>
@@ -950,6 +1013,47 @@ export default function BacktestPage() {
                                   </div>
                                 ) : (
                                   <p className="text-[10px] text-muted-foreground px-2">No pending on-deck signals</p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
+                                  <TrendingUp className="w-3.5 h-3.5" />
+                                  TradeSync API ({currentDay.tradeSyncCalls?.length ?? 0})
+                                </div>
+                                {currentDay.tradeSyncCalls && currentDay.tradeSyncCalls.length > 0 ? (
+                                  <div className="space-y-1.5" data-testid="sim-tradesync-calls">
+                                    {currentDay.tradeSyncCalls.map((tc, i) => (
+                                      <div key={`ts-${i}`} className="px-2 py-2 rounded bg-indigo-500/5 border border-indigo-500/10 text-xs space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono font-semibold">{tc.ticker}</span>
+                                            <span className="text-muted-foreground">{tc.setupType}</span>
+                                            <Badge variant="outline" className="text-[9px] h-4 px-1">
+                                              {tc.direction.includes("down") ? "SELL" : "BUY"}
+                                            </Badge>
+                                          </div>
+                                          <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                                            {tc.status}
+                                          </Badge>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-muted-foreground">
+                                          <span>Entry: ${tc.entryPrice.toFixed(2)}</span>
+                                          {tc.stopPrice && <span>Stop: ${tc.stopPrice.toFixed(2)}</span>}
+                                          <span>Target: ${tc.targetPrice.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1 pt-0.5">
+                                          {tc.instruments.map((inst) => (
+                                            <Badge key={inst} variant="secondary" className="text-[8px] h-3.5 px-1">
+                                              {inst}
+                                            </Badge>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-muted-foreground px-2">No TradeSync calls this day</p>
                                 )}
                               </div>
 
