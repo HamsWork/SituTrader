@@ -216,61 +216,81 @@ export default function BacktestPage() {
   const [simDayResults, setSimDayResults] = useState<SimDayDetail[]>([]);
   const [simSelectedDayIdx, setSimSelectedDayIdx] = useState<number>(-1);
   const [simFinalStats, setSimFinalStats] = useState<any | null>(null);
+  const [simRunning, setSimRunning] = useState(false);
+  const [simPaused, setSimPaused] = useState(false);
   const simLogEndRef = useRef<HTMLDivElement>(null);
   const simLogCountRef = useRef(0);
   const simDayCountRef = useRef(0);
   const simWasRunningRef = useRef(false);
-
-  const simStatusQuery = useQuery<any>({
-    queryKey: ["/api/backtest/simulate-status", simLogCountRef.current, simDayCountRef.current],
-    queryFn: async () => {
-      const res = await fetch(`/api/backtest/simulate-status?logsFrom=${simLogCountRef.current}&dayFrom=${simDayCountRef.current}`);
-      return res.json();
-    },
-    refetchInterval: 1000,
-  });
-
-  const simRunning = simStatusQuery.data?.running ?? false;
-  const simPaused = simStatusQuery.data?.paused ?? false;
+  const simPollIdRef = useRef(0);
 
   useEffect(() => {
-    const data = simStatusQuery.data;
-    if (!data) return;
+    const pollId = ++simPollIdRef.current;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    if (data.logs?.length > 0) {
-      setSimLogs((prev) => [...prev, ...data.logs]);
-      simLogCountRef.current = data.totalLogs;
-    }
+    const poll = async () => {
+      if (pollId !== simPollIdRef.current) return;
+      try {
+        const res = await fetch(`/api/backtest/simulate-status?logsFrom=${simLogCountRef.current}&dayFrom=${simDayCountRef.current}`);
+        if (pollId !== simPollIdRef.current) return;
+        const data = await res.json();
 
-    if (data.progress) {
-      setSimProgress(data.progress);
-    }
+        if (data.logs?.length > 0) {
+          setSimLogs((prev) => [...prev, ...data.logs]);
+          simLogCountRef.current = data.totalLogs;
+        }
 
-    if (data.dayResults?.length > 0) {
-      setSimDayResults((prev) => {
-        const updated = [...prev, ...data.dayResults];
-        return updated;
-      });
-      simDayCountRef.current = data.totalDayResults;
-      const lastDay = data.dayResults[data.dayResults.length - 1];
-      if (lastDay) {
-        setSimSelectedDayIdx((prev) => prev === -1 || prev === lastDay.dayIndex - 1 ? lastDay.dayIndex : prev);
+        if (data.progress) {
+          setSimProgress(data.progress);
+        }
+
+        if (data.dayResults?.length > 0) {
+          setSimDayResults((prev) => {
+            const existingIndices = new Set(prev.map((d: SimDayDetail) => d.dayIndex));
+            const newDays = data.dayResults.filter((d: SimDayDetail) => !existingIndices.has(d.dayIndex));
+            if (newDays.length === 0) return prev;
+            return [...prev, ...newDays];
+          });
+          simDayCountRef.current = data.totalDayResults;
+          const lastDay = data.dayResults[data.dayResults.length - 1];
+          if (lastDay) {
+            setSimSelectedDayIdx((prev) => prev === -1 || prev === lastDay.dayIndex - 1 ? lastDay.dayIndex : prev);
+          }
+        }
+
+        setSimRunning(data.running);
+        setSimPaused(data.paused);
+
+        if (data.finalStats && !simFinalStats) {
+          setSimFinalStats(data.finalStats);
+          setSimProgress({ completed: data.finalStats.totalDays, total: data.finalStats.totalDays, day: "done", phase: "complete" });
+          if (simWasRunningRef.current) {
+            toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
+          }
+        }
+
+        if (data.error && simWasRunningRef.current) {
+          toast({ title: "Simulation failed", description: data.error, variant: "destructive" });
+        }
+
+        simWasRunningRef.current = data.running;
+
+        if (!data.running && (data.finalStats || data.error)) {
+          return;
+        }
+      } catch {}
+
+      if (pollId === simPollIdRef.current) {
+        timer = setTimeout(poll, 1000);
       }
-    }
+    };
 
-    if (data.finalStats && !simFinalStats) {
-      setSimFinalStats(data.finalStats);
-      if (simWasRunningRef.current) {
-        toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
-      }
-    }
-
-    if (data.error && simWasRunningRef.current) {
-      toast({ title: "Simulation failed", description: data.error, variant: "destructive" });
-    }
-
-    simWasRunningRef.current = data.running;
-  }, [simStatusQuery.data, simFinalStats, toast]);
+    poll();
+    return () => {
+      simPollIdRef.current++;
+      if (timer) clearTimeout(timer);
+    };
+  }, [simFinalStats, toast]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -327,46 +347,66 @@ export default function BacktestPage() {
 
   const btRunLogCountRef = useRef(0);
   const btRunWasRunningRef = useRef(false);
-
-  const btRunStatusQuery = useQuery<any>({
-    queryKey: ["/api/backtest/run-status", btRunLogCountRef.current],
-    queryFn: async () => {
-      const res = await fetch(`/api/backtest/run-status?logsFrom=${btRunLogCountRef.current}`);
-      return res.json();
-    },
-    refetchInterval: 1000,
-  });
-
-  const backtestRunActive = btRunStatusQuery.data?.running ?? false;
+  const btRunPollIdRef = useRef(0);
+  const btRunFinalHandled = useRef(false);
 
   useEffect(() => {
-    const data = btRunStatusQuery.data;
-    if (!data) return;
+    const pollId = ++btRunPollIdRef.current;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    if (data.logs?.length > 0) {
-      setBacktestLogs((prev) => [...prev, ...data.logs]);
-      btRunLogCountRef.current = data.totalLogs;
-    }
+    const poll = async () => {
+      if (pollId !== btRunPollIdRef.current) return;
+      try {
+        const res = await fetch(`/api/backtest/run-status?logsFrom=${btRunLogCountRef.current}`);
+        if (pollId !== btRunPollIdRef.current) return;
+        const data = await res.json();
 
-    if (data.progress) {
-      setBacktestProgress(data.progress);
-    }
+        if (data.logs?.length > 0) {
+          setBacktestLogs((prev) => [...prev, ...data.logs]);
+          btRunLogCountRef.current = data.totalLogs;
+        }
 
-    if (data.finalStats && btRunWasRunningRef.current) {
-      setBacktestRunning(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
-      toast({ title: "Backtest complete", description: "Results are ready to view." });
-    }
+        if (data.progress) {
+          setBacktestProgress(data.progress);
+        }
 
-    if (data.error && btRunWasRunningRef.current) {
-      setBacktestRunning(false);
-      toast({ title: "Backtest failed", description: data.error, variant: "destructive" });
-    }
+        if (data.running) setBacktestRunning(true);
 
-    if (data.running) setBacktestRunning(true);
-    btRunWasRunningRef.current = data.running;
-  }, [btRunStatusQuery.data, toast]);
+        if (data.finalStats && btRunWasRunningRef.current && !btRunFinalHandled.current) {
+          btRunFinalHandled.current = true;
+          setBacktestRunning(false);
+          queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
+          toast({ title: "Backtest complete", description: "Results are ready to view." });
+        }
+
+        if (data.error && btRunWasRunningRef.current) {
+          setBacktestRunning(false);
+          toast({ title: "Backtest failed", description: data.error, variant: "destructive" });
+        }
+
+        if (!data.running && btRunWasRunningRef.current && !data.finalStats && !data.error) {
+          setBacktestRunning(false);
+        }
+
+        btRunWasRunningRef.current = data.running;
+
+        if (!data.running && (data.finalStats || data.error)) {
+          return;
+        }
+      } catch {}
+
+      if (pollId === btRunPollIdRef.current) {
+        timer = setTimeout(poll, 1000);
+      }
+    };
+
+    poll();
+    return () => {
+      btRunPollIdRef.current++;
+      if (timer) clearTimeout(timer);
+    };
+  }, [toast]);
 
   const runBacktestStart = useCallback(() => {
     const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
@@ -374,6 +414,7 @@ export default function BacktestPage() {
     setBacktestLogs([]);
     setBacktestProgress(null);
     btRunLogCountRef.current = 0;
+    btRunFinalHandled.current = false;
 
     fetch("/api/backtest/run-start", {
       method: "POST",
