@@ -19,6 +19,8 @@ import {
   computeAvgDollarVolume,
 } from "./lib/quality";
 import { generateTradePlan } from "./lib/tradeplan";
+import { rankOnDeckSignals } from "./lib/btod";
+import { storage } from "./storage";
 import type { DailyBar, TradePlan, SetupType } from "@shared/schema";
 
 export interface SimSignal {
@@ -102,34 +104,6 @@ export type SimEventCallback = (
   data: Record<string, any>,
 ) => void;
 
-function rankSimSignalsForBtod(signals: SimSignal[]): RankedSimEntry[] {
-  const eligible = signals.filter(
-    (s) =>
-      s.status === "pending" &&
-      s.activationStatus === "NOT_ACTIVE" &&
-      (s.setupType === "A" || s.setupType === "B" || s.setupType === "C") &&
-      s.qualityScore >= 62,
-  );
-
-  eligible.sort((a, b) => {
-    const qsDiff = b.qualityScore - a.qualityScore;
-    if (qsDiff !== 0) return qsDiff;
-    const setupOrder: Record<string, number> = { A: 0, B: 1, C: 2 };
-    const setupDiff =
-      (setupOrder[a.setupType] ?? 99) - (setupOrder[b.setupType] ?? 99);
-    if (setupDiff !== 0) return setupDiff;
-    return a.ticker.localeCompare(b.ticker);
-  });
-
-  return eligible.map((s, i) => ({
-    signalId: s.id,
-    ticker: s.ticker,
-    setupType: s.setupType,
-    qualityScore: s.qualityScore,
-    rank: i + 1,
-  }));
-}
-
 function iterateTradingDays(start: string, end: string): string[] {
   const days: string[] = [];
   let current = start;
@@ -169,12 +143,21 @@ export async function runSimulation(
     return [];
   }
 
+  const settings = await storage.getAllSettings();
+  const timePriorityMode = (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND";
+  const watchlist = await storage.getWatchlistSymbols();
+  const watchlistSet = new Set(watchlist.map((s: any) => s.ticker));
+
   emit("log", {
     message: `Simulation: ${tradingDays.length} trading days, ${config.tickers.length} tickers, setups [${config.setups.join(",")}]`,
     type: "info",
   });
   emit("log", {
     message: `Range: ${tradingDays[0]} → ${tradingDays[tradingDays.length - 1]}`,
+    type: "info",
+  });
+  emit("log", {
+    message: `Settings: timePriorityMode=${timePriorityMode}, watchlist=${watchlistSet.size} symbols`,
     type: "info",
   });
 
@@ -187,11 +170,11 @@ export async function runSimulation(
     const cacheKey = ticker;
     let allBars = dailyCache.get(cacheKey);
     if (!allBars) {
-      const from250 = getTradingDaysBack(config.endDate, 250);
+      const from200 = getTradingDaysBack(config.endDate, 200);
       try {
         const polygon = await fetchDailyBarsCached(
           ticker,
-          from250,
+          from200,
           config.endDate,
         );
         const bars: DailyBar[] = polygon.map((b: any) => ({
@@ -298,12 +281,14 @@ export async function runSimulation(
         const avgVol = computeAvgVolume(dailyBars);
         const avgDollarVol = computeAvgDollarVolume(dailyBars);
         const lastBar = dailyBars[dailyBars.length - 1];
-        const slice20 = dailyBars.slice(-20);
-        const avgRange20d =
-          slice20.length > 0
-            ? slice20.reduce((s, b) => s + (b.high - b.low), 0) /
-              slice20.length
-            : 0;
+        const avgRange20d = dailyBars.slice(-20).length > 0
+          ? dailyBars.slice(-20).reduce((s, b) => s + (b.high - b.low), 0) / dailyBars.slice(-20).length
+          : 0;
+        const avgRange = recentBars.length > 0
+          ? recentBars.reduce((s, b) => s + (b.high - b.low), 0) / recentBars.length
+          : 0;
+
+        const isOnWatchlist = watchlistSet.has(ticker);
 
         for (const setup of relevantSetups) {
           const existingSig = Array.from(allSignals.values()).find(
@@ -330,9 +315,12 @@ export async function runSimulation(
             triggerDayVolume,
             avgVol,
             triggerDayRange,
-            avgRange20d,
+            avgRange,
             atr,
           );
+
+          const historicalHitRate = await storage.getHitRateForTickerSetup(ticker, setup.setupType);
+          const tthStats = await storage.getTimeToHitStats(ticker, setup.setupType);
 
           const qualityResult = computeQualityScore({
             setupType: setup.setupType as SetupType,
@@ -345,13 +333,18 @@ export async function runSimulation(
             avgTrueRange20d: avgRange20d,
             todayVolume: triggerDayVolume,
             avgVolume20d: avgVol,
-            historicalHitRate: null,
-            p60: null,
-            p390: null,
-            timePriorityMode: "BLEND",
+            historicalHitRate,
+            p60: tthStats?.p60 ?? null,
+            p390: tthStats?.p390 ?? null,
+            timePriorityMode,
           });
 
-          const tier = qualityScoreToTier(qualityResult.total, null, null);
+          const sigP60 = tthStats?.p60 ?? null;
+          const sigP120 = tthStats?.p120 ?? null;
+
+          let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
+          if (isOnWatchlist && tier === "B") tier = "A";
+          else if (isOnWatchlist && tier === "C") tier = "B";
 
           const tradePlan = generateTradePlan(
             lastBar.close,
@@ -425,8 +418,14 @@ export async function runSimulation(
         s.targetDate >= today,
     );
 
-    const ranked = rankSimSignalsForBtod(pendingForBtod);
-    const top3 = ranked.slice(0, 3);
+    const ranked = rankOnDeckSignals(pendingForBtod as any);
+    const top3: RankedSimEntry[] = ranked.slice(0, 3).map((r) => ({
+      signalId: r.signalId,
+      ticker: r.ticker,
+      setupType: r.setupType,
+      qualityScore: r.qualityScore,
+      rank: r.rank,
+    }));
     dayResult.btodTop3 = top3;
     const btodSignalIds = new Set(top3.map((r) => r.signalId));
 
