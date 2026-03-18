@@ -223,6 +223,7 @@ export default function BacktestPage() {
   const simDayCountRef = useRef(0);
   const simWasRunningRef = useRef(false);
   const simPollIdRef = useRef(0);
+  const simUserNavigatedRef = useRef(false);
 
   useEffect(() => {
     const pollId = ++simPollIdRef.current;
@@ -252,9 +253,8 @@ export default function BacktestPage() {
             return [...prev, ...newDays];
           });
           simDayCountRef.current = data.totalDayResults;
-          const lastDay = data.dayResults[data.dayResults.length - 1];
-          if (lastDay) {
-            setSimSelectedDayIdx((prev) => prev === -1 || prev === lastDay.dayIndex - 1 ? lastDay.dayIndex : prev);
+          if (!simUserNavigatedRef.current) {
+            setSimSelectedDayIdx(data.totalDayResults - 1);
           }
         }
 
@@ -331,6 +331,7 @@ export default function BacktestPage() {
     setSimFinalStats(null);
     simLogCountRef.current = 0;
     simDayCountRef.current = 0;
+    simUserNavigatedRef.current = false;
 
     fetch("/api/backtest/simulate-start", {
       method: "POST",
@@ -798,7 +799,7 @@ export default function BacktestPage() {
                             <Button
                               variant="ghost" size="sm" className="h-7 w-7 p-0"
                               disabled={simSelectedDayIdx <= 0}
-                              onClick={() => setSimSelectedDayIdx((prev) => Math.max(0, prev - 1))}
+                              onClick={() => { simUserNavigatedRef.current = true; setSimSelectedDayIdx((prev) => Math.max(0, prev - 1)); }}
                               data-testid="button-sim-prev-day"
                             >
                               <ArrowRight className="w-4 h-4 rotate-180" />
@@ -812,7 +813,7 @@ export default function BacktestPage() {
                             <Button
                               variant="ghost" size="sm" className="h-7 w-7 p-0"
                               disabled={simSelectedDayIdx >= simDayResults.length - 1}
-                              onClick={() => setSimSelectedDayIdx((prev) => Math.min(simDayResults.length - 1, prev + 1))}
+                              onClick={() => { simUserNavigatedRef.current = true; setSimSelectedDayIdx((prev) => Math.min(simDayResults.length - 1, prev + 1)); }}
                               data-testid="button-sim-next-day"
                             >
                               <ArrowRight className="w-4 h-4" />
@@ -1132,7 +1133,7 @@ export default function BacktestPage() {
                                 <TableRow
                                   key={day.date}
                                   className={`cursor-pointer ${idx === simSelectedDayIdx ? "bg-primary/10" : "hover:bg-muted/50"}`}
-                                  onClick={() => setSimSelectedDayIdx(idx)}
+                                  onClick={() => { simUserNavigatedRef.current = true; setSimSelectedDayIdx(idx); }}
                                   data-testid={`row-sim-day-${day.date}`}
                                 >
                                   <TableCell className="font-mono text-sm">{day.date}</TableCell>
