@@ -50,6 +50,7 @@ function getSqliteDb(): Database.Database {
 // ----- Postgres -----
 let pgPool: pg.Pool | null = null;
 let pgDb: ReturnType<typeof drizzle> | null = null;
+let pgTablesInitialized = false;
 
 function getPgDb(): ReturnType<typeof drizzle> {
   if (pgDb) return pgDb;
@@ -58,6 +59,43 @@ function getPgDb(): ReturnType<typeof drizzle> {
   pgPool = new pg.Pool({ connectionString: c.url });
   pgDb = drizzle(pgPool);
   return pgDb;
+}
+
+/** Create bar_cache and bar_cache_meta in Postgres if they don't exist. Call once before first use. */
+export async function ensureBarCachePgTables(): Promise<void> {
+  const c = barCacheConfig();
+  if (c.mode !== "postgres") return;
+  if (pgTablesInitialized) return;
+  getPgDb(); // ensure pgPool is created
+  if (!pgPool) return;
+  const client = await pgPool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS bar_cache (
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        adjusted INTEGER NOT NULL,
+        timestamp DOUBLE PRECISION NOT NULL,
+        open DOUBLE PRECISION NOT NULL,
+        high DOUBLE PRECISION NOT NULL,
+        low DOUBLE PRECISION NOT NULL,
+        close DOUBLE PRECISION NOT NULL,
+        volume DOUBLE PRECISION NOT NULL,
+        UNIQUE(symbol, timeframe, adjusted, timestamp)
+      );
+      CREATE TABLE IF NOT EXISTS bar_cache_meta (
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        adjusted INTEGER NOT NULL,
+        last_fetched DOUBLE PRECISION NOT NULL,
+        UNIQUE(symbol, timeframe, adjusted)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bar_cache_lookup ON bar_cache(symbol, timeframe, adjusted, timestamp);
+    `);
+    pgTablesInitialized = true;
+  } finally {
+    client.release();
+  }
 }
 
 // ----- Shared API (async) -----
@@ -98,6 +136,7 @@ export async function queryBarsRange(
     }));
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   const rows = await db
     .select()
@@ -143,6 +182,7 @@ export async function getLatestCachedTs(
     return row?.maxTs ?? null;
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   const rows = await db
     .select({ maxTs: sql<number>`MAX(${barCache.timestamp})` })
@@ -181,6 +221,7 @@ export async function getCachedBarCount(
     return row?.cnt ?? 0;
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   const rows = await db
     .select({ cnt: sql<number>`COUNT(*)::int` })
@@ -218,6 +259,7 @@ export async function getEarliestCachedTs(
     return row?.minTs ?? null;
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   const rows = await db
     .select({ minTs: sql<number>`MIN(${barCache.timestamp})` })
@@ -252,6 +294,7 @@ export async function getMeta(
     return { lastFetched: row.last_fetched };
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   const rows = await db
     .select()
@@ -286,6 +329,7 @@ export async function touchMeta(
     return;
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   await db
     .insert(barCacheMeta)
@@ -338,6 +382,7 @@ export async function upsertBarsAndMeta(
     return;
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   for (const bar of bars) {
     await db
@@ -399,6 +444,7 @@ export async function getBarCacheStats(): Promise<BarCacheStats> {
     };
   }
 
+  await ensureBarCachePgTables();
   const db = getPgDb();
   const countRows = await db.select({ cnt: sql<number>`COUNT(*)::int` }).from(barCache);
   const symbolRows = await db.select({ cnt: sql<number>`COUNT(DISTINCT ${barCache.symbol})::int` }).from(barCache);

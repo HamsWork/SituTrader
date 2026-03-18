@@ -326,13 +326,6 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
     } catch (err: any) {
       log(`Live monitor: Alert error: ${err.message}`, "scheduler");
     }
-
-    try {
-      const { monitorActiveTrades } = await import("../lib/ibkrOrders");
-      await monitorActiveTrades();
-    } catch (err: any) {
-      log(`Live monitor: IBKR trade monitor error: ${err.message}`, "scheduler");
-    }
   } catch (err: any) {
     log(`Live monitor: Fatal error: ${err.message}`, "scheduler");
   }
