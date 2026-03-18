@@ -774,11 +774,11 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Discord & IBKR Settings */}
+      {/* Discord Settings */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Bell className="w-4 h-4" /> Discord & IBKR Integration
+            <Bell className="w-4 h-4" /> Discord Integration
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -816,69 +816,6 @@ export default function SettingsPage() {
             </div>
             <p className="text-xs text-muted-foreground">LETF swing trade alerts channel</p>
           </div>
-          <Separator />
-          <div className="space-y-2">
-            <Label className="text-xs">IBKR Auto-Execute on Activation</Label>
-            <Select
-              value={currentSettings.ibkrAutoExecute ?? "disabled"}
-              onValueChange={(value) => saveSetting.mutate({ key: "ibkrAutoExecute", value })}
-            >
-              <SelectTrigger data-testid="select-ibkr-auto-execute">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="enabled">Enabled</SelectItem>
-                <SelectItem value="disabled">Disabled</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">Auto-place IBKR orders when signals activate</p>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs">Default Position Size (contracts/shares)</Label>
-            <Input
-              type="number"
-              defaultValue={currentSettings.ibkrDefaultQuantity ?? "1"}
-              onBlur={(e) => {
-                if (e.target.value !== (currentSettings.ibkrDefaultQuantity ?? "1")) {
-                  saveSetting.mutate({ key: "ibkrDefaultQuantity", value: e.target.value });
-                }
-              }}
-              className="text-xs w-24"
-              data-testid="input-ibkr-quantity"
-            />
-          </div>
-          <Separator />
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label className="text-xs">IBKR Gateway Host</Label>
-              <Input
-                placeholder="127.0.0.1"
-                defaultValue={currentSettings.ibkrHost ?? ""}
-                onBlur={(e) => {
-                  if (e.target.value !== (currentSettings.ibkrHost ?? "")) {
-                    saveSetting.mutate({ key: "ibkrHost", value: e.target.value });
-                  }
-                }}
-                className="text-xs"
-                data-testid="input-ibkr-host"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">IBKR Gateway Port</Label>
-              <Input
-                placeholder="4003"
-                defaultValue={currentSettings.ibkrPort ?? ""}
-                onBlur={(e) => {
-                  if (e.target.value !== (currentSettings.ibkrPort ?? "")) {
-                    saveSetting.mutate({ key: "ibkrPort", value: e.target.value });
-                  }
-                }}
-                className="text-xs w-24"
-                data-testid="input-ibkr-port"
-              />
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">Falls back to IBKR_HOST / IBKR_PORT environment variables if blank</p>
         </CardContent>
       </Card>
 

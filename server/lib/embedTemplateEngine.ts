@@ -1,5 +1,5 @@
 import type { TemplateEmbed } from "./embedTemplateDefaults";
-import { storage } from "../storage";
+import { getDefaultTemplates } from "./embedTemplateDefaults";
 import { log } from "../log";
 
 interface DiscordField {
@@ -80,59 +80,13 @@ export async function getTemplateForEvent(
   eventType: string,
 ): Promise<TemplateEmbed | null> {
   try {
-    const tmpl = await storage.getEmbedTemplate(instrumentType, eventType);
-    if (tmpl?.isActive && tmpl.embedJson) {
-      return tmpl.embedJson as unknown as TemplateEmbed;
-    }
+    const defaults = getDefaultTemplates();
+    const t = defaults.find(
+      (d) => d.instrumentType === instrumentType && d.eventType === eventType,
+    );
+    return t ? (t.embedJson as TemplateEmbed) : null;
   } catch (err: any) {
     log(`Failed to load embed template ${instrumentType}/${eventType}: ${err.message}`, "discord");
+    return null;
   }
-  return null;
-}
-
-export async function seedDefaultTemplates(): Promise<number> {
-  const { getDefaultTemplates, EVENT_TYPES } = await import("./embedTemplateDefaults");
-  const defaults = getDefaultTemplates();
-  let seeded = 0;
-  for (const t of defaults) {
-    const existing = await storage.getEmbedTemplate(t.instrumentType, t.eventType);
-    if (!existing) {
-      await storage.upsertEmbedTemplate({
-        instrumentType: t.instrumentType,
-        eventType: t.eventType,
-        templateName: t.templateName,
-        embedJson: t.embedJson as any,
-        isActive: true,
-      });
-      seeded++;
-    } else {
-      const defaultJson = JSON.stringify(t.embedJson);
-      const existingJson = JSON.stringify(existing.embedJson);
-      if (defaultJson !== existingJson) {
-        await storage.updateEmbedTemplate(existing.id, {
-          embedJson: t.embedJson as any,
-          templateName: t.templateName,
-        });
-        log(`Updated embed template: ${t.templateName}`, "discord");
-      }
-    }
-  }
-
-  const validEvents = new Set<string>(EVENT_TYPES as readonly string[]);
-  const allTemplates = await storage.getEmbedTemplates();
-  let removed = 0;
-  for (const tmpl of allTemplates) {
-    if (!validEvents.has(tmpl.eventType)) {
-      await storage.deleteEmbedTemplate(tmpl.id);
-      removed++;
-    }
-  }
-  if (removed > 0) {
-    log(`Removed ${removed} obsolete embed templates`, "discord");
-  }
-
-  if (seeded > 0) {
-    log(`Seeded ${seeded} default embed templates`, "discord");
-  }
-  return seeded;
 }

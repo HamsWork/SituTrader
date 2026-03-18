@@ -2,7 +2,6 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { connectIBKR, isConnected } from "./lib/ibkr";
 import { recomputeAllExpectancy } from "./lib/expectancy";
 import { log } from "./log";
 
@@ -96,29 +95,11 @@ app.use((req, res, next) => {
 
       setTimeout(async () => {
         try {
-          const { seedDefaultTemplates } = await import("./lib/embedTemplateEngine");
-          const seeded = await seedDefaultTemplates();
-          if (seeded > 0) log(`Seeded ${seeded} embed templates`, "startup");
-        } catch (err: any) {
-          log(`Embed template seed failed: ${err.message}`, "startup");
-        }
-
-        try {
           log("Auto-refreshing optimization stats on startup...", "startup");
           await recomputeAllExpectancy();
           log("Optimization stats refreshed", "startup");
         } catch (err: any) {
           log(`Startup stats refresh failed: ${err.message}`, "startup");
-        }
-
-        if (!isConnected()) {
-          log("Auto-connecting to IBKR...", "ibkr");
-          const ok = await connectIBKR();
-          if (ok) {
-            log("IBKR auto-connect successful", "ibkr");
-          } else {
-            log("IBKR auto-connect failed — will retry via keep-alive", "ibkr");
-          }
         }
       }, 3000);
     },

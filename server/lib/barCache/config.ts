@@ -7,45 +7,23 @@ export type BarCacheDbConfig =
 
 /**
  * Resolves bar cache DB config from env.
- * - BAR_CACHE_DB_URL or BAR_CACHE_DB_PATH
- * - Unset → SQLite at process.cwd()/bar_cache.db
- * - file:/path or path string → SQLite at that path
- * - postgres:// or postgresql:// → Postgres at that URL
+ * - BAR_CACHE_DB_URL: postgresql:// or postgres:// → external Postgres; unset → SQLite at ./bar_cache.db
  */
 export function getBarCacheDbConfig(): BarCacheDbConfig {
-  const raw =
-    process.env.BAR_CACHE_DB_URL ??
-    process.env.BAR_CACHE_DB_PATH ??
-    "";
-
-  const trimmed = raw.trim();
-  if (!trimmed) {
+  const raw = (process.env.BAR_CACHE_DB_URL ?? "").trim();
+  if (!raw) {
     return {
       mode: "sqlite",
       path: path.join(process.cwd(), "bar_cache.db"),
     };
   }
-
-  const lower = trimmed.toLowerCase();
+  const lower = raw.toLowerCase();
   if (lower.startsWith("postgresql://") || lower.startsWith("postgres://")) {
-    return { mode: "postgres", url: trimmed };
+    return { mode: "postgres", url: raw };
   }
-
-  if (lower.startsWith("file:")) {
-    try {
-      const filePath = new URL(trimmed).pathname;
-      return {
-        mode: "sqlite",
-        path: path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath),
-      };
-    } catch {
-      return { mode: "sqlite", path: path.resolve(process.cwd(), "bar_cache.db") };
-    }
-  }
-
   return {
     mode: "sqlite",
-    path: path.isAbsolute(trimmed) ? trimmed : path.resolve(process.cwd(), trimmed),
+    path: path.join(process.cwd(), "bar_cache.db"),
   };
 }
 

@@ -23,7 +23,7 @@ import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSign
 import { fetchOptionMark } from "./lib/polygon";
 import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping, getCandidates } from "./lib/leveragedEtf";
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
-import { connectIBKR, disconnectIBKR, isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
+import { isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
 import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./lib/discord";
 import {
@@ -1469,33 +1469,7 @@ export async function registerRoutes(
     }
   });
 
-  // ── IBKR Routes ──
-
-  app.post("/api/ibkr/connect", async (_req, res) => {
-    try {
-      const ok = await connectIBKR();
-      await storage.updateIbkrState({
-        connected: ok,
-        lastConnectedAt: ok ? new Date().toISOString() : undefined,
-      });
-      res.json({ connected: ok });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/ibkr/disconnect", async (_req, res) => {
-    try {
-      disconnectIBKR();
-      await storage.updateIbkrState({
-        connected: false,
-        lastDisconnectedAt: new Date().toISOString(),
-      });
-      res.json({ connected: false });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
+  // ── IBKR Routes (connection disabled; status/dashboard/trades remain for display) ──
 
   app.get("/api/ibkr/status", async (_req, res) => {
     try {
@@ -1617,7 +1591,16 @@ export async function registerRoutes(
 
   app.get("/api/embed-templates", async (_req, res) => {
     try {
-      const templates = await storage.getEmbedTemplates();
+      const { getDefaultTemplates } = await import("./lib/embedTemplateDefaults");
+      const defaults = getDefaultTemplates();
+      const templates = defaults.map((t, i) => ({
+        id: i + 1,
+        instrumentType: t.instrumentType,
+        eventType: t.eventType,
+        templateName: t.templateName,
+        embedJson: t.embedJson,
+        isActive: true,
+      }));
       res.json(templates);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1633,61 +1616,12 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/embed-templates/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) return res.status(400).json({ message: "Invalid template id" });
-      const { embedJson, templateName, isActive } = req.body;
-      if (embedJson !== undefined && (typeof embedJson !== "object" || embedJson === null)) {
-        return res.status(400).json({ message: "embedJson must be a valid object" });
-      }
-      if (embedJson && (!embedJson.description || !Array.isArray(embedJson.fields))) {
-        return res.status(400).json({ message: "embedJson must have description and fields array" });
-      }
-      if (templateName !== undefined && typeof templateName !== "string") {
-        return res.status(400).json({ message: "templateName must be a string" });
-      }
-      if (isActive !== undefined && typeof isActive !== "boolean") {
-        return res.status(400).json({ message: "isActive must be a boolean" });
-      }
-      const updates: any = {};
-      if (embedJson !== undefined) updates.embedJson = embedJson;
-      if (templateName !== undefined) updates.templateName = templateName;
-      if (isActive !== undefined) updates.isActive = isActive;
-      const result = await storage.updateEmbedTemplate(id, updates);
-      if (!result) return res.status(404).json({ message: "Template not found" });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
+  app.put("/api/embed-templates/:id", async (_req, res) => {
+    res.status(400).json({ message: "Embed templates are read-only (defaults only)." });
   });
 
-  app.post("/api/embed-templates/seed", async (_req, res) => {
-    try {
-      const { seedDefaultTemplates } = await import("./lib/embedTemplateEngine");
-      const count = await seedDefaultTemplates();
-      res.json({ seeded: count });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/embed-templates/reset/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) return res.status(400).json({ message: "Invalid template id" });
-      const templates = await storage.getEmbedTemplates();
-      const existing = templates.find(t => t.id === id);
-      if (!existing) return res.status(404).json({ message: "Template not found" });
-      const { getDefaultTemplates } = await import("./lib/embedTemplateDefaults");
-      const defaults = getDefaultTemplates();
-      const def = defaults.find(d => d.instrumentType === existing.instrumentType && d.eventType === existing.eventType);
-      if (!def) return res.status(404).json({ message: "No default template found for this combination" });
-      const result = await storage.updateEmbedTemplate(id, { embedJson: def.embedJson as any, templateName: def.templateName });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
+  app.post("/api/embed-templates/reset/:id", async (_req, res) => {
+    res.status(400).json({ message: "Embed templates are read-only (defaults only)." });
   });
 
   app.post("/api/embed-templates/preview", async (req, res) => {
