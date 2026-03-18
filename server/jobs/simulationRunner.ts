@@ -43,7 +43,12 @@ function emitToState(state: SimulationState): SimEventCallback {
     } else if (event === "progress") {
       state.progress = data as any;
     } else if (event === "day") {
-      state.dayResults.push(data);
+      const existingIdx = state.dayResults.findIndex((d: any) => d.dayIndex === data.dayIndex);
+      if (existingIdx >= 0) {
+        state.dayResults[existingIdx] = data;
+      } else {
+        state.dayResults.push(data);
+      }
     } else if (event === "done") {
       state.finalStats = data;
       scheduleAutoClear();

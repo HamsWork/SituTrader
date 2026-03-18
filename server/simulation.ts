@@ -322,6 +322,46 @@ export async function runSimulation(
       };
     }
 
+    function emitDayUpdate() {
+      const onDeck = Array.from(allSignals.values())
+        .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
+        .map((s) => ({
+          id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+          qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+        }));
+      const active = Array.from(allSignals.values())
+        .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
+        .map((s) => ({
+          id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+          qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
+          entryPrice: s.entryPrice, activatedTs: s.activatedTs,
+        }));
+      emit("day", {
+        date: today,
+        dayIndex: dayIdx,
+        totalDays: tradingDays.length,
+        signalsGenerated: dayResult.signalsGenerated.length,
+        btodTop3Count: dayResult.btodTop3.length,
+        btodTop3: dayResult.btodTop3,
+        btodStatus: dayResult.btodStatus,
+        tradeSyncCalls: dayResult.tradeSyncCalls,
+        activations: dayResult.activations.length,
+        activationDetails: dayResult.activations,
+        hits: dayResult.hits.length,
+        hitDetails: dayResult.hits,
+        misses: dayResult.misses.length,
+        missDetails: dayResult.misses,
+        summary: dayResult.summary,
+        onDeckSignals: onDeck,
+        activeSignals: active,
+        newSignals: dayResult.signalsGenerated.map((s) => ({
+          id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+          qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+        })),
+        phases: dayResult.phases,
+      });
+    }
+
     emit("progress", {
       completed: dayIdx,
       total: tradingDays.length,
@@ -490,6 +530,9 @@ export async function runSimulation(
     }
 
     dayResult.phases.push(captureSnapshot("Before Pre-Open"));
+    emitDayUpdate();
+    await new Promise((r) => setTimeout(r, 4000));
+    if (abortSignal?.aborted) break;
 
     emit("log", {
       message: `  Phase 1: Pre-open scan (BTOD selection)`,
@@ -536,6 +579,9 @@ export async function runSimulation(
     }
 
     dayResult.phases.push(captureSnapshot("After Pre-Open"));
+    emitDayUpdate();
+    await new Promise((r) => setTimeout(r, 4000));
+    if (abortSignal?.aborted) break;
 
     emit("log", {
       message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
@@ -718,6 +764,9 @@ export async function runSimulation(
     }
 
     dayResult.phases.push(captureSnapshot("Before After-Close"));
+    emitDayUpdate();
+    await new Promise((r) => setTimeout(r, 4000));
+    if (abortSignal?.aborted) break;
 
     emit("log", {
       message: `  Phase 3: After-close scan (detect setups)`,

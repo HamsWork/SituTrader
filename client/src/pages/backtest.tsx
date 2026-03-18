@@ -263,14 +263,24 @@ export default function BacktestPage() {
 
         if (data.dayResults?.length > 0) {
           setSimDayResults((prev) => {
-            const existingIndices = new Set(prev.map((d: SimDayDetail) => d.dayIndex));
-            const newDays = data.dayResults.filter((d: SimDayDetail) => !existingIndices.has(d.dayIndex));
-            if (newDays.length === 0) return prev;
-            return [...prev, ...newDays];
+            const updated = [...prev];
+            for (const incoming of data.dayResults as SimDayDetail[]) {
+              const existingIdx = updated.findIndex((d) => d.dayIndex === incoming.dayIndex);
+              if (existingIdx >= 0) {
+                updated[existingIdx] = incoming;
+              } else {
+                updated.push(incoming);
+              }
+            }
+            return updated;
           });
           simDayCountRef.current = data.totalDayResults;
           if (!simUserNavigatedRef.current) {
             setSimSelectedDayIdx(data.totalDayResults - 1);
+            const lastResult = data.dayResults[data.dayResults.length - 1];
+            if (lastResult?.phases?.length > 0) {
+              setSimSelectedPhaseIdx(lastResult.phases.length - 1);
+            }
           }
         }
 
