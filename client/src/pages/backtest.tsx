@@ -240,6 +240,7 @@ export default function BacktestPage() {
   const simWasRunningRef = useRef(false);
   const simPollIdRef = useRef(0);
   const simUserNavigatedRef = useRef(false);
+  const simPhaseNavigatedRef = useRef(false);
 
   useEffect(() => {
     const pollId = ++simPollIdRef.current;
@@ -274,13 +275,18 @@ export default function BacktestPage() {
             }
             return updated;
           });
+          const prevDayCount = simDayCountRef.current;
           simDayCountRef.current = data.totalDayResults;
+          const newDayArrived = data.totalDayResults > prevDayCount;
+          if (newDayArrived) {
+            simPhaseNavigatedRef.current = false;
+          }
           if (!simUserNavigatedRef.current) {
             setSimSelectedDayIdx(data.totalDayResults - 1);
-            const lastResult = data.dayResults[data.dayResults.length - 1];
-            if (lastResult?.phases?.length > 0) {
-              setSimSelectedPhaseIdx(lastResult.phases.length - 1);
-            }
+          }
+          const lastResult = data.dayResults[data.dayResults.length - 1];
+          if (lastResult?.phases?.length > 0 && !simPhaseNavigatedRef.current && !simUserNavigatedRef.current) {
+            setSimSelectedPhaseIdx(lastResult.phases.length - 1);
           }
         }
 
@@ -358,6 +364,8 @@ export default function BacktestPage() {
     simLogCountRef.current = 0;
     simDayCountRef.current = 0;
     simUserNavigatedRef.current = false;
+    simPhaseNavigatedRef.current = false;
+    setSimSelectedPhaseIdx(0);
 
     fetch("/api/backtest/simulate-start", {
       method: "POST",
@@ -880,11 +888,19 @@ export default function BacktestPage() {
                               {PHASE_LABELS.map((label, idx) => (
                                 <button
                                   key={label}
-                                  onClick={() => setSimSelectedPhaseIdx(idx)}
+                                  onClick={() => {
+                                    if (idx < (currentDay.phases?.length ?? 0)) {
+                                      simPhaseNavigatedRef.current = true;
+                                      setSimSelectedPhaseIdx(idx);
+                                    }
+                                  }}
+                                  disabled={idx >= (currentDay.phases?.length ?? 0)}
                                   className={`flex-1 text-[10px] py-1.5 px-2 rounded-md border transition-colors ${
-                                    simSelectedPhaseIdx === idx
-                                      ? "bg-primary/15 border-primary/40 text-primary font-semibold"
-                                      : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/50"
+                                    idx >= (currentDay.phases?.length ?? 0)
+                                      ? "opacity-30 cursor-not-allowed bg-muted/10 border-transparent text-muted-foreground"
+                                      : simSelectedPhaseIdx === idx
+                                        ? "bg-primary/15 border-primary/40 text-primary font-semibold"
+                                        : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/50"
                                   }`}
                                   data-testid={`btn-phase-${idx}`}
                                 >
