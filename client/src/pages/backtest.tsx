@@ -190,6 +190,20 @@ export default function BacktestPage() {
     triggerTs: string;
   }
 
+  interface SimPhaseSnapshot {
+    label: string;
+    btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number }>;
+    btodStatus: SimBtodStatus;
+    tradeSyncCalls: SimTradeSyncCall[];
+    activations: Array<{ signalId: number; ticker: string; setupType: string; triggerTs: string; entryPrice: number; isBtod: boolean }>;
+    hits: Array<{ signalId: number; ticker: string; hitTs: string; timeToHitMin: number }>;
+    misses: Array<{ signalId: number; ticker: string; reason: string }>;
+    summary: { totalPending: number; totalActive: number; totalHit: number; totalMiss: number };
+    signalsGenerated: any[];
+    onDeckSignals: SimSignalSummary[];
+    activeSignals: SimSignalSummary[];
+  }
+
   interface SimDayDetail {
     date: string;
     dayIndex: number;
@@ -209,12 +223,14 @@ export default function BacktestPage() {
     onDeckSignals: SimSignalSummary[];
     activeSignals: SimSignalSummary[];
     newSignals: SimSignalSummary[];
+    phases?: SimPhaseSnapshot[];
   }
 
   const [simLogs, setSimLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
   const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
   const [simDayResults, setSimDayResults] = useState<SimDayDetail[]>([]);
   const [simSelectedDayIdx, setSimSelectedDayIdx] = useState<number>(-1);
+  const [simSelectedPhaseIdx, setSimSelectedPhaseIdx] = useState<number>(3);
   const [simFinalStats, setSimFinalStats] = useState<any | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const [simPaused, setSimPaused] = useState(false);
@@ -822,19 +838,22 @@ export default function BacktestPage() {
                           {(() => {
                             const currentDay = simDayResults[simSelectedDayIdx];
                             if (!currentDay) return null;
+                            const phase = currentDay.phases?.[simSelectedPhaseIdx];
+                            const summary = phase?.summary ?? currentDay.summary;
+                            const sigCount = phase ? phase.signalsGenerated.length : currentDay.signalsGenerated;
                             return (
                               <div className="flex items-center gap-2 text-xs">
                                 <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
-                                  +{currentDay.signalsGenerated} new
+                                  +{sigCount} new
                                 </Badge>
                                 <Badge variant="outline" className="text-[10px] bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
-                                  {currentDay.summary.totalPending} pending
+                                  {summary.totalPending} pending
                                 </Badge>
                                 <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/20">
-                                  {currentDay.summary.totalActive} active
+                                  {summary.totalActive} active
                                 </Badge>
                                 <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                                  {currentDay.summary.totalHit} hits
+                                  {summary.totalHit} hits
                                 </Badge>
                               </div>
                             );
@@ -843,7 +862,46 @@ export default function BacktestPage() {
 
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
+                          if (!currentDay?.phases || currentDay.phases.length === 0) return null;
+                          const PHASE_LABELS = ["Before Pre-Open", "After Pre-Open", "Before After-Close", "After After-Close"];
+                          const PHASE_SHORTS = ["Pre①", "Post①", "Pre②", "Post②"];
+                          return (
+                            <div className="flex items-center gap-1 mb-2" data-testid="sim-phase-stepper">
+                              {PHASE_LABELS.map((label, idx) => (
+                                <button
+                                  key={label}
+                                  onClick={() => setSimSelectedPhaseIdx(idx)}
+                                  className={`flex-1 text-[10px] py-1.5 px-2 rounded-md border transition-colors ${
+                                    simSelectedPhaseIdx === idx
+                                      ? "bg-primary/15 border-primary/40 text-primary font-semibold"
+                                      : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/50"
+                                  }`}
+                                  data-testid={`btn-phase-${idx}`}
+                                >
+                                  <div className="hidden md:block">{label}</div>
+                                  <div className="md:hidden">{PHASE_SHORTS[idx]}</div>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
+
+                        {(() => {
+                          const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
+
+                          const phase = currentDay.phases?.[simSelectedPhaseIdx];
+                          const btodTop3 = phase?.btodTop3 ?? currentDay.btodTop3;
+                          const btodStatus = phase?.btodStatus ?? currentDay.btodStatus;
+                          const activationDetails = phase?.activations ?? currentDay.activationDetails;
+                          const tradeSyncCalls = phase?.tradeSyncCalls ?? currentDay.tradeSyncCalls;
+                          const hitDetails = phase?.hits ?? currentDay.hitDetails;
+                          const onDeckSignals = phase?.onDeckSignals ?? currentDay.onDeckSignals;
+                          const activeSignals = phase?.activeSignals ?? currentDay.activeSignals;
+                          const newSignals = phase ? phase.signalsGenerated.map((s: any) => ({
+                            id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+                            qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+                          })) : currentDay.newSignals;
                           return (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               <div className="space-y-2">
@@ -851,9 +909,9 @@ export default function BacktestPage() {
                                   <Star className="w-3.5 h-3.5" />
                                   BTOD Top 3
                                 </div>
-                                {currentDay.btodTop3.length > 0 ? (
+                                {btodTop3.length > 0 ? (
                                   <div className="space-y-1">
-                                    {currentDay.btodTop3.map((entry) => (
+                                    {btodTop3.map((entry) => (
                                       <div key={entry.signalId} className="flex items-center justify-between px-2 py-1.5 rounded bg-violet-500/5 border border-violet-500/10 text-xs" data-testid={`sim-btod-entry-${entry.signalId}`}>
                                         <div className="flex items-center gap-2">
                                           <Badge variant="outline" className="text-[9px] h-4 px-1 bg-violet-500/10 text-violet-400 border-violet-500/20">
@@ -876,32 +934,32 @@ export default function BacktestPage() {
                                   <Crosshair className="w-3.5 h-3.5" />
                                   BTOD Status
                                 </div>
-                                {currentDay.btodStatus ? (
+                                {btodStatus ? (
                                   <div className="px-2 py-2 rounded bg-cyan-500/5 border border-cyan-500/10 text-xs space-y-1.5" data-testid="sim-btod-status">
                                     <div className="flex items-center justify-between">
                                       <span className="text-muted-foreground">Phase</span>
                                       <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
-                                        currentDay.btodStatus.phase === "SELECTIVE" ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" :
-                                        currentDay.btodStatus.phase === "OPEN" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                        btodStatus.phase === "SELECTIVE" ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" :
+                                        btodStatus.phase === "OPEN" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
                                         "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
                                       }`}>
-                                        {currentDay.btodStatus.phase}
+                                        {btodStatus.phase}
                                       </Badge>
                                     </div>
                                     <div className="flex items-center justify-between">
                                       <span className="text-muted-foreground">Gate</span>
-                                      <span className={currentDay.btodStatus.gateOpen ? "text-emerald-400" : "text-red-400"}>
-                                        {currentDay.btodStatus.gateOpen ? "OPEN" : "CLOSED"}
+                                      <span className={btodStatus.gateOpen ? "text-emerald-400" : "text-red-400"}>
+                                        {btodStatus.gateOpen ? "OPEN" : "CLOSED"}
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                       <span className="text-muted-foreground">Eligible</span>
-                                      <span>{currentDay.btodStatus.eligibleCount} signals</span>
+                                      <span>{btodStatus.eligibleCount} signals</span>
                                     </div>
-                                    {currentDay.btodStatus.executedTicker && (
+                                    {btodStatus.executedTicker && (
                                       <div className="flex items-center justify-between pt-1 border-t border-cyan-500/10">
                                         <span className="text-muted-foreground">Executed</span>
-                                        <span className="font-mono font-semibold text-emerald-400">{currentDay.btodStatus.executedTicker}</span>
+                                        <span className="font-mono font-semibold text-emerald-400">{btodStatus.executedTicker}</span>
                                       </div>
                                     )}
                                   </div>
@@ -913,11 +971,11 @@ export default function BacktestPage() {
                               <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
                                   <Zap className="w-3.5 h-3.5" />
-                                  Activated ({currentDay.activeSignals.length})
+                                  Activated ({activeSignals.length})
                                 </div>
-                                {currentDay.activeSignals.length > 0 ? (
+                                {activeSignals.length > 0 ? (
                                   <div className="space-y-1 max-h-32 overflow-y-auto">
-                                    {currentDay.activeSignals.map((sig) => (
+                                    {activeSignals.map((sig) => (
                                       <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs" data-testid={`sim-active-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
@@ -941,11 +999,11 @@ export default function BacktestPage() {
                               <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400">
                                   <Target className="w-3.5 h-3.5" />
-                                  On Deck ({currentDay.onDeckSignals.length})
+                                  On Deck ({onDeckSignals.length})
                                 </div>
-                                {currentDay.onDeckSignals.length > 0 ? (
+                                {onDeckSignals.length > 0 ? (
                                   <div className="space-y-1 max-h-32 overflow-y-auto">
-                                    {currentDay.onDeckSignals.slice(0, 10).map((sig) => (
+                                    {onDeckSignals.slice(0, 10).map((sig) => (
                                       <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs" data-testid={`sim-ondeck-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
@@ -960,8 +1018,8 @@ export default function BacktestPage() {
                                         </div>
                                       </div>
                                     ))}
-                                    {currentDay.onDeckSignals.length > 10 && (
-                                      <p className="text-[10px] text-muted-foreground px-2">+{currentDay.onDeckSignals.length - 10} more</p>
+                                    {onDeckSignals.length > 10 && (
+                                      <p className="text-[10px] text-muted-foreground px-2">+{onDeckSignals.length - 10} more</p>
                                     )}
                                   </div>
                                 ) : (
@@ -972,11 +1030,11 @@ export default function BacktestPage() {
                               <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
                                   <TrendingUp className="w-3.5 h-3.5" />
-                                  TradeSync API ({currentDay.tradeSyncCalls?.length ?? 0})
+                                  TradeSync API ({tradeSyncCalls?.length ?? 0})
                                 </div>
-                                {currentDay.tradeSyncCalls && currentDay.tradeSyncCalls.length > 0 ? (
+                                {tradeSyncCalls && tradeSyncCalls.length > 0 ? (
                                   <div className="space-y-1.5" data-testid="sim-tradesync-calls">
-                                    {currentDay.tradeSyncCalls.map((tc, i) => (
+                                    {tradeSyncCalls.map((tc, i) => (
                                       <div key={`ts-${i}`} className="px-2 py-2 rounded bg-indigo-500/5 border border-indigo-500/10 text-xs space-y-1">
                                         <div className="flex items-center justify-between">
                                           <div className="flex items-center gap-2">
@@ -1016,7 +1074,7 @@ export default function BacktestPage() {
                                   Today's Events
                                 </div>
                                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                                  {currentDay.activationDetails.map((a, i) => (
+                                  {activationDetails.map((a, i) => (
                                     <div key={`act-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs">
                                       <div className="flex items-center gap-2">
                                         {a.isBtod && <Star className="w-3 h-3 text-violet-400" />}
@@ -1026,7 +1084,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground">@${a.entryPrice.toFixed(2)}</span>
                                     </div>
                                   ))}
-                                  {currentDay.hitDetails.map((h, i) => (
+                                  {hitDetails.map((h, i) => (
                                     <div key={`hit-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-emerald-500/5 border border-emerald-500/10 text-xs">
                                       <div className="flex items-center gap-2">
                                         <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -1035,7 +1093,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground">{h.timeToHitMin}min</span>
                                     </div>
                                   ))}
-                                  {currentDay.missDetails.map((m, i) => (
+                                  {(phase?.misses ?? currentDay.missDetails).map((m, i) => (
                                     <div key={`miss-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-red-500/5 border border-red-500/10 text-xs">
                                       <div className="flex items-center gap-2">
                                         <XCircle className="w-3 h-3 text-red-400" />
@@ -1044,7 +1102,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground text-[10px]">{m.reason}</span>
                                     </div>
                                   ))}
-                                  {currentDay.activationDetails.length === 0 && currentDay.hitDetails.length === 0 && currentDay.missDetails.length === 0 && (
+                                  {activationDetails.length === 0 && hitDetails.length === 0 && (phase?.misses ?? currentDay.missDetails).length === 0 && (
                                     <p className="text-[10px] text-muted-foreground px-2">No events today</p>
                                   )}
                                 </div>

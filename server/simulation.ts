@@ -77,6 +77,60 @@ export interface SimBtodStatus {
   eligibleCount: number;
 }
 
+export interface SimPhaseSnapshot {
+  label: string;
+  btodTop3: RankedSimEntry[];
+  btodStatus: SimBtodStatus;
+  tradeSyncCalls: SimTradeSyncCall[];
+  activations: Array<{
+    signalId: number;
+    ticker: string;
+    setupType: string;
+    triggerTs: string;
+    entryPrice: number;
+    isBtod: boolean;
+  }>;
+  hits: Array<{
+    signalId: number;
+    ticker: string;
+    hitTs: string;
+    timeToHitMin: number;
+  }>;
+  misses: Array<{
+    signalId: number;
+    ticker: string;
+    reason: string;
+  }>;
+  summary: {
+    totalPending: number;
+    totalActive: number;
+    totalHit: number;
+    totalMiss: number;
+  };
+  signalsGenerated: SimSignal[];
+  onDeckSignals: Array<{
+    id: number;
+    ticker: string;
+    setupType: string;
+    direction: string;
+    qualityScore: number;
+    tier: string;
+    magnetPrice: number;
+    targetDate: string;
+  }>;
+  activeSignals: Array<{
+    id: number;
+    ticker: string;
+    setupType: string;
+    direction: string;
+    qualityScore: number;
+    tier: string;
+    magnetPrice: number;
+    entryPrice: number | null;
+    activatedTs: string | null;
+  }>;
+}
+
 export interface SimDayResult {
   date: string;
   phase: string;
@@ -109,6 +163,7 @@ export interface SimDayResult {
     totalHit: number;
     totalMiss: number;
   };
+  phases: SimPhaseSnapshot[];
 }
 
 export interface SimConfig {
@@ -228,7 +283,44 @@ export async function runSimulation(
       hits: [],
       misses: [],
       summary: { totalPending: 0, totalActive: 0, totalHit: 0, totalMiss: 0 },
+      phases: [],
     };
+
+    function captureSnapshot(label: string): SimPhaseSnapshot {
+      const onDeck = Array.from(allSignals.values())
+        .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
+        .map((s) => ({
+          id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+          qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+        }));
+      const active = Array.from(allSignals.values())
+        .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
+        .map((s) => ({
+          id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+          qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
+          entryPrice: s.entryPrice, activatedTs: s.activatedTs,
+        }));
+      let p = 0, a = 0, h = 0, m = 0;
+      for (const sig of allSignals.values()) {
+        if (sig.status === "pending") p++;
+        if (sig.activationStatus === "ACTIVE" && sig.status !== "hit") a++;
+        if (sig.status === "hit") h++;
+        if (sig.status === "miss") m++;
+      }
+      return {
+        label,
+        btodTop3: [...dayResult.btodTop3],
+        btodStatus: { ...dayResult.btodStatus, top3Ids: [...dayResult.btodStatus.top3Ids] },
+        tradeSyncCalls: [...dayResult.tradeSyncCalls],
+        activations: [...dayResult.activations],
+        hits: [...dayResult.hits],
+        misses: [...dayResult.misses],
+        summary: { totalPending: p, totalActive: a, totalHit: h, totalMiss: m },
+        signalsGenerated: [...dayResult.signalsGenerated],
+        onDeckSignals: onDeck,
+        activeSignals: active,
+      };
+    }
 
     emit("progress", {
       completed: dayIdx,
@@ -397,6 +489,8 @@ export async function runSimulation(
       }
     }
 
+    dayResult.phases.push(captureSnapshot("Before Pre-Open"));
+
     emit("log", {
       message: `  Phase 1: Pre-open scan (BTOD selection)`,
       type: "processing",
@@ -440,6 +534,8 @@ export async function runSimulation(
         type: "info",
       });
     }
+
+    dayResult.phases.push(captureSnapshot("After Pre-Open"));
 
     emit("log", {
       message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
@@ -621,7 +717,8 @@ export async function runSimulation(
       });
     }
 
-    // After-close scan: mark expired signals as misses and commit newly detected signals.
+    dayResult.phases.push(captureSnapshot("Before After-Close"));
+
     emit("log", {
       message: `  Phase 3: After-close scan (detect setups)`,
       type: "processing",
@@ -669,6 +766,8 @@ export async function runSimulation(
       if (sig.status === "miss") totalMiss++;
     }
     dayResult.summary = { totalPending, totalActive, totalHit, totalMiss };
+
+    dayResult.phases.push(captureSnapshot("After After-Close"));
 
     emit("log", {
       message: `  Summary: ${totalPending} pending | ${totalActive} active | ${totalHit} hits | ${totalMiss} misses`,
@@ -730,6 +829,7 @@ export async function runSimulation(
         magnetPrice: s.magnetPrice,
         targetDate: s.targetDate,
       })),
+      phases: dayResult.phases,
     });
 
     results.push(dayResult);
