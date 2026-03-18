@@ -187,22 +187,66 @@ export default function BacktestPage() {
     newSignals: SimSignalSummary[];
   }
 
-  const [simRunning, setSimRunning] = useState(false);
-  const [simPaused, setSimPaused] = useState(false);
   const [simLogs, setSimLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
   const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
   const [simDayResults, setSimDayResults] = useState<SimDayDetail[]>([]);
   const [simSelectedDayIdx, setSimSelectedDayIdx] = useState<number>(-1);
-  const [simFinalStats, setSimFinalStats] = useState<{
-    totalDays: number;
-    totalSignalsGenerated: number;
-    totalActivations: number;
-    totalHits: number;
-    totalMisses: number;
-    btodActivations: number;
-    hitRate: number;
-  } | null>(null);
+  const [simFinalStats, setSimFinalStats] = useState<any | null>(null);
   const simLogEndRef = useRef<HTMLDivElement>(null);
+  const simLogCountRef = useRef(0);
+  const simDayCountRef = useRef(0);
+  const simWasRunningRef = useRef(false);
+
+  const simStatusQuery = useQuery<any>({
+    queryKey: ["/api/backtest/simulate-status", simLogCountRef.current, simDayCountRef.current],
+    queryFn: async () => {
+      const res = await fetch(`/api/backtest/simulate-status?logsFrom=${simLogCountRef.current}&dayFrom=${simDayCountRef.current}`);
+      return res.json();
+    },
+    refetchInterval: 1000,
+  });
+
+  const simRunning = simStatusQuery.data?.running ?? false;
+  const simPaused = simStatusQuery.data?.paused ?? false;
+
+  useEffect(() => {
+    const data = simStatusQuery.data;
+    if (!data) return;
+
+    if (data.logs?.length > 0) {
+      setSimLogs((prev) => [...prev, ...data.logs]);
+      simLogCountRef.current = data.totalLogs;
+    }
+
+    if (data.progress) {
+      setSimProgress(data.progress);
+    }
+
+    if (data.dayResults?.length > 0) {
+      setSimDayResults((prev) => {
+        const updated = [...prev, ...data.dayResults];
+        return updated;
+      });
+      simDayCountRef.current = data.totalDayResults;
+      const lastDay = data.dayResults[data.dayResults.length - 1];
+      if (lastDay) {
+        setSimSelectedDayIdx((prev) => prev === -1 || prev === lastDay.dayIndex - 1 ? lastDay.dayIndex : prev);
+      }
+    }
+
+    if (data.finalStats && !simFinalStats) {
+      setSimFinalStats(data.finalStats);
+      if (simWasRunningRef.current) {
+        toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
+      }
+    }
+
+    if (data.error && simWasRunningRef.current) {
+      toast({ title: "Simulation failed", description: data.error, variant: "destructive" });
+    }
+
+    simWasRunningRef.current = data.running;
+  }, [simStatusQuery.data, simFinalStats, toast]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -214,23 +258,19 @@ export default function BacktestPage() {
 
   const pauseSimulation = useCallback(() => {
     fetch("/api/backtest/simulate-pause", { method: "POST" }).then((res) => {
-      if (res.ok) setSimPaused(true);
-      else toast({ title: "Failed to pause", variant: "destructive" });
+      if (!res.ok) toast({ title: "Failed to pause", variant: "destructive" });
     }).catch(() => toast({ title: "Failed to pause", variant: "destructive" }));
   }, [toast]);
 
   const resumeSimulation = useCallback(() => {
     fetch("/api/backtest/simulate-resume", { method: "POST" }).then((res) => {
-      if (res.ok) setSimPaused(false);
-      else toast({ title: "Failed to resume", variant: "destructive" });
+      if (!res.ok) toast({ title: "Failed to resume", variant: "destructive" });
     }).catch(() => toast({ title: "Failed to resume", variant: "destructive" }));
   }, [toast]);
 
   const cancelSimulation = useCallback(() => {
     fetch("/api/backtest/simulate-cancel", { method: "POST" }).then((res) => {
       if (res.ok) {
-        setSimRunning(false);
-        setSimPaused(false);
         toast({ title: "Simulation cancelled" });
       } else {
         toast({ title: "Failed to cancel", variant: "destructive" });
@@ -238,159 +278,88 @@ export default function BacktestPage() {
     }).catch(() => toast({ title: "Failed to cancel", variant: "destructive" }));
   }, [toast]);
 
-  const runSimulationStream = useCallback(() => {
+  const runSimulationStart = useCallback(() => {
     const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
-    setSimRunning(true);
-    setSimPaused(false);
     setSimLogs([]);
     setSimProgress(null);
     setSimDayResults([]);
     setSimSelectedDayIdx(-1);
     setSimFinalStats(null);
+    simLogCountRef.current = 0;
+    simDayCountRef.current = 0;
 
-    fetch("/api/backtest/simulate-stream", {
+    fetch("/api/backtest/simulate-start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate }),
-    }).then((response) => {
-      if (!response.ok || !response.body) {
-        setSimRunning(false);
-        toast({ title: "Simulation failed", description: "Failed to start stream", variant: "destructive" });
-        return;
+    }).then((res) => {
+      if (!res.ok) {
+        toast({ title: "Simulation failed", description: "Failed to start", variant: "destructive" });
       }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let hadFatalError = false;
-      let receivedDone = false;
-
-      const processChunk = ({ done, value }: ReadableStreamReadResult<Uint8Array>): Promise<void> | void => {
-        if (done) {
-          setSimRunning(false);
-          if (receivedDone && !hadFatalError) {
-            toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
-          } else if (hadFatalError) {
-            toast({ title: "Simulation failed", description: "See log for details", variant: "destructive" });
-          }
-          return;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        let eventType = "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            eventType = line.slice(7);
-          } else if (line.startsWith("data: ") && eventType) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (eventType === "log") {
-                setSimLogs((prev) => [...prev, { ...data, ts: Date.now() }]);
-              } else if (eventType === "progress") {
-                setSimProgress(data);
-              } else if (eventType === "day") {
-                setSimDayResults((prev) => {
-                  const updated = [...prev, data as SimDayDetail];
-                  return updated;
-                });
-                setSimSelectedDayIdx((prev) => prev === -1 || prev === (data as SimDayDetail).dayIndex - 1 ? (data as SimDayDetail).dayIndex : prev);
-              } else if (eventType === "done") {
-                receivedDone = true;
-                setSimFinalStats(data);
-                setSimLogs((prev) => [...prev, { message: `Simulation complete: ${data.totalDays} days processed`, type: "done", ts: Date.now() }]);
-              } else if (eventType === "cancelled") {
-                setSimRunning(false);
-                setSimPaused(false);
-                setSimLogs((prev) => [...prev, { message: "Simulation cancelled", type: "info", ts: Date.now() }]);
-              } else if (eventType === "error") {
-                hadFatalError = true;
-                setSimLogs((prev) => [...prev, { message: `Fatal error: ${data.message}`, type: "error", ts: Date.now() }]);
-              }
-            } catch {}
-            eventType = "";
-          }
-        }
-
-        return reader.read().then(processChunk);
-      };
-
-      reader.read().then(processChunk);
     }).catch((err) => {
-      setSimRunning(false);
       toast({ title: "Simulation failed", description: err.message, variant: "destructive" });
     });
   }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, toast]);
 
-  const runBacktestStream = useCallback(() => {
+  const btRunLogCountRef = useRef(0);
+  const btRunWasRunningRef = useRef(false);
+
+  const btRunStatusQuery = useQuery<any>({
+    queryKey: ["/api/backtest/run-status", btRunLogCountRef.current],
+    queryFn: async () => {
+      const res = await fetch(`/api/backtest/run-status?logsFrom=${btRunLogCountRef.current}`);
+      return res.json();
+    },
+    refetchInterval: 1000,
+  });
+
+  const backtestRunActive = btRunStatusQuery.data?.running ?? false;
+
+  useEffect(() => {
+    const data = btRunStatusQuery.data;
+    if (!data) return;
+
+    if (data.logs?.length > 0) {
+      setBacktestLogs((prev) => [...prev, ...data.logs]);
+      btRunLogCountRef.current = data.totalLogs;
+    }
+
+    if (data.progress) {
+      setBacktestProgress(data.progress);
+    }
+
+    if (data.finalStats && btRunWasRunningRef.current) {
+      setBacktestRunning(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
+      toast({ title: "Backtest complete", description: "Results are ready to view." });
+    }
+
+    if (data.error && btRunWasRunningRef.current) {
+      setBacktestRunning(false);
+      toast({ title: "Backtest failed", description: data.error, variant: "destructive" });
+    }
+
+    if (data.running) setBacktestRunning(true);
+    btRunWasRunningRef.current = data.running;
+  }, [btRunStatusQuery.data, toast]);
+
+  const runBacktestStart = useCallback(() => {
     const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
     setBacktestRunning(true);
     setBacktestLogs([]);
     setBacktestProgress(null);
+    btRunLogCountRef.current = 0;
 
-    fetch("/api/backtest/run-stream", {
+    fetch("/api/backtest/run-start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate }),
-    }).then((response) => {
-      if (!response.ok || !response.body) {
+    }).then((res) => {
+      if (!res.ok) {
         setBacktestRunning(false);
-        toast({ title: "Backtest failed", description: "Failed to start stream", variant: "destructive" });
-        return;
+        toast({ title: "Backtest failed", description: "Failed to start", variant: "destructive" });
       }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let hadFatalError = false;
-      let receivedDone = false;
-
-      const processChunk = ({ done, value }: ReadableStreamReadResult<Uint8Array>): Promise<void> | void => {
-        if (done) {
-          setBacktestRunning(false);
-          if (receivedDone && !hadFatalError) {
-            queryClient.invalidateQueries({ queryKey: ["/api/backtests"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/setup-stats"] });
-            toast({ title: "Backtest complete", description: "Results are ready to view." });
-          } else if (hadFatalError) {
-            toast({ title: "Backtest failed", description: "See log for details", variant: "destructive" });
-          }
-          return;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        let eventType = "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            eventType = line.slice(7);
-          } else if (line.startsWith("data: ") && eventType) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (eventType === "log") {
-                setBacktestLogs((prev) => [...prev, { ...data, ts: Date.now() }]);
-              } else if (eventType === "progress") {
-                setBacktestProgress(data);
-              } else if (eventType === "done") {
-                receivedDone = true;
-                setBacktestLogs((prev) => [...prev, { message: `Backtest complete: ${data.completed} combos processed`, type: "done", ts: Date.now() }]);
-              } else if (eventType === "error") {
-                hadFatalError = true;
-                setBacktestLogs((prev) => [...prev, { message: `Fatal error: ${data.message}`, type: "error", ts: Date.now() }]);
-              }
-            } catch {}
-            eventType = "";
-          }
-        }
-
-        return reader.read().then(processChunk);
-      };
-
-      reader.read().then(processChunk);
     }).catch((err) => {
       setBacktestRunning(false);
       toast({ title: "Backtest failed", description: err.message, variant: "destructive" });
@@ -797,7 +766,7 @@ export default function BacktestPage() {
 
               <div className="flex gap-2 pt-2">
                 <Button
-                  onClick={runSimulationStream}
+                  onClick={runSimulationStart}
                   disabled={simRunning || selectedSetups.length === 0}
                   data-testid="button-run-simulation"
                 >
@@ -1320,7 +1289,7 @@ export default function BacktestPage() {
 
               <div className="flex gap-2 pt-2">
                 <Button
-                  onClick={runBacktestStream}
+                  onClick={runBacktestStart}
                   disabled={backtestRunning || selectedSetups.length === 0}
                   data-testid="button-run-backtest"
                 >

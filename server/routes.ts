@@ -38,7 +38,15 @@ import {
   runRegimeAnalysis,
 } from "./lib/reliability";
 import { getBarCacheStats } from "./lib/barCache";
-import { runSimulation, type SimConfig, type SimControlSignal } from "./simulation";
+import {
+  startSimulation, getSimulationStatus, getSimulationLogsSince,
+  pauseSimulation, resumeSimulation, cancelSimulation, clearSimulation,
+  isSimulationRunning,
+} from "./jobs/simulationRunner";
+import {
+  startBacktestRun, getBacktestRunStatus, getBacktestRunLogsSince,
+  cancelBacktestRun, clearBacktestRun, isBacktestRunActive,
+} from "./jobs/backtestRunner";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -767,138 +775,62 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/backtest/run-stream", async (req, res) => {
+  app.post("/api/backtest/run-start", async (req, res) => {
     const { tickers, setups, startDate, endDate } = req.body;
     if (!tickers?.length || !setups?.length) {
       return res.status(400).json({ message: "Tickers and setups required" });
     }
+    const result = await startBacktestRun(tickers, setups, startDate, endDate);
+    res.json(result);
+  });
 
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
+  app.get("/api/backtest/run-status", (_req, res) => {
+    const fromIndex = parseInt(String(_req.query.logsFrom || "0"), 10);
+    const status = getBacktestRunStatus();
+    const logSlice = getBacktestRunLogsSince(fromIndex);
+    res.json({ ...status, logs: logSlice.logs, totalLogs: logSlice.totalLogs, logsFrom: fromIndex });
+  });
 
-    const send = (event: string, data: any) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-
-    try {
-      const settings = await storage.getAllSettings();
-      const timeframe = settings.intradayTimeframe || "5";
-      const totalCombos = tickers.length * setups.length;
-      let completed = 0;
-
-      send("log", { message: `Starting backtest: ${tickers.length} tickers × ${setups.length} setups = ${totalCombos} combos`, type: "info" });
-      send("log", { message: `Date range: ${startDate} → ${endDate} | Timeframe: ${timeframe}min`, type: "info" });
-
-      for (const ticker of tickers) {
-        for (const setup of setups) {
-          send("progress", { completed, total: totalCombos, ticker, setup });
-          send("log", { message: `[${completed + 1}/${totalCombos}] Running ${ticker} setup ${setup}...`, type: "processing" });
-
-          try {
-            const result = await runBacktest(ticker, setup, startDate, endDate, timeframe);
-            const saved = await storage.upsertBacktest(result);
-
-            const hitInfo = result.occurrences > 0
-              ? `${result.hits}/${result.occurrences} hits (${(result.hitRate * 100).toFixed(1)}%)`
-              : "0 occurrences";
-            send("log", { message: `  ✓ ${ticker} ${setup}: ${hitInfo}`, type: "success" });
-
-            await computeAndStoreTimeToHitStats(ticker, setup, timeframe);
-          } catch (err: any) {
-            send("log", { message: `  ✗ ${ticker} ${setup}: ${err.message}`, type: "error" });
-          }
-          completed++;
-          send("progress", { completed, total: totalCombos, ticker, setup });
-        }
-      }
-
-      try {
-        send("log", { message: "Recomputing expectancy stats...", type: "info" });
-        await recomputeAllExpectancy();
-        send("log", { message: "Expectancy stats recomputed", type: "success" });
-      } catch (err: any) {
-        send("log", { message: `Expectancy recompute failed: ${err.message}`, type: "error" });
-      }
-
-      send("done", { completed: totalCombos, total: totalCombos });
-      res.end();
-    } catch (err: any) {
-      send("error", { message: err.message });
-      res.end();
+  app.post("/api/backtest/run-cancel", (_req, res) => {
+    if (cancelBacktestRun()) {
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ message: "No active backtest run" });
     }
   });
 
-  let activeSimControl: SimControlSignal | null = null;
+  app.post("/api/backtest/run-clear", (_req, res) => {
+    clearBacktestRun();
+    res.json({ ok: true });
+  });
 
-  app.post("/api/backtest/simulate-stream", async (req, res) => {
+  app.post("/api/backtest/simulate-start", async (req, res) => {
     const { tickers, setups, startDate, endDate } = req.body;
     if (!tickers?.length || !setups?.length || !startDate || !endDate) {
       return res.status(400).json({ message: "tickers, setups, startDate, endDate required" });
     }
+    const result = await startSimulation(tickers, setups, startDate, endDate);
+    res.json(result);
+  });
 
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
+  app.get("/api/backtest/simulate-status", (req, res) => {
+    const fromIndex = parseInt(String(req.query.logsFrom || "0"), 10);
+    const dayFrom = parseInt(String(req.query.dayFrom || "0"), 10);
+    const status = getSimulationStatus();
+    const logSlice = getSimulationLogsSince(fromIndex);
+    res.json({
+      ...status,
+      logs: logSlice.logs,
+      totalLogs: logSlice.totalLogs,
+      logsFrom: fromIndex,
+      dayResults: status.dayResults.slice(dayFrom),
+      totalDayResults: status.dayResults.length,
+      dayFrom,
     });
-
-    res.flushHeaders();
-
-    if (activeSimControl && !activeSimControl.aborted) {
-      activeSimControl.aborted = true;
-    }
-    const controlSignal: SimControlSignal = { aborted: false, paused: false };
-    activeSimControl = controlSignal;
-    res.on("close", () => {
-      controlSignal.aborted = true;
-      if (activeSimControl === controlSignal) activeSimControl = null;
-    });
-
-    const send = (event: string, data: any) => {
-      if (controlSignal.aborted) return;
-      try {
-        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      } catch {}
-    };
-
-    try {
-      const settings = await storage.getAllSettings();
-      const config: SimConfig = {
-        startDate,
-        endDate,
-        tickers,
-        setups,
-        timeframe: settings.intradayTimeframe || "5",
-        entryMode: settings.entryMode || "conservative",
-        stopMode: settings.stopMode || "atr",
-        atrMultiplier: parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25,
-        gapThreshold: parseFloat(settings.gapThreshold || "0.30") / 100,
-      };
-
-      await runSimulation(config, send, controlSignal);
-    } catch (err: any) {
-      if (!controlSignal.aborted) {
-        send("error", { message: err.message });
-      }
-    } finally {
-      if (activeSimControl === controlSignal) activeSimControl = null;
-      try {
-        if (controlSignal.aborted) {
-          res.write(`event: cancelled\ndata: ${JSON.stringify({ message: "Simulation cancelled" })}\n\n`);
-        }
-        res.end();
-      } catch {}
-    }
   });
 
   app.post("/api/backtest/simulate-pause", (_req, res) => {
-    if (activeSimControl && !activeSimControl.aborted) {
-      activeSimControl.paused = true;
+    if (pauseSimulation()) {
       res.json({ ok: true, paused: true });
     } else {
       res.status(404).json({ message: "No active simulation" });
@@ -906,8 +838,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/backtest/simulate-resume", (_req, res) => {
-    if (activeSimControl && !activeSimControl.aborted) {
-      activeSimControl.paused = false;
+    if (resumeSimulation()) {
       res.json({ ok: true, paused: false });
     } else {
       res.status(404).json({ message: "No active simulation" });
@@ -915,13 +846,16 @@ export async function registerRoutes(
   });
 
   app.post("/api/backtest/simulate-cancel", (_req, res) => {
-    if (activeSimControl) {
-      activeSimControl.aborted = true;
-      activeSimControl = null;
+    if (cancelSimulation()) {
       res.json({ ok: true, cancelled: true });
     } else {
       res.status(404).json({ message: "No active simulation" });
     }
+  });
+
+  app.post("/api/backtest/simulate-clear", (_req, res) => {
+    clearSimulation();
+    res.json({ ok: true });
   });
 
   app.get("/api/time-to-hit-stats/:ticker/:setup", async (req, res) => {
