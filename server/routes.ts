@@ -38,6 +38,7 @@ import {
   runRegimeAnalysis,
 } from "./lib/reliability";
 import { getBarCacheStats } from "./lib/barCache";
+import { runSimulation, type SimConfig } from "./simulation";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -828,6 +829,55 @@ export async function registerRoutes(
     } catch (err: any) {
       send("error", { message: err.message });
       res.end();
+    }
+  });
+
+  app.post("/api/backtest/simulate-stream", async (req, res) => {
+    const { tickers, setups, startDate, endDate } = req.body;
+    if (!tickers?.length || !setups?.length || !startDate || !endDate) {
+      return res.status(400).json({ message: "tickers, setups, startDate, endDate required" });
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const abortSignal = { aborted: false };
+    req.on("close", () => {
+      abortSignal.aborted = true;
+    });
+
+    const send = (event: string, data: any) => {
+      if (abortSignal.aborted) return;
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch {}
+    };
+
+    try {
+      const settings = await storage.getAllSettings();
+      const config: SimConfig = {
+        startDate,
+        endDate,
+        tickers,
+        setups,
+        timeframe: settings.intradayTimeframe || "5",
+        entryMode: settings.entryMode || "conservative",
+        stopMode: settings.stopMode || "atr",
+        atrMultiplier: parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25,
+        gapThreshold: parseFloat(settings.gapThreshold || "0.30") / 100,
+      };
+
+      await runSimulation(config, send, abortSignal);
+      if (!abortSignal.aborted) res.end();
+    } catch (err: any) {
+      if (!abortSignal.aborted) {
+        send("error", { message: err.message });
+        res.end();
+      }
     }
   });
 

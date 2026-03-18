@@ -50,6 +50,12 @@ import {
   Target,
   TrendingUp,
   AlertTriangle,
+  CalendarDays,
+  Zap,
+  Star,
+  ArrowRight,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import type { Symbol, Backtest, BacktestDetail, BacktestJob } from "@shared/schema";
 import { SETUP_LABELS, SETUP_TYPES, type SetupType } from "@shared/schema";
@@ -101,7 +107,7 @@ export default function BacktestPage() {
   const [durationPreset, setDurationPreset] = useState("12");
   const [startDate, setStartDate] = useState(getDateFromMonthsAgo(12));
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
-  const [activeTab, setActiveTab] = useState("run");
+  const [activeTab, setActiveTab] = useState("simulate");
 
   const { data: symbolList } = useQuery<Symbol[]>({ queryKey: ["/api/symbols"] });
 
@@ -149,9 +155,112 @@ export default function BacktestPage() {
   const [backtestProgress, setBacktestProgress] = useState<{ completed: number; total: number; ticker: string; setup: string } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
+  const [simRunning, setSimRunning] = useState(false);
+  const [simLogs, setSimLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
+  const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
+  const [simDayResults, setSimDayResults] = useState<Array<{
+    date: string;
+    signalsGenerated: number;
+    btodTop3Count: number;
+    activations: number;
+    hits: number;
+    misses: number;
+    summary: { totalPending: number; totalActive: number; totalHit: number; totalMiss: number };
+  }>>([]);
+  const [simFinalStats, setSimFinalStats] = useState<{
+    totalDays: number;
+    totalSignalsGenerated: number;
+    totalActivations: number;
+    totalHits: number;
+    totalMisses: number;
+    btodActivations: number;
+    hitRate: number;
+  } | null>(null);
+  const simLogEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [backtestLogs]);
+
+  useEffect(() => {
+    simLogEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [simLogs]);
+
+  const runSimulationStream = useCallback(() => {
+    const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
+    setSimRunning(true);
+    setSimLogs([]);
+    setSimProgress(null);
+    setSimDayResults([]);
+    setSimFinalStats(null);
+
+    fetch("/api/backtest/simulate-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate }),
+    }).then((response) => {
+      if (!response.ok || !response.body) {
+        setSimRunning(false);
+        toast({ title: "Simulation failed", description: "Failed to start stream", variant: "destructive" });
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let hadFatalError = false;
+      let receivedDone = false;
+
+      const processChunk = ({ done, value }: ReadableStreamReadResult<Uint8Array>): Promise<void> | void => {
+        if (done) {
+          setSimRunning(false);
+          if (receivedDone && !hadFatalError) {
+            toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
+          } else if (hadFatalError) {
+            toast({ title: "Simulation failed", description: "See log for details", variant: "destructive" });
+          }
+          return;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        let eventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7);
+          } else if (line.startsWith("data: ") && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (eventType === "log") {
+                setSimLogs((prev) => [...prev, { ...data, ts: Date.now() }]);
+              } else if (eventType === "progress") {
+                setSimProgress(data);
+              } else if (eventType === "day") {
+                setSimDayResults((prev) => [...prev, data]);
+              } else if (eventType === "done") {
+                receivedDone = true;
+                setSimFinalStats(data);
+                setSimLogs((prev) => [...prev, { message: `Simulation complete: ${data.totalDays} days processed`, type: "done", ts: Date.now() }]);
+              } else if (eventType === "error") {
+                hadFatalError = true;
+                setSimLogs((prev) => [...prev, { message: `Fatal error: ${data.message}`, type: "error", ts: Date.now() }]);
+              }
+            } catch {}
+            eventType = "";
+          }
+        }
+
+        return reader.read().then(processChunk);
+      };
+
+      reader.read().then(processChunk);
+    }).catch((err) => {
+      setSimRunning(false);
+      toast({ title: "Simulation failed", description: err.message, variant: "destructive" });
+    });
+  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, toast]);
 
   const runBacktestStream = useCallback(() => {
     const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
@@ -465,6 +574,10 @@ export default function BacktestPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="simulate" data-testid="tab-simulate">
+            <CalendarDays className="w-3.5 h-3.5 mr-1" />
+            Simulate
+          </TabsTrigger>
           <TabsTrigger value="run" data-testid="tab-run">Run Backtest</TabsTrigger>
           <TabsTrigger value="results" data-testid="tab-results">
             Results {backtests?.length ? `(${backtests.length})` : ""}
@@ -472,6 +585,320 @@ export default function BacktestPage() {
           <TabsTrigger value="rankings" data-testid="tab-rankings">Setup Rankings</TabsTrigger>
           <TabsTrigger value="charts" data-testid="tab-charts">Charts</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="simulate" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-muted-foreground" />
+                Day-by-Day Simulation
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Replays the full system lifecycle: after-close scan, BTOD ranking, intraday activation &amp; magnet touch — day by day, timeframe by timeframe
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Date Range</Label>
+                <div className="flex flex-wrap gap-2">
+                  {DURATION_PRESETS.map((p) => (
+                    <Button
+                      key={p.months}
+                      size="sm"
+                      variant={durationPreset === String(p.months) ? "default" : "outline"}
+                      className="h-7 text-xs"
+                      onClick={() => handleDurationChange(String(p.months))}
+                      data-testid={`btn-sim-duration-${p.months}`}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
+                {durationPreset === "0" && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="text-sm w-40"
+                      data-testid="input-sim-start-date"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <Input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="text-sm w-40"
+                      data-testid="input-sim-end-date"
+                    />
+                  </div>
+                )}
+                {durationPreset !== "0" && (
+                  <p className="text-[10px] text-muted-foreground">{startDate} → {endDate}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Setups</Label>
+                <div className="flex flex-wrap gap-3">
+                  {SETUP_TYPES.map((setup) => (
+                    <div key={setup} className="flex items-center gap-1.5">
+                      <Checkbox
+                        id={`sim-setup-${setup}`}
+                        checked={selectedSetups.includes(setup)}
+                        onCheckedChange={() => toggleSetup(setup)}
+                        data-testid={`checkbox-sim-setup-${setup}`}
+                      />
+                      <label htmlFor={`sim-setup-${setup}`} className="text-xs cursor-pointer">
+                        {setup}: {SETUP_LABELS[setup as SetupType]}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">
+                    Tickers {selectedTickers.length === 0
+                      ? `(All ${enabledSymbols.length} universe tickers)`
+                      : `(${selectedTickers.length} selected)`}
+                  </Label>
+                  {selectedTickers.length > 0 && (
+                    <Button
+                      size="sm" variant="ghost" className="h-6 text-[10px] px-2"
+                      onClick={selectAllTickers}
+                      data-testid="btn-sim-select-all"
+                    >
+                      Use All
+                    </Button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search tickers..."
+                    value={tickerSearch}
+                    onChange={(e) => setTickerSearch(e.target.value)}
+                    className="pl-8 text-sm h-9"
+                    data-testid="input-sim-ticker-search"
+                  />
+                  {tickerSearch && (
+                    <Button
+                      variant="ghost" size="sm"
+                      className="absolute right-1 top-1 h-7 w-7 p-0"
+                      onClick={() => setTickerSearch("")}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
+                {selectedTickers.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {selectedTickers.map((t) => (
+                      <Badge
+                        key={t}
+                        variant="default"
+                        className="cursor-pointer text-[10px] gap-1"
+                        onClick={() => toggleTicker(t)}
+                        data-testid={`badge-sim-selected-${t}`}
+                      >
+                        {t}
+                        <X className="w-2.5 h-2.5" />
+                      </Badge>
+                    ))}
+                    <Button
+                      size="sm" variant="ghost" className="h-5 text-[10px] px-1.5 text-red-500"
+                      onClick={clearTickers}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto border rounded-md p-2 bg-muted/20">
+                  {filteredSymbols.map((sym) => (
+                    <Badge
+                      key={sym.ticker}
+                      variant={selectedTickers.includes(sym.ticker) ? "default" : "outline"}
+                      className="cursor-pointer text-[10px] hover:bg-primary/10"
+                      onClick={() => toggleTicker(sym.ticker)}
+                      data-testid={`badge-sim-ticker-${sym.ticker}`}
+                    >
+                      {sym.ticker}
+                    </Badge>
+                  ))}
+                  {filteredSymbols.length === 0 && (
+                    <span className="text-xs text-muted-foreground">No matching tickers</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={runSimulationStream}
+                  disabled={simRunning || selectedSetups.length === 0}
+                  data-testid="button-run-simulation"
+                >
+                  {simRunning ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4 mr-2" />
+                  )}
+                  {simRunning
+                    ? "Simulating..."
+                    : `Run Simulation (${selectedTickers.length || enabledSymbols.length} tickers × ${selectedSetups.length} setups)`}
+                </Button>
+              </div>
+
+              {(simLogs.length > 0 || simRunning) && (
+                <div className="mt-4 space-y-3">
+                  {simProgress && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Day: {simProgress.day} — {simProgress.phase}</span>
+                        <span>{simProgress.completed}/{simProgress.total} days</span>
+                      </div>
+                      <Progress value={(simProgress.completed / simProgress.total) * 100} className="h-2" />
+                    </div>
+                  )}
+
+                  <div
+                    className="bg-zinc-950 rounded-md border border-zinc-800 p-3 max-h-80 overflow-y-auto font-mono text-xs leading-relaxed"
+                    data-testid="simulation-log-panel"
+                  >
+                    {simLogs.map((entry, i) => (
+                      <div
+                        key={i}
+                        className={
+                          entry.type === "error" ? "text-red-400" :
+                          entry.type === "success" ? "text-emerald-400" :
+                          entry.type === "done" ? "text-blue-400 font-semibold" :
+                          entry.type === "processing" ? "text-yellow-300" :
+                          "text-zinc-400"
+                        }
+                      >
+                        <span className="text-zinc-600 mr-2">{new Date(entry.ts).toLocaleTimeString()}</span>
+                        {entry.message}
+                      </div>
+                    ))}
+                    <div ref={simLogEndRef} />
+                  </div>
+                </div>
+              )}
+
+              {simFinalStats && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Card>
+                      <CardContent className="pt-3 pb-3 px-4 text-center">
+                        <div className="text-xl font-bold" data-testid="text-sim-total-signals">{simFinalStats.totalSignalsGenerated}</div>
+                        <div className="text-[10px] text-muted-foreground">Signals Generated</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-3 pb-3 px-4 text-center">
+                        <div className="text-xl font-bold text-amber-500" data-testid="text-sim-activations">{simFinalStats.totalActivations}</div>
+                        <div className="text-[10px] text-muted-foreground">Activations</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-3 pb-3 px-4 text-center">
+                        <div className="text-xl font-bold text-emerald-500" data-testid="text-sim-hits">{simFinalStats.totalHits}</div>
+                        <div className="text-[10px] text-muted-foreground">Hits ({(simFinalStats.hitRate * 100).toFixed(1)}%)</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-3 pb-3 px-4 text-center">
+                        <div className="text-xl font-bold text-violet-500" data-testid="text-sim-btod">{simFinalStats.btodActivations}</div>
+                        <div className="text-[10px] text-muted-foreground">BTOD Activations</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {simDayResults.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Day-by-Day Timeline</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead className="text-right">New Signals</TableHead>
+                                <TableHead className="text-right">BTOD Top 3</TableHead>
+                                <TableHead className="text-right">Activations</TableHead>
+                                <TableHead className="text-right">Hits</TableHead>
+                                <TableHead className="text-right">Misses</TableHead>
+                                <TableHead className="text-right">Pending</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {simDayResults.map((day) => (
+                                <TableRow key={day.date} data-testid={`row-sim-day-${day.date}`}>
+                                  <TableCell className="font-mono text-sm">{day.date}</TableCell>
+                                  <TableCell className="text-right font-mono text-sm">
+                                    {day.signalsGenerated > 0 ? (
+                                      <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                        +{day.signalsGenerated}
+                                      </Badge>
+                                    ) : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-sm">
+                                    {day.btodTop3Count > 0 ? (
+                                      <Badge variant="outline" className="text-[10px] bg-violet-500/10 text-violet-600 border-violet-500/20">
+                                        <Star className="w-2.5 h-2.5 mr-0.5" />{day.btodTop3Count}
+                                      </Badge>
+                                    ) : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-sm">
+                                    {day.activations > 0 ? (
+                                      <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/20">
+                                        <Zap className="w-2.5 h-2.5 mr-0.5" />{day.activations}
+                                      </Badge>
+                                    ) : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-sm">
+                                    {day.hits > 0 ? (
+                                      <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                        <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />{day.hits}
+                                      </Badge>
+                                    ) : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-sm">
+                                    {day.misses > 0 ? (
+                                      <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-600 border-red-500/20">
+                                        <XCircle className="w-2.5 h-2.5 mr-0.5" />{day.misses}
+                                      </Badge>
+                                    ) : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                                    {day.summary.totalPending}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {!simRunning && simLogs.length === 0 && !simFinalStats && (
+                <div className="border border-dashed rounded-lg p-8 text-center">
+                  <CalendarDays className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">Configure tickers, setups, and date range above</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    The simulation replays each trading day: detects setups, ranks BTOD candidates, checks activations, and validates magnet touches
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="run" className="space-y-4 mt-4">
           <Card>
