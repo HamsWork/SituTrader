@@ -190,49 +190,9 @@ export async function runSimulation(
     type: "info",
   });
 
-  const dailyCache: Map<string, DailyBar[]> = new Map();
-
-  async function getDailyBarsForTicker(
-    ticker: string,
-    upToDate: string,
-  ): Promise<DailyBar[]> {
-    const cacheKey = ticker;
-    let allBars = dailyCache.get(cacheKey);
-    if (!allBars) {
-      const from200 = getTradingDaysBack(config.endDate, 200);
-      try {
-        const polygon = await fetchDailyBarsCached(
-          ticker,
-          from200,
-          config.endDate,
-        );
-        const bars: DailyBar[] = polygon.map((b: any) => ({
-          id: 0,
-          ticker,
-          date: formatDate(new Date(b.t)),
-          open: b.o,
-          high: b.h,
-          low: b.l,
-          close: b.c,
-          volume: b.v,
-          vwap: b.vw ?? null,
-          source: "polygon",
-        }));
-        bars.sort(
-          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-        );
-        dailyCache.set(cacheKey, bars);
-        allBars = bars;
-      } catch (err: any) {
-        emit("log", {
-          message: `  Failed to fetch daily bars for ${ticker}: ${err.message}`,
-          type: "error",
-        });
-        return [];
-      }
-    }
-    return allBars.filter((b) => b.date <= upToDate);
-  }
+  // IMPORTANT (no look-ahead):
+  // In simulation, treat the simulated "today" as the only available "current time".
+  // So each day we fetch daily bars up to `today`, not up to config.endDate.
 
   let btodExecutedToday = false;
 
@@ -274,35 +234,46 @@ export async function runSimulation(
       completed: dayIdx,
       total: tradingDays.length,
       day: today,
-      phase: "after-close-scan",
+      phase: "pre-open-scan",
     });
     emit("log", {
       message: `═══ Day ${dayIdx + 1}/${tradingDays.length}: ${today} ═══`,
       type: "info",
     });
 
-    for (const [id, sig] of allSignals) {
-      if (sig.status === "pending" && sig.targetDate < today) {
-        sig.status = "miss";
-        sig.missReason = "Target date expired";
-        dayResult.misses.push({
-          signalId: id,
-          ticker: sig.ticker,
-          reason: "Target date expired",
-        });
-      }
-    }
+    // Defer after-close scan "writes" until after the live monitor tick,
+    // so each day follows: pre-open scan -> live monitor tick -> after-close scan.
+    const existingSignalKeys = new Set<string>(
+      Array.from(allSignals.values()).map(
+        (s) => `${s.ticker}|${s.setupType}|${s.asofDate}|${s.targetDate}`,
+      ),
+    );
+    const afterCloseNewSignals: SimSignal[] = [];
 
-    emit("log", {
-      message: `  Phase 1: After-close scan (detect setups)`,
-      type: "processing",
-    });
     for (const ticker of config.tickers) {
       if (abortSignal?.aborted) break;
       if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
       if (abortSignal?.aborted) break;
       try {
-        const dailyBars = await getDailyBarsForTicker(ticker, today);
+        const from200 = getTradingDaysBack(today, 200);
+        const polygon = await fetchDailyBarsCached(ticker, from200, today);
+        const dailyBars: DailyBar[] = polygon.map((b: any) => ({
+          id: 0,
+          ticker,
+          date: formatDate(new Date(b.t)),
+          open: b.o,
+          high: b.h,
+          low: b.l,
+          close: b.c,
+          volume: b.v,
+          vwap: b.vw ?? null,
+          source: "polygon",
+        }));
+
+        dailyBars.sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        );
+
         if (dailyBars.length < 5) continue;
 
         const recentBars = dailyBars.slice(-30);
@@ -312,7 +283,7 @@ export async function runSimulation(
           config.gapThreshold,
         );
 
-        const relevantSetups = setups.filter((s) => s.targetDate >= today);
+        const relevantSetups = setups.filter((s) => s.targetDate > today);
         if (relevantSetups.length === 0) continue;
 
         const atr = computeATR(dailyBars);
@@ -329,14 +300,9 @@ export async function runSimulation(
         const isOnWatchlist = watchlistSet.has(ticker);
 
         for (const setup of relevantSetups) {
-          const existingSig = Array.from(allSignals.values()).find(
-            (s) =>
-              s.ticker === ticker &&
-              s.setupType === setup.setupType &&
-              s.asofDate === setup.asofDate &&
-              s.targetDate === setup.targetDate,
-          );
-          if (existingSig) continue;
+          const key = `${ticker}|${setup.setupType}|${setup.asofDate}|${setup.targetDate}`;
+          if (existingSignalKeys.has(key)) continue;
+          existingSignalKeys.add(key);
 
           const triggerDayBar = recentBars.find(
             (b) => b.date === setup.asofDate,
@@ -421,8 +387,7 @@ export async function runSimulation(
             mfe: null,
           };
 
-          allSignals.set(simSig.id, simSig);
-          dayResult.signalsGenerated.push(simSig);
+          afterCloseNewSignals.push(simSig);
         }
       } catch (err: any) {
         emit("log", {
@@ -432,20 +397,8 @@ export async function runSimulation(
       }
     }
 
-    if (dayResult.signalsGenerated.length > 0) {
-      const truncated = dayResult.signalsGenerated.slice(0, 10);
-      const suffix =
-        dayResult.signalsGenerated.length > 10
-          ? ` ...and ${dayResult.signalsGenerated.length - 10} more`
-          : "";
-      emit("log", {
-        message: `  Detected ${dayResult.signalsGenerated.length} new signal(s): ${truncated.map((s) => `${s.ticker}/${s.setupType}[QS=${s.qualityScore},${s.tier}]`).join(", ")}${suffix}`,
-        type: "success",
-      });
-    }
-
     emit("log", {
-      message: `  Phase 2: Pre-open ranking (BTOD)`,
+      message: `  Phase 1: Pre-open scan (BTOD selection)`,
       type: "processing",
     });
 
@@ -453,7 +406,7 @@ export async function runSimulation(
       (s) =>
         s.status === "pending" &&
         s.activationStatus === "NOT_ACTIVE" &&
-        s.targetDate >= today,
+        s.targetDate === today,
     );
 
     const ranked = rankOnDeckSignals(pendingForBtod as any);
@@ -489,7 +442,7 @@ export async function runSimulation(
     }
 
     emit("log", {
-      message: `  Phase 3: Intraday monitor (activation + magnet touch)`,
+      message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
       type: "processing",
     });
 
@@ -501,7 +454,7 @@ export async function runSimulation(
     );
 
     if (todaysPending.length > 0) {
-      const tickersNeeded = [...new Set(todaysPending.map((s) => s.ticker))];
+      const tickersNeeded = Array.from(new Set(todaysPending.map((s) => s.ticker)));
 
       for (const ticker of tickersNeeded) {
         if (abortSignal?.aborted) break;
@@ -668,11 +621,47 @@ export async function runSimulation(
       });
     }
 
+    // After-close scan: mark expired signals as misses and commit newly detected signals.
+    emit("log", {
+      message: `  Phase 3: After-close scan (detect setups)`,
+      type: "processing",
+    });
+
+    for (const id of Array.from(allSignals.keys())) {
+      const sig = allSignals.get(id)!;
+      if (sig.status === "pending" && sig.targetDate < today) {
+        sig.status = "miss";
+        sig.missReason = "Target date expired";
+        dayResult.misses.push({
+          signalId: id,
+          ticker: sig.ticker,
+          reason: "Target date expired",
+        });
+      }
+    }
+
+    if (afterCloseNewSignals.length > 0) {
+      for (const simSig of afterCloseNewSignals) {
+        allSignals.set(simSig.id, simSig);
+        dayResult.signalsGenerated.push(simSig);
+      }
+
+      const truncated = afterCloseNewSignals.slice(0, 10);
+      const suffix =
+        afterCloseNewSignals.length > 10
+          ? ` ...and ${afterCloseNewSignals.length - 10} more`
+          : "";
+      emit("log", {
+        message: `  Detected ${afterCloseNewSignals.length} new signal(s): ${truncated.map((s) => `${s.ticker}/${s.setupType}[QS=${s.qualityScore},${s.tier}]`).join(", ")}${suffix}`,
+        type: "success",
+      });
+    }
+
     let totalPending = 0,
       totalActive = 0,
       totalHit = 0,
       totalMiss = 0;
-    for (const sig of allSignals.values()) {
+    for (const sig of Array.from(allSignals.values())) {
       if (sig.status === "pending") totalPending++;
       if (sig.activationStatus === "ACTIVE" && sig.status !== "hit")
         totalActive++;
