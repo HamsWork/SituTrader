@@ -550,95 +550,6 @@ export default function BacktestPage() {
         </p>
       </div>
 
-      <Card data-testid="backtest-worker-card">
-        <CardContent className="pt-4 pb-3 px-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Background Worker</span>
-              {jobStatus?.workerRunning && !jobStatus.workerPaused && (
-                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />Running
-                </Badge>
-              )}
-              {jobStatus?.workerPaused && (
-                <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px]">Paused</Badge>
-              )}
-              {!jobStatus?.workerRunning && !jobStatus?.activeJob && jobStatus?.latestJob?.status === "completed" && (
-                <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">Completed</Badge>
-              )}
-              {!jobStatus?.workerRunning && !jobStatus?.activeJob && !jobStatus?.latestJob && (
-                <Badge variant="outline" className="text-[10px]">Not Started</Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              {!jobStatus?.workerRunning && (
-                <Button
-                  size="sm" variant="outline" className="h-7 text-xs"
-                  onClick={() => startMutation.mutate()}
-                  disabled={startMutation.isPending}
-                  data-testid="btn-start-worker"
-                >
-                  <Play className="w-3 h-3 mr-1" />
-                  {jobStatus?.activeJob ? "Resume" : "Start All"}
-                </Button>
-              )}
-              {jobStatus?.workerRunning && !jobStatus.workerPaused && (
-                <Button
-                  size="sm" variant="outline" className="h-7 text-xs"
-                  onClick={() => pauseMutation.mutate()}
-                  disabled={pauseMutation.isPending}
-                  data-testid="btn-pause-worker"
-                >
-                  <Pause className="w-3 h-3 mr-1" />Pause
-                </Button>
-              )}
-              {jobStatus?.workerPaused && (
-                <Button
-                  size="sm" variant="outline" className="h-7 text-xs"
-                  onClick={() => resumeMutation.mutate()}
-                  disabled={resumeMutation.isPending}
-                  data-testid="btn-resume-worker"
-                >
-                  <Play className="w-3 h-3 mr-1" />Resume
-                </Button>
-              )}
-              {(jobStatus?.workerRunning || jobStatus?.activeJob) && (
-                <Button
-                  size="sm" variant="outline" className="h-7 text-xs text-red-500"
-                  onClick={() => cancelMutation.mutate()}
-                  disabled={cancelMutation.isPending}
-                  data-testid="btn-cancel-worker"
-                >
-                  <Square className="w-3 h-3 mr-1" />Cancel
-                </Button>
-              )}
-            </div>
-          </div>
-          {!workerJob ? (
-            <p className="text-xs text-muted-foreground">
-              Run backtests across all universe tickers × 6 setups. Progress checkpoints save automatically.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <Progress value={workerPct} className="h-2" />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{workerJob.completedCombos} / {workerJob.totalCombos} combos ({workerPct}%)</span>
-                {workerJob.failedCombos > 0 && (
-                  <span className="text-red-500">{workerJob.failedCombos} failed</span>
-                )}
-                {workerJob.currentTicker && workerJob.currentSetup && jobStatus?.workerRunning && (
-                  <span className="font-mono">{workerJob.currentTicker} · {SETUP_LABELS[workerJob.currentSetup as SetupType] || workerJob.currentSetup}</span>
-                )}
-              </div>
-              {workerJob.lastError && (
-                <p className="text-[10px] text-red-500/80 truncate">Last error: {workerJob.lastError}</p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card>
           <CardContent className="pt-3 pb-3 px-4 text-center">
@@ -1288,6 +1199,95 @@ export default function BacktestPage() {
         </TabsContent>
 
         <TabsContent value="run" className="space-y-4 mt-4">
+          <Card data-testid="backtest-worker-card">
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <FlaskConical className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Background Worker</span>
+                  {jobStatus?.workerRunning && !jobStatus.workerPaused && (
+                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />Running
+                    </Badge>
+                  )}
+                  {jobStatus?.workerPaused && (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px]">Paused</Badge>
+                  )}
+                  {!jobStatus?.workerRunning && !jobStatus?.activeJob && jobStatus?.latestJob?.status === "completed" && (
+                    <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">Completed</Badge>
+                  )}
+                  {!jobStatus?.workerRunning && !jobStatus?.activeJob && !jobStatus?.latestJob && (
+                    <Badge variant="outline" className="text-[10px]">Not Started</Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  {!jobStatus?.workerRunning && (
+                    <Button
+                      size="sm" variant="outline" className="h-7 text-xs"
+                      onClick={() => startMutation.mutate()}
+                      disabled={startMutation.isPending}
+                      data-testid="btn-start-worker"
+                    >
+                      <Play className="w-3 h-3 mr-1" />
+                      {jobStatus?.activeJob ? "Resume" : "Start All"}
+                    </Button>
+                  )}
+                  {jobStatus?.workerRunning && !jobStatus.workerPaused && (
+                    <Button
+                      size="sm" variant="outline" className="h-7 text-xs"
+                      onClick={() => pauseMutation.mutate()}
+                      disabled={pauseMutation.isPending}
+                      data-testid="btn-pause-worker"
+                    >
+                      <Pause className="w-3 h-3 mr-1" />Pause
+                    </Button>
+                  )}
+                  {jobStatus?.workerPaused && (
+                    <Button
+                      size="sm" variant="outline" className="h-7 text-xs"
+                      onClick={() => resumeMutation.mutate()}
+                      disabled={resumeMutation.isPending}
+                      data-testid="btn-resume-worker"
+                    >
+                      <Play className="w-3 h-3 mr-1" />Resume
+                    </Button>
+                  )}
+                  {(jobStatus?.workerRunning || jobStatus?.activeJob) && (
+                    <Button
+                      size="sm" variant="outline" className="h-7 text-xs text-red-500"
+                      onClick={() => cancelMutation.mutate()}
+                      disabled={cancelMutation.isPending}
+                      data-testid="btn-cancel-worker"
+                    >
+                      <Square className="w-3 h-3 mr-1" />Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {!workerJob ? (
+                <p className="text-xs text-muted-foreground">
+                  Run backtests across all universe tickers × 6 setups. Progress checkpoints save automatically.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <Progress value={workerPct} className="h-2" />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{workerJob.completedCombos} / {workerJob.totalCombos} combos ({workerPct}%)</span>
+                    {workerJob.failedCombos > 0 && (
+                      <span className="text-red-500">{workerJob.failedCombos} failed</span>
+                    )}
+                    {workerJob.currentTicker && workerJob.currentSetup && jobStatus?.workerRunning && (
+                      <span className="font-mono">{workerJob.currentTicker} · {SETUP_LABELS[workerJob.currentSetup as SetupType] || workerJob.currentSetup}</span>
+                    )}
+                  </div>
+                  {workerJob.lastError && (
+                    <p className="text-[10px] text-red-500/80 truncate">Last error: {workerJob.lastError}</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Backtest Configuration</CardTitle>
