@@ -373,14 +373,33 @@ export async function runSimulation(
       type: "info",
     });
 
-    // Defer after-close scan "writes" until after the live monitor tick,
-    // so each day follows: pre-open scan -> live monitor tick -> after-close scan.
+    // ═══════════════════════════════════════════════════════
+    // Phase 1: After-Close Scan (like runAfterCloseScan)
+    // Expire old signals, detect new setups from daily bars
+    // ═══════════════════════════════════════════════════════
+    emit("log", {
+      message: `  Phase 1: After-close scan (detect setups, expire signals)`,
+      type: "processing",
+    });
+
+    for (const id of Array.from(allSignals.keys())) {
+      const sig = allSignals.get(id)!;
+      if (sig.status === "pending" && sig.targetDate < today) {
+        sig.status = "miss";
+        sig.missReason = "Target date expired";
+        dayResult.misses.push({
+          signalId: id,
+          ticker: sig.ticker,
+          reason: "Target date expired",
+        });
+      }
+    }
+
     const existingSignalKeys = new Set<string>(
       Array.from(allSignals.values()).map(
         (s) => `${s.ticker}|${s.setupType}|${s.asofDate}|${s.targetDate}`,
       ),
     );
-    const afterCloseNewSignals: SimSignal[] = [];
 
     for (const ticker of config.tickers) {
       if (abortSignal?.aborted) break;
@@ -519,7 +538,8 @@ export async function runSimulation(
             mfe: null,
           };
 
-          afterCloseNewSignals.push(simSig);
+          allSignals.set(simSig.id, simSig);
+          dayResult.signalsGenerated.push(simSig);
         }
       } catch (err: any) {
         emit("log", {
@@ -529,13 +549,29 @@ export async function runSimulation(
       }
     }
 
-    dayResult.phases.push(captureSnapshot("Before Pre-Open"));
+    if (dayResult.signalsGenerated.length > 0) {
+      const truncated = dayResult.signalsGenerated.slice(0, 10);
+      const suffix =
+        dayResult.signalsGenerated.length > 10
+          ? ` ...and ${dayResult.signalsGenerated.length - 10} more`
+          : "";
+      emit("log", {
+        message: `  Detected ${dayResult.signalsGenerated.length} new signal(s): ${truncated.map((s) => `${s.ticker}/${s.setupType}[QS=${s.qualityScore},${s.tier}]`).join(", ")}${suffix}`,
+        type: "success",
+      });
+    }
+
+    dayResult.phases.push(captureSnapshot("After-Close Scan"));
     emitDayUpdate();
     await new Promise((r) => setTimeout(r, 4000));
     if (abortSignal?.aborted) break;
 
+    // ═══════════════════════════════════════════════════════
+    // Phase 2: Pre-Open Scan (like runPreOpenScan)
+    // BTOD ranking — select top 3 eligible signals
+    // ═══════════════════════════════════════════════════════
     emit("log", {
-      message: `  Phase 1: Pre-open scan (BTOD selection)`,
+      message: `  Phase 2: Pre-open scan (BTOD selection)`,
       type: "processing",
     });
 
@@ -578,13 +614,17 @@ export async function runSimulation(
       });
     }
 
-    dayResult.phases.push(captureSnapshot("After Pre-Open"));
+    dayResult.phases.push(captureSnapshot("Pre-Open Scan"));
     emitDayUpdate();
     await new Promise((r) => setTimeout(r, 4000));
     if (abortSignal?.aborted) break;
 
+    // ═══════════════════════════════════════════════════════
+    // Phase 3: Live Monitor Tick (like runLiveMonitorTick)
+    // Activation scan + magnet touch validation
+    // ═══════════════════════════════════════════════════════
     emit("log", {
-      message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
+      message: `  Phase 3: Live monitor tick (activation + magnet touch)`,
       type: "processing",
     });
 
@@ -763,46 +803,14 @@ export async function runSimulation(
       });
     }
 
-    dayResult.phases.push(captureSnapshot("Before After-Close"));
+    dayResult.phases.push(captureSnapshot("Live Monitor Tick"));
     emitDayUpdate();
     await new Promise((r) => setTimeout(r, 4000));
     if (abortSignal?.aborted) break;
 
-    emit("log", {
-      message: `  Phase 3: After-close scan (detect setups)`,
-      type: "processing",
-    });
-
-    for (const id of Array.from(allSignals.keys())) {
-      const sig = allSignals.get(id)!;
-      if (sig.status === "pending" && sig.targetDate < today) {
-        sig.status = "miss";
-        sig.missReason = "Target date expired";
-        dayResult.misses.push({
-          signalId: id,
-          ticker: sig.ticker,
-          reason: "Target date expired",
-        });
-      }
-    }
-
-    if (afterCloseNewSignals.length > 0) {
-      for (const simSig of afterCloseNewSignals) {
-        allSignals.set(simSig.id, simSig);
-        dayResult.signalsGenerated.push(simSig);
-      }
-
-      const truncated = afterCloseNewSignals.slice(0, 10);
-      const suffix =
-        afterCloseNewSignals.length > 10
-          ? ` ...and ${afterCloseNewSignals.length - 10} more`
-          : "";
-      emit("log", {
-        message: `  Detected ${afterCloseNewSignals.length} new signal(s): ${truncated.map((s) => `${s.ticker}/${s.setupType}[QS=${s.qualityScore},${s.tier}]`).join(", ")}${suffix}`,
-        type: "success",
-      });
-    }
-
+    // ═══════════════════════════════════════════════════════
+    // Phase 4: End of Day — final summary
+    // ═══════════════════════════════════════════════════════
     let totalPending = 0,
       totalActive = 0,
       totalHit = 0,
@@ -816,7 +824,7 @@ export async function runSimulation(
     }
     dayResult.summary = { totalPending, totalActive, totalHit, totalMiss };
 
-    dayResult.phases.push(captureSnapshot("After After-Close"));
+    dayResult.phases.push(captureSnapshot("End of Day"));
 
     emit("log", {
       message: `  Summary: ${totalPending} pending | ${totalActive} active | ${totalHit} hits | ${totalMiss} misses`,

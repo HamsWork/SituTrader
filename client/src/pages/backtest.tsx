@@ -881,8 +881,8 @@ export default function BacktestPage() {
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay?.phases || currentDay.phases.length === 0) return null;
-                          const PHASE_LABELS = ["Before Pre-Open", "After Pre-Open", "Before After-Close", "After After-Close"];
-                          const PHASE_SHORTS = ["Pre①", "Post①", "Pre②", "Post②"];
+                          const PHASE_LABELS = ["After-Close Scan", "Pre-Open Scan", "Live Monitor Tick", "End of Day"];
+                          const PHASE_SHORTS = ["Close", "Pre-Open", "Live", "EOD"];
                           return (
                             <div className="flex items-center gap-1 mb-2" data-testid="sim-phase-stepper">
                               {PHASE_LABELS.map((label, idx) => (
