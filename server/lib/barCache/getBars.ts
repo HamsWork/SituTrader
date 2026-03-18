@@ -123,7 +123,11 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
       }
     } else {
       const allBars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
-      await upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
+      if (allBars.length > 0) {
+        await upsertBarsAndMeta(symbol, timeframe, adjusted, allBars);
+      } else {
+        await touchMeta(symbol, timeframe, adjusted);
+      }
     }
 
     const finalBars = await queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);

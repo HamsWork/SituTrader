@@ -847,12 +847,14 @@ export async function registerRoutes(
       "X-Accel-Buffering": "no",
     });
 
+    res.flushHeaders();
+
     if (activeSimControl && !activeSimControl.aborted) {
       activeSimControl.aborted = true;
     }
     const controlSignal: SimControlSignal = { aborted: false, paused: false };
     activeSimControl = controlSignal;
-    req.on("close", () => {
+    res.on("close", () => {
       controlSignal.aborted = true;
       if (activeSimControl === controlSignal) activeSimControl = null;
     });
@@ -1072,7 +1074,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/stats/bar-cache", async (_req, res) => {
+  app.get("/api/stats/bar-cache", async (_req, res) => {
     try {
       const stats = await getBarCacheStats();
       res.json(stats);
