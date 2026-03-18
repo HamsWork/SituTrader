@@ -245,134 +245,132 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     tickerGroups.get(sig.ticker)!.push(sig);
   }
 
-  for (const ticker of Array.from(tickerGroups.keys())) {
-    const sigs = tickerGroups.get(ticker)!;
-
-    let currentPrice: number | null = null;
-    try {
-      const snap = await fetchSnapshot(ticker);
-      if (snap && snap.lastPrice > 0) currentPrice = snap.lastPrice;
-    } catch (err: any) {
-      log(
-        `Activation: failed to get snapshot for ${ticker}: ${err.message}`,
-        "activation",
-      );
-      continue;
-    }
-
+  async function checkActivatedSignalsForTicker(
+    ticker: string,
+    sigs: Signal[],
+    currentPrice: number | null,
+  ) {
     for (const sig of sigs) {
       const tp = sig.tradePlanJson as TradePlan | null;
       if (!tp) continue;
+      if (sig.activationStatus !== "ACTIVE") continue;
 
-      if (sig.activationStatus === "ACTIVE") {
-        const entryPrice = sig.entryPriceAtActivation ?? 0;
-        const isSell = tp.bias === "SELL";
+      const entryPrice = sig.entryPriceAtActivation ?? 0;
+      const isSell = tp.bias === "SELL";
 
-        if (
-          currentPrice &&
-          checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)
-        ) {
-          await storage.updateSignalInvalidation(sig.id, nowIso);
-          events.push({
-            signalId: sig.id,
-            ticker,
-            type: "invalidated",
-            tier: sig.tier,
-            qualityScore: sig.qualityScore,
-            entryPrice,
-            message: `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice?.toFixed(2)}`,
-            timestamp: nowIso,
-          });
-          continue;
-        }
-
-        if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
-          const rNow = computeRNow(
-            currentPrice,
-            entryPrice,
-            sig.stopPrice,
-            isSell,
-          );
-          const progress = computeProgressToTarget(
-            currentPrice,
-            entryPrice,
-            tp.t1,
-            isSell,
-          );
-          const timingAnchor = sig.activatedTs
-            ? new Date(sig.activatedTs).getTime()
-            : 0;
-          const activeMinutes = timingAnchor > 0
-            ? Math.floor((now.getTime() - timingAnchor) / 60000)
-            : 0;
-
-          if (shouldApplyBE(stopCfg.stopMode) && sig.stopStage === "INITIAL") {
-            const beEarned =
-              rNow >= stopCfg.beRThreshold ||
-              progress >= stopCfg.beProgressThreshold;
-            if (beEarned) {
-              await storage.updateSignalStopStage(
-                sig.id,
-                "BE",
-                entryPrice,
-                nowIso,
-              );
-
-              events.push({
-                signalId: sig.id,
-                ticker,
-                type: "stop_to_be",
-                tier: sig.tier,
-                qualityScore: sig.qualityScore,
-                entryPrice,
-                message: `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`,
-                timestamp: nowIso,
-              });
-              continue;
-            }
-          }
-
-          if (
-            shouldApplyTimeStop(stopCfg.stopMode) &&
-            sig.stopStage !== "TIME_TIGHTENED" &&
-            !sig.timeStopTriggeredTs
-          ) {
-            if (
-              activeMinutes >= stopCfg.timeStopMinutes &&
-              progress < stopCfg.timeStopProgressThreshold
-            ) {
-              const stopDist = Math.abs(entryPrice - sig.stopPrice);
-              const tightenedDist = stopDist * stopCfg.timeStopTightenFactor;
-              const newStop = isSell
-                ? entryPrice + tightenedDist
-                : entryPrice - tightenedDist;
-
-              await storage.updateSignalStopStage(
-                sig.id,
-                "TIME_TIGHTENED",
-                newStop,
-                undefined,
-                nowIso,
-              );
-
-              events.push({
-                signalId: sig.id,
-                ticker,
-                type: "time_stop",
-                tier: sig.tier,
-                qualityScore: sig.qualityScore,
-                entryPrice,
-                message: `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress * 100).toFixed(0)}% progress`,
-                timestamp: nowIso,
-              });
-              continue;
-            }
-          }
-        }
-
+      if (
+        currentPrice &&
+        checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)
+      ) {
+        await storage.updateSignalInvalidation(sig.id, nowIso);
+        events.push({
+          signalId: sig.id,
+          ticker,
+          type: "invalidated",
+          tier: sig.tier,
+          qualityScore: sig.qualityScore,
+          entryPrice,
+          message: `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice?.toFixed(2)}`,
+          timestamp: nowIso,
+        });
         continue;
       }
 
+      if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
+        const rNow = computeRNow(
+          currentPrice,
+          entryPrice,
+          sig.stopPrice,
+          isSell,
+        );
+        const progress = computeProgressToTarget(
+          currentPrice,
+          entryPrice,
+          tp.t1,
+          isSell,
+        );
+        const timingAnchor = sig.activatedTs
+          ? new Date(sig.activatedTs).getTime()
+          : 0;
+        const activeMinutes = timingAnchor > 0
+          ? Math.floor((now.getTime() - timingAnchor) / 60000)
+          : 0;
+
+        if (shouldApplyBE(stopCfg.stopMode) && sig.stopStage === "INITIAL") {
+          const beEarned =
+            rNow >= stopCfg.beRThreshold ||
+            progress >= stopCfg.beProgressThreshold;
+          if (beEarned) {
+            await storage.updateSignalStopStage(
+              sig.id,
+              "BE",
+              entryPrice,
+              nowIso,
+            );
+
+            events.push({
+              signalId: sig.id,
+              ticker,
+              type: "stop_to_be",
+              tier: sig.tier,
+              qualityScore: sig.qualityScore,
+              entryPrice,
+              message: `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`,
+              timestamp: nowIso,
+            });
+            continue;
+          }
+        }
+
+        if (
+          shouldApplyTimeStop(stopCfg.stopMode) &&
+          sig.stopStage !== "TIME_TIGHTENED" &&
+          !sig.timeStopTriggeredTs
+        ) {
+          if (
+            activeMinutes >= stopCfg.timeStopMinutes &&
+            progress < stopCfg.timeStopProgressThreshold
+          ) {
+            const stopDist = Math.abs(entryPrice - sig.stopPrice);
+            const tightenedDist = stopDist * stopCfg.timeStopTightenFactor;
+            const newStop = isSell
+              ? entryPrice + tightenedDist
+              : entryPrice - tightenedDist;
+
+            await storage.updateSignalStopStage(
+              sig.id,
+              "TIME_TIGHTENED",
+              newStop,
+              undefined,
+              nowIso,
+            );
+
+            events.push({
+              signalId: sig.id,
+              ticker,
+              type: "time_stop",
+              tier: sig.tier,
+              qualityScore: sig.qualityScore,
+              entryPrice,
+              message: `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress * 100).toFixed(0)}% progress`,
+              timestamp: nowIso,
+            });
+            continue;
+          }
+        }
+      }
+    }
+  }
+
+  async function checkPendingSignalsForTicker(
+    ticker: string,
+    sigs: Signal[],
+    currentPrice: number | null,
+  ) {
+    for (const sig of sigs) {
+      const tp = sig.tradePlanJson as TradePlan | null;
+      if (!tp) continue;
+      if (sig.activationStatus === "ACTIVE") continue;
       if (sig.activationStatus === "INVALIDATED") continue;
 
       const targetDate = sig.targetDate;
@@ -401,209 +399,246 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
         entryMode,
       );
 
-      if (result.triggered && result.entryPrice) {
-        let instrumentTypeForExecution: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
-          (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") ||
-          "OPTION";
+      if (!result.triggered || !result.entryPrice) continue;
 
-        let stopPrice: number | undefined;
-        if (tp.stopDistance && tp.stopDistance > 0) {
-          stopPrice =
-            tp.bias === "SELL"
-              ? result.entryPrice + tp.stopDistance
-              : result.entryPrice - tp.stopDistance;
-        }
-        await storage.updateSignalActivation(
-          sig.id,
-          "ACTIVE",
-          result.triggerTs,
-          result.entryPrice,
-          stopPrice,
-          result.entryTriggerPrice,
-        );
+      let instrumentTypeForExecution: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
+        (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") ||
+        "OPTION";
 
-        const opts = sig.optionsJson as OptionsData | null;
-        const contractTicker =
-          sig.optionContractTicker || opts?.candidate?.contractSymbol;
+      let stopPrice: number | undefined;
+      if (tp.stopDistance && tp.stopDistance > 0) {
+        stopPrice =
+          tp.bias === "SELL"
+            ? result.entryPrice + tp.stopDistance
+            : result.entryPrice - tp.stopDistance;
+      }
+      await storage.updateSignalActivation(
+        sig.id,
+        "ACTIVE",
+        result.triggerTs,
+        result.entryPrice,
+        stopPrice,
+        result.entryTriggerPrice,
+      );
 
-        if (contractTicker) {
-          try {
-            const triggerMs = result.triggerTs
-              ? new Date(result.triggerTs).getTime()
-              : Date.now();
-            let entryMarkPrice = await fetchOptionMarkAtTime(
-              contractTicker,
-              triggerMs,
-            );
-            if (entryMarkPrice == null) {
-              const liveQuote = await fetchOptionMark(contractTicker, ticker);
-              if (liveQuote && liveQuote.mark != null)
-                entryMarkPrice = liveQuote.mark;
-            }
-            if (entryMarkPrice != null) {
-              await storage.updateSignalOptionTracking(sig.id, {
-                optionContractTicker: contractTicker,
-                optionEntryMark: entryMarkPrice,
-              });
-              log(
-                `Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${result.triggerTs} (${contractTicker})`,
-                "activation",
-              );
-            }
-          } catch (err: any) {
-            log(
-              `Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`,
-              "activation",
-            );
-          }
-        }
+      const opts = sig.optionsJson as OptionsData | null;
+      const contractTicker =
+        sig.optionContractTicker || opts?.candidate?.contractSymbol;
 
-        if (
-          hasLeveragedEtfMapping(ticker) &&
-          (!sig.instrumentType || sig.instrumentType === "OPTION") &&
-          !sig.instrumentTicker
-        ) {
-          try {
-            const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
-            if (suggestion) {
-              const triggerMs = result.triggerTs
-                ? new Date(result.triggerTs).getTime()
-                : Date.now();
-              let letfEntry = await fetchStockPriceAtTime(
-                suggestion.ticker,
-                triggerMs,
-              );
-              if (letfEntry == null) {
-                const letfQuote = await fetchStockNbbo(suggestion.ticker);
-                letfEntry = letfQuote?.mid ?? null;
-              }
-              await storage.updateSignalLeveragedEtf(sig.id, suggestion);
-              await storage.updateSignalInstrument(
-                sig.id,
-                "LEVERAGED_ETF",
-                suggestion.ticker,
-                letfEntry,
-              );
-              instrumentTypeForExecution = "LEVERAGED_ETF";
-              log(
-                `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`,
-                "activation",
-              );
-            }
-          } catch (err: any) {
-            log(
-              `Failed to auto-select LETF for signal ${sig.id}: ${err.message}`,
-              "activation",
-            );
-          }
-        }
-
-        events.push({
-          signalId: sig.id,
-          ticker,
-          type: "activated",
-          tier: sig.tier,
-          qualityScore: sig.qualityScore,
-          entryPrice: result.entryPrice,
-          message: `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`,
-          timestamp: nowIso,
-        });
-
-        let btodActive = false;
-        let btodAllowed = true;
+      if (contractTicker) {
         try {
-          const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
-          if (btodEnabled) {
-            btodActive = true;
-            const { shouldExecuteActivation } = await import("./btod");
-            const btodDecision = await shouldExecuteActivation(sig.id, new Date());
-            if (!btodDecision.execute) {
-              btodAllowed = false;
-              log(
-                `BTOD: passed over signal ${sig.id} (${ticker} QS=${sig.qualityScore ?? 0}) — reason: ${btodDecision.reason}`,
-                "activation",
-              );
-            }
-          }
-        } catch (btodErr: any) {
-          log(
-            `BTOD: error checking signal ${sig.id}, allowing execution as fallback: ${btodErr.message}`,
-            "activation",
+          const triggerMs = result.triggerTs
+            ? new Date(result.triggerTs).getTime()
+            : Date.now();
+          let entryMarkPrice = await fetchOptionMarkAtTime(
+            contractTicker,
+            triggerMs,
           );
-        }
-
-        if (btodActive && btodAllowed) {
-          try {
-            const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
-            const qty =
-              parseInt(
-                (await storage.getSetting("ibkrDefaultQuantity")) || "1",
-              ) || 1;
-            const results = await executeBtodMultiInstrument(sig.id, qty);
-            const successCount = results.filter((r) => r.success).length;
+          if (entryMarkPrice == null) {
+            const liveQuote = await fetchOptionMark(contractTicker, ticker);
+            if (liveQuote && liveQuote.mark != null)
+              entryMarkPrice = liveQuote.mark;
+          }
+          if (entryMarkPrice != null) {
+            await storage.updateSignalOptionTracking(sig.id, {
+              optionContractTicker: contractTicker,
+              optionEntryMark: entryMarkPrice,
+            });
             log(
-              `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
-              "activation",
-            );
-
-            await onBtodTradeExecuted(sig.id);
-          } catch (btodExecErr: any) {
-            log(
-              `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,
+              `Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${result.triggerTs} (${contractTicker})`,
               "activation",
             );
           }
-        } else if (!btodActive) {
-          const qualityOk = (sig.qualityScore ?? 0) >= 80;
-
-          let activeProfileCheck: any = null;
-          try {
-            activeProfileCheck = await storage.getActiveProfile();
-          } catch {}
-          const profileOk = activeProfileCheck
-            ? activeProfileCheck.allowedSetups.includes(sig.setupType)
-            : true;
-
-          if (qualityOk && profileOk) {
-            try {
-              const freshSigs = await storage.getSignals(undefined, 5000);
-              const freshSig = freshSigs.find((s: any) => s.id === sig.id);
-              const discordSig = freshSig || sig;
-              const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
-              let discordOk = false;
-              if (instrumentTypeForExecution === "OPTION") {
-                discordOk = await postOptionsAlert(discordSig);
-              } else if (instrumentTypeForExecution === "SHARES") {
-                discordOk = await postSharesAlert(discordSig);
-              } else {
-                discordOk = await postLetfAlert(discordSig);
-              }
-              if (discordOk) {
-                log(
-                  `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
-                  "activation",
-                );
-              } else {
-                log(
-                  `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
-                  "activation",
-                );
-              }
-            } catch (discordErr: any) {
-              log(
-                `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
-                "activation",
-              );
-            }
-          }
-        } else {
+        } catch (err: any) {
           log(
-            `Skip execution for signal ${sig.id}: BTOD gate blocked`,
+            `Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`,
             "activation",
           );
         }
       }
+
+      if (
+        hasLeveragedEtfMapping(ticker) &&
+        (!sig.instrumentType || sig.instrumentType === "OPTION") &&
+        !sig.instrumentTicker
+      ) {
+        try {
+          const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
+          if (suggestion) {
+            const triggerMs = result.triggerTs
+              ? new Date(result.triggerTs).getTime()
+              : Date.now();
+            let letfEntry = await fetchStockPriceAtTime(
+              suggestion.ticker,
+              triggerMs,
+            );
+            if (letfEntry == null) {
+              const letfQuote = await fetchStockNbbo(suggestion.ticker);
+              letfEntry = letfQuote?.mid ?? null;
+            }
+            await storage.updateSignalLeveragedEtf(sig.id, suggestion);
+            await storage.updateSignalInstrument(
+              sig.id,
+              "LEVERAGED_ETF",
+              suggestion.ticker,
+              letfEntry,
+            );
+            instrumentTypeForExecution = "LEVERAGED_ETF";
+            log(
+              `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`,
+              "activation",
+            );
+          }
+        } catch (err: any) {
+          log(
+            `Failed to auto-select LETF for signal ${sig.id}: ${err.message}`,
+            "activation",
+          );
+        }
+      }
+
+      events.push({
+        signalId: sig.id,
+        ticker,
+        type: "activated",
+        tier: sig.tier,
+        qualityScore: sig.qualityScore,
+        entryPrice: result.entryPrice,
+        message: `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`,
+        timestamp: nowIso,
+      });
+
+      let btodActive = false;
+      let btodAllowed = true;
+      try {
+        const btodEnabled =
+          (await storage.getSetting("btodEnabled")) !== "false";
+        if (btodEnabled) {
+          btodActive = true;
+          const { shouldExecuteActivation } = await import("./btod");
+          const btodDecision = await shouldExecuteActivation(sig.id, new Date());
+          if (!btodDecision.execute) {
+            btodAllowed = false;
+            log(
+              `BTOD: passed over signal ${sig.id} (${ticker} QS=${sig.qualityScore ?? 0}) — reason: ${btodDecision.reason}`,
+              "activation",
+            );
+          }
+        }
+      } catch (btodErr: any) {
+        log(
+          `BTOD: error checking signal ${sig.id}, allowing execution as fallback: ${btodErr.message}`,
+          "activation",
+        );
+      }
+
+      if (btodActive && btodAllowed) {
+        try {
+          const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
+          const qty =
+            parseInt(
+              (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+            ) || 1;
+          const results = await executeBtodMultiInstrument(sig.id, qty);
+          const successCount = results.filter((r) => r.success).length;
+          log(
+            `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
+            "activation",
+          );
+
+          await onBtodTradeExecuted(sig.id);
+        } catch (btodExecErr: any) {
+          log(
+            `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,
+            "activation",
+          );
+        }
+      } else if (!btodActive) {
+        const qualityOk = (sig.qualityScore ?? 0) >= 80;
+
+        let activeProfileCheck: any = null;
+        try {
+          activeProfileCheck = await storage.getActiveProfile();
+        } catch {}
+        const profileOk = activeProfileCheck
+          ? activeProfileCheck.allowedSetups.includes(sig.setupType)
+          : true;
+
+        if (qualityOk && profileOk) {
+          try {
+            const freshSigs = await storage.getSignals(undefined, 5000);
+            const freshSig = freshSigs.find((s: any) => s.id === sig.id);
+            const discordSig = freshSig || sig;
+            const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
+            let discordOk = false;
+            if (instrumentTypeForExecution === "OPTION") {
+              discordOk = await postOptionsAlert(discordSig);
+            } else if (instrumentTypeForExecution === "SHARES") {
+              discordOk = await postSharesAlert(discordSig);
+            } else {
+              discordOk = await postLetfAlert(discordSig);
+            }
+            if (discordOk) {
+              log(
+                `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
+                "activation",
+              );
+            } else {
+              log(
+                `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
+                "activation",
+              );
+            }
+          } catch (discordErr: any) {
+            log(
+              `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
+              "activation",
+            );
+          }
+        }
+      } else {
+        log(
+          `Skip execution for signal ${sig.id}: BTOD gate blocked`,
+          "activation",
+        );
+      }
     }
+  }
+
+  // 1) Fetch snapshots once per ticker.
+  // If snapshot fails for a ticker, we skip both activated and pending processing for it (same behavior as before).
+  const currentPriceByTicker = new Map<string, number | null>();
+  for (const ticker of Array.from(tickerGroups.keys())) {
+    try {
+      const snap = await fetchSnapshot(ticker);
+      const currentPrice = snap && snap.lastPrice > 0 ? snap.lastPrice : null;
+      currentPriceByTicker.set(ticker, currentPrice);
+    } catch (err: any) {
+      log(
+        `Activation: failed to get snapshot for ${ticker}: ${err.message}`,
+        "activation",
+      );
+    }
+  }
+
+  // 2) Pass A: handle activated signals (invalidation + stop management).
+  for (const ticker of Array.from(currentPriceByTicker.keys())) {
+    const currentPrice = currentPriceByTicker.get(ticker) ?? null;
+    await checkActivatedSignalsForTicker(
+      ticker,
+      tickerGroups.get(ticker)!,
+      currentPrice,
+    );
+  }
+
+  // 3) Pass B: handle pending signals (entry trigger + activation).
+  for (const ticker of Array.from(currentPriceByTicker.keys())) {
+    const currentPrice = currentPriceByTicker.get(ticker) ?? null;
+    await checkPendingSignalsForTicker(
+      ticker,
+      tickerGroups.get(ticker)!,
+      currentPrice,
+    );
   }
 
   log(`Activation scan complete: ${events.length} events`, "activation");
