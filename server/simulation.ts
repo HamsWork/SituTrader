@@ -143,10 +143,21 @@ function iterateTradingDays(start: string, end: string): string[] {
   return days;
 }
 
+export interface SimControlSignal {
+  aborted: boolean;
+  paused: boolean;
+}
+
+async function waitWhilePaused(ctrl: SimControlSignal): Promise<void> {
+  while (ctrl.paused && !ctrl.aborted) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 export async function runSimulation(
   config: SimConfig,
   emit: SimEventCallback,
-  abortSignal?: { aborted: boolean },
+  abortSignal?: SimControlSignal,
 ): Promise<SimDayResult[]> {
   let nextSimSignalId = 1;
   const allSignals: Map<number, SimSignal> = new Map();
@@ -215,8 +226,14 @@ export async function runSimulation(
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     if (abortSignal?.aborted) {
-      emit("log", { message: "Simulation aborted by client disconnect", type: "error" });
+      emit("log", { message: "Simulation aborted", type: "error" });
       break;
+    }
+    if (abortSignal?.paused) {
+      emit("log", { message: "Simulation paused...", type: "info" });
+      await waitWhilePaused(abortSignal);
+      if (abortSignal?.aborted) break;
+      emit("log", { message: "Simulation resumed", type: "info" });
     }
 
     const today = tradingDays[dayIdx];
@@ -260,6 +277,8 @@ export async function runSimulation(
       type: "processing",
     });
     for (const ticker of config.tickers) {
+      if (abortSignal?.aborted) break;
+      if (abortSignal?.paused) await waitWhilePaused(abortSignal);
       if (abortSignal?.aborted) break;
       try {
         const dailyBars = await getDailyBarsForTicker(ticker, today);
@@ -440,6 +459,8 @@ export async function runSimulation(
 
       for (const ticker of tickersNeeded) {
         if (abortSignal?.aborted) break;
+        if (abortSignal?.paused) await waitWhilePaused(abortSignal);
+        if (abortSignal?.aborted) break;
         try {
           const intradayPolygon = await fetchIntradayBarsCached(
             ticker,
@@ -593,16 +614,59 @@ export async function runSimulation(
       type: "info",
     });
 
+    const onDeckSignals = Array.from(allSignals.values())
+      .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
+      .map((s) => ({
+        id: s.id,
+        ticker: s.ticker,
+        setupType: s.setupType,
+        direction: s.direction,
+        qualityScore: s.qualityScore,
+        tier: s.tier,
+        magnetPrice: s.magnetPrice,
+        targetDate: s.targetDate,
+      }));
+
+    const activeSignals = Array.from(allSignals.values())
+      .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
+      .map((s) => ({
+        id: s.id,
+        ticker: s.ticker,
+        setupType: s.setupType,
+        direction: s.direction,
+        qualityScore: s.qualityScore,
+        tier: s.tier,
+        magnetPrice: s.magnetPrice,
+        entryPrice: s.entryPrice,
+        activatedTs: s.activatedTs,
+      }));
+
     emit("day", {
       date: today,
       dayIndex: dayIdx,
       totalDays: tradingDays.length,
       signalsGenerated: dayResult.signalsGenerated.length,
       btodTop3Count: dayResult.btodTop3.length,
+      btodTop3: dayResult.btodTop3,
       activations: dayResult.activations.length,
+      activationDetails: dayResult.activations,
       hits: dayResult.hits.length,
+      hitDetails: dayResult.hits,
       misses: dayResult.misses.length,
+      missDetails: dayResult.misses,
       summary: dayResult.summary,
+      onDeckSignals,
+      activeSignals,
+      newSignals: dayResult.signalsGenerated.map((s) => ({
+        id: s.id,
+        ticker: s.ticker,
+        setupType: s.setupType,
+        direction: s.direction,
+        qualityScore: s.qualityScore,
+        tier: s.tier,
+        magnetPrice: s.magnetPrice,
+        targetDate: s.targetDate,
+      })),
     });
 
     results.push(dayResult);

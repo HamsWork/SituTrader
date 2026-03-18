@@ -155,18 +155,44 @@ export default function BacktestPage() {
   const [backtestProgress, setBacktestProgress] = useState<{ completed: number; total: number; ticker: string; setup: string } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  const [simRunning, setSimRunning] = useState(false);
-  const [simLogs, setSimLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
-  const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
-  const [simDayResults, setSimDayResults] = useState<Array<{
+  interface SimSignalSummary {
+    id: number;
+    ticker: string;
+    setupType: string;
+    direction: string;
+    qualityScore: number;
+    tier: string;
+    magnetPrice: number;
+    targetDate?: string;
+    entryPrice?: number | null;
+    activatedTs?: string | null;
+  }
+
+  interface SimDayDetail {
     date: string;
+    dayIndex: number;
+    totalDays: number;
     signalsGenerated: number;
     btodTop3Count: number;
+    btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number }>;
     activations: number;
+    activationDetails: Array<{ signalId: number; ticker: string; setupType: string; triggerTs: string; entryPrice: number; isBtod: boolean }>;
     hits: number;
+    hitDetails: Array<{ signalId: number; ticker: string; hitTs: string; timeToHitMin: number }>;
     misses: number;
+    missDetails: Array<{ signalId: number; ticker: string; reason: string }>;
     summary: { totalPending: number; totalActive: number; totalHit: number; totalMiss: number };
-  }>>([]);
+    onDeckSignals: SimSignalSummary[];
+    activeSignals: SimSignalSummary[];
+    newSignals: SimSignalSummary[];
+  }
+
+  const [simRunning, setSimRunning] = useState(false);
+  const [simPaused, setSimPaused] = useState(false);
+  const [simLogs, setSimLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
+  const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
+  const [simDayResults, setSimDayResults] = useState<SimDayDetail[]>([]);
+  const [simSelectedDayIdx, setSimSelectedDayIdx] = useState<number>(-1);
   const [simFinalStats, setSimFinalStats] = useState<{
     totalDays: number;
     totalSignalsGenerated: number;
@@ -186,12 +212,40 @@ export default function BacktestPage() {
     simLogEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [simLogs]);
 
+  const pauseSimulation = useCallback(() => {
+    fetch("/api/backtest/simulate-pause", { method: "POST" }).then((res) => {
+      if (res.ok) setSimPaused(true);
+      else toast({ title: "Failed to pause", variant: "destructive" });
+    }).catch(() => toast({ title: "Failed to pause", variant: "destructive" }));
+  }, [toast]);
+
+  const resumeSimulation = useCallback(() => {
+    fetch("/api/backtest/simulate-resume", { method: "POST" }).then((res) => {
+      if (res.ok) setSimPaused(false);
+      else toast({ title: "Failed to resume", variant: "destructive" });
+    }).catch(() => toast({ title: "Failed to resume", variant: "destructive" }));
+  }, [toast]);
+
+  const cancelSimulation = useCallback(() => {
+    fetch("/api/backtest/simulate-cancel", { method: "POST" }).then((res) => {
+      if (res.ok) {
+        setSimRunning(false);
+        setSimPaused(false);
+        toast({ title: "Simulation cancelled" });
+      } else {
+        toast({ title: "Failed to cancel", variant: "destructive" });
+      }
+    }).catch(() => toast({ title: "Failed to cancel", variant: "destructive" }));
+  }, [toast]);
+
   const runSimulationStream = useCallback(() => {
     const tickers = selectedTickers.length ? selectedTickers : enabledSymbols.map((s) => s.ticker);
     setSimRunning(true);
+    setSimPaused(false);
     setSimLogs([]);
     setSimProgress(null);
     setSimDayResults([]);
+    setSimSelectedDayIdx(-1);
     setSimFinalStats(null);
 
     fetch("/api/backtest/simulate-stream", {
@@ -238,7 +292,11 @@ export default function BacktestPage() {
               } else if (eventType === "progress") {
                 setSimProgress(data);
               } else if (eventType === "day") {
-                setSimDayResults((prev) => [...prev, data]);
+                setSimDayResults((prev) => {
+                  const updated = [...prev, data as SimDayDetail];
+                  return updated;
+                });
+                setSimSelectedDayIdx((prev) => prev === -1 || prev === (data as SimDayDetail).dayIndex - 1 ? (data as SimDayDetail).dayIndex : prev);
               } else if (eventType === "done") {
                 receivedDone = true;
                 setSimFinalStats(data);
@@ -742,28 +800,234 @@ export default function BacktestPage() {
                   {simRunning ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <Zap className="w-4 h-4 mr-2" />
+                    <Play className="w-4 h-4 mr-2" />
                   )}
                   {simRunning
                     ? "Simulating..."
                     : `Run Simulation (${selectedTickers.length || enabledSymbols.length} tickers × ${selectedSetups.length} setups)`}
                 </Button>
+                {simRunning && !simPaused && (
+                  <Button variant="outline" size="sm" onClick={pauseSimulation} data-testid="button-sim-pause">
+                    <Pause className="w-4 h-4 mr-1" /> Pause
+                  </Button>
+                )}
+                {simRunning && simPaused && (
+                  <Button variant="outline" size="sm" onClick={resumeSimulation} data-testid="button-sim-resume">
+                    <Play className="w-4 h-4 mr-1" /> Resume
+                  </Button>
+                )}
+                {simRunning && (
+                  <Button variant="destructive" size="sm" onClick={cancelSimulation} data-testid="button-sim-cancel">
+                    <Square className="w-4 h-4 mr-1" /> Cancel
+                  </Button>
+                )}
               </div>
 
-              {(simLogs.length > 0 || simRunning) && (
+              {(simLogs.length > 0 || simRunning || simDayResults.length > 0) && (
                 <div className="mt-4 space-y-3">
                   {simProgress && (
                     <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Day: {simProgress.day} — {simProgress.phase}</span>
-                        <span>{simProgress.completed}/{simProgress.total} days</span>
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={simPaused ? "secondary" : "default"} className="text-[10px]">
+                            {simPaused ? "PAUSED" : simRunning ? "RUNNING" : "DONE"}
+                          </Badge>
+                          <span className="font-mono font-semibold">{simProgress.day}</span>
+                          <span className="text-muted-foreground">{simProgress.phase}</span>
+                        </div>
+                        <span className="text-muted-foreground">{simProgress.completed}/{simProgress.total} days</span>
                       </div>
                       <Progress value={(simProgress.completed / simProgress.total) * 100} className="h-2" />
                     </div>
                   )}
 
+                  {simDayResults.length > 0 && (
+                    <Card className="border-zinc-800 bg-zinc-950/50">
+                      <CardContent className="p-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost" size="sm" className="h-7 w-7 p-0"
+                              disabled={simSelectedDayIdx <= 0}
+                              onClick={() => setSimSelectedDayIdx((prev) => Math.max(0, prev - 1))}
+                              data-testid="button-sim-prev-day"
+                            >
+                              <ArrowRight className="w-4 h-4 rotate-180" />
+                            </Button>
+                            <span className="font-mono text-sm font-semibold" data-testid="text-sim-current-date">
+                              {simDayResults[simSelectedDayIdx]?.date ?? "—"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              Day {simSelectedDayIdx + 1} of {simDayResults.length}
+                            </span>
+                            <Button
+                              variant="ghost" size="sm" className="h-7 w-7 p-0"
+                              disabled={simSelectedDayIdx >= simDayResults.length - 1}
+                              onClick={() => setSimSelectedDayIdx((prev) => Math.min(simDayResults.length - 1, prev + 1))}
+                              data-testid="button-sim-next-day"
+                            >
+                              <ArrowRight className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          {(() => {
+                            const currentDay = simDayResults[simSelectedDayIdx];
+                            if (!currentDay) return null;
+                            return (
+                              <div className="flex items-center gap-2 text-xs">
+                                <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                  +{currentDay.signalsGenerated} new
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px] bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
+                                  {currentDay.summary.totalPending} pending
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/20">
+                                  {currentDay.summary.totalActive} active
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                  {currentDay.summary.totalHit} hits
+                                </Badge>
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {(() => {
+                          const currentDay = simDayResults[simSelectedDayIdx];
+                          if (!currentDay) return null;
+                          return (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-violet-400">
+                                  <Star className="w-3.5 h-3.5" />
+                                  BTOD Top 3
+                                </div>
+                                {currentDay.btodTop3.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {currentDay.btodTop3.map((entry) => (
+                                      <div key={entry.signalId} className="flex items-center justify-between px-2 py-1.5 rounded bg-violet-500/5 border border-violet-500/10 text-xs">
+                                        <div className="flex items-center gap-2">
+                                          <Badge variant="outline" className="text-[9px] h-4 px-1 bg-violet-500/10 text-violet-400 border-violet-500/20">
+                                            #{entry.rank}
+                                          </Badge>
+                                          <span className="font-mono font-semibold">{entry.ticker}</span>
+                                          <span className="text-muted-foreground">{entry.setupType}</span>
+                                        </div>
+                                        <span className="text-muted-foreground">QS {entry.qualityScore}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-muted-foreground px-2">No eligible BTOD signals</p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
+                                  <Zap className="w-3.5 h-3.5" />
+                                  Active Signals ({currentDay.activeSignals.length})
+                                </div>
+                                {currentDay.activeSignals.length > 0 ? (
+                                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                                    {currentDay.activeSignals.map((sig) => (
+                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono font-semibold">{sig.ticker}</span>
+                                          <span className="text-muted-foreground">{sig.setupType}</span>
+                                          <Badge variant="outline" className="text-[9px] h-4 px-1">
+                                            {sig.direction === "BEARISH" ? "SELL" : "BUY"}
+                                          </Badge>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                          {sig.entryPrice && <span>@${sig.entryPrice.toFixed(2)}</span>}
+                                          <span className="text-[9px]">{sig.tier}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-muted-foreground px-2">No active signals</p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400">
+                                  <Target className="w-3.5 h-3.5" />
+                                  On Deck ({currentDay.onDeckSignals.length})
+                                </div>
+                                {currentDay.onDeckSignals.length > 0 ? (
+                                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                                    {currentDay.onDeckSignals.slice(0, 10).map((sig) => (
+                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono font-semibold">{sig.ticker}</span>
+                                          <span className="text-muted-foreground">{sig.setupType}</span>
+                                          <Badge variant="outline" className="text-[9px] h-4 px-1">
+                                            {sig.direction === "BEARISH" ? "SELL" : "BUY"}
+                                          </Badge>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                          <span>${sig.magnetPrice.toFixed(2)}</span>
+                                          <span className="text-[9px]">{sig.tier}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                    {currentDay.onDeckSignals.length > 10 && (
+                                      <p className="text-[10px] text-muted-foreground px-2">+{currentDay.onDeckSignals.length - 10} more</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-muted-foreground px-2">No pending on-deck signals</p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Today's Events
+                                </div>
+                                <div className="space-y-1 max-h-32 overflow-y-auto">
+                                  {currentDay.activationDetails.map((a, i) => (
+                                    <div key={`act-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        {a.isBtod && <Star className="w-3 h-3 text-violet-400" />}
+                                        <Zap className="w-3 h-3 text-amber-400" />
+                                        <span className="font-mono">{a.ticker}/{a.setupType}</span>
+                                      </div>
+                                      <span className="text-muted-foreground">@${a.entryPrice.toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                  {currentDay.hitDetails.map((h, i) => (
+                                    <div key={`hit-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-emerald-500/5 border border-emerald-500/10 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                        <span className="font-mono">{h.ticker}</span>
+                                      </div>
+                                      <span className="text-muted-foreground">{h.timeToHitMin}min</span>
+                                    </div>
+                                  ))}
+                                  {currentDay.missDetails.map((m, i) => (
+                                    <div key={`miss-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-red-500/5 border border-red-500/10 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <XCircle className="w-3 h-3 text-red-400" />
+                                        <span className="font-mono">{m.ticker}</span>
+                                      </div>
+                                      <span className="text-muted-foreground text-[10px]">{m.reason}</span>
+                                    </div>
+                                  ))}
+                                  {currentDay.activationDetails.length === 0 && currentDay.hitDetails.length === 0 && currentDay.missDetails.length === 0 && (
+                                    <p className="text-[10px] text-muted-foreground px-2">No events today</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
+                  )}
+
                   <div
-                    className="bg-zinc-950 rounded-md border border-zinc-800 p-3 max-h-80 overflow-y-auto font-mono text-xs leading-relaxed"
+                    className="bg-zinc-950 rounded-md border border-zinc-800 p-3 max-h-60 overflow-y-auto font-mono text-xs leading-relaxed"
                     data-testid="simulation-log-panel"
                   >
                     {simLogs.map((entry, i) => (
@@ -821,7 +1085,7 @@ export default function BacktestPage() {
                         <CardTitle className="text-sm">Day-by-Day Timeline</CardTitle>
                       </CardHeader>
                       <CardContent className="p-0">
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto max-h-64 overflow-y-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -835,8 +1099,13 @@ export default function BacktestPage() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {simDayResults.map((day) => (
-                                <TableRow key={day.date} data-testid={`row-sim-day-${day.date}`}>
+                              {simDayResults.map((day, idx) => (
+                                <TableRow
+                                  key={day.date}
+                                  className={`cursor-pointer ${idx === simSelectedDayIdx ? "bg-primary/10" : "hover:bg-muted/50"}`}
+                                  onClick={() => setSimSelectedDayIdx(idx)}
+                                  data-testid={`row-sim-day-${day.date}`}
+                                >
                                   <TableCell className="font-mono text-sm">{day.date}</TableCell>
                                   <TableCell className="text-right font-mono text-sm">
                                     {day.signalsGenerated > 0 ? (

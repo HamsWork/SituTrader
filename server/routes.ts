@@ -38,7 +38,7 @@ import {
   runRegimeAnalysis,
 } from "./lib/reliability";
 import { getBarCacheStats } from "./lib/barCache";
-import { runSimulation, type SimConfig } from "./simulation";
+import { runSimulation, type SimConfig, type SimControlSignal } from "./simulation";
 import type { SetupType, OptionLive } from "@shared/schema";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -832,6 +832,8 @@ export async function registerRoutes(
     }
   });
 
+  let activeSimControl: SimControlSignal | null = null;
+
   app.post("/api/backtest/simulate-stream", async (req, res) => {
     const { tickers, setups, startDate, endDate } = req.body;
     if (!tickers?.length || !setups?.length || !startDate || !endDate) {
@@ -845,13 +847,18 @@ export async function registerRoutes(
       "X-Accel-Buffering": "no",
     });
 
-    const abortSignal = { aborted: false };
+    if (activeSimControl && !activeSimControl.aborted) {
+      activeSimControl.aborted = true;
+    }
+    const controlSignal: SimControlSignal = { aborted: false, paused: false };
+    activeSimControl = controlSignal;
     req.on("close", () => {
-      abortSignal.aborted = true;
+      controlSignal.aborted = true;
+      if (activeSimControl === controlSignal) activeSimControl = null;
     });
 
     const send = (event: string, data: any) => {
-      if (abortSignal.aborted) return;
+      if (controlSignal.aborted) return;
       try {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       } catch {}
@@ -871,13 +878,43 @@ export async function registerRoutes(
         gapThreshold: parseFloat(settings.gapThreshold || "0.30") / 100,
       };
 
-      await runSimulation(config, send, abortSignal);
-      if (!abortSignal.aborted) res.end();
+      await runSimulation(config, send, controlSignal);
+      if (!controlSignal.aborted) res.end();
     } catch (err: any) {
-      if (!abortSignal.aborted) {
+      if (!controlSignal.aborted) {
         send("error", { message: err.message });
         res.end();
       }
+    } finally {
+      if (activeSimControl === controlSignal) activeSimControl = null;
+    }
+  });
+
+  app.post("/api/backtest/simulate-pause", (_req, res) => {
+    if (activeSimControl && !activeSimControl.aborted) {
+      activeSimControl.paused = true;
+      res.json({ ok: true, paused: true });
+    } else {
+      res.status(404).json({ message: "No active simulation" });
+    }
+  });
+
+  app.post("/api/backtest/simulate-resume", (_req, res) => {
+    if (activeSimControl && !activeSimControl.aborted) {
+      activeSimControl.paused = false;
+      res.json({ ok: true, paused: false });
+    } else {
+      res.status(404).json({ message: "No active simulation" });
+    }
+  });
+
+  app.post("/api/backtest/simulate-cancel", (_req, res) => {
+    if (activeSimControl) {
+      activeSimControl.aborted = true;
+      activeSimControl = null;
+      res.json({ ok: true, cancelled: true });
+    } else {
+      res.status(404).json({ message: "No active simulation" });
     }
   });
 
