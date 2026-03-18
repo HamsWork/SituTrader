@@ -301,6 +301,10 @@ export default function BacktestPage() {
                 receivedDone = true;
                 setSimFinalStats(data);
                 setSimLogs((prev) => [...prev, { message: `Simulation complete: ${data.totalDays} days processed`, type: "done", ts: Date.now() }]);
+              } else if (eventType === "cancelled") {
+                setSimRunning(false);
+                setSimPaused(false);
+                setSimLogs((prev) => [...prev, { message: "Simulation cancelled", type: "info", ts: Date.now() }]);
               } else if (eventType === "error") {
                 hadFatalError = true;
                 setSimLogs((prev) => [...prev, { message: `Fatal error: ${data.message}`, type: "error", ts: Date.now() }]);

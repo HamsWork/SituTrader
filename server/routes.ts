@@ -881,14 +881,18 @@ export async function registerRoutes(
       };
 
       await runSimulation(config, send, controlSignal);
-      if (!controlSignal.aborted) res.end();
     } catch (err: any) {
       if (!controlSignal.aborted) {
         send("error", { message: err.message });
-        res.end();
       }
     } finally {
       if (activeSimControl === controlSignal) activeSimControl = null;
+      try {
+        if (controlSignal.aborted) {
+          res.write(`event: cancelled\ndata: ${JSON.stringify({ message: "Simulation cancelled" })}\n\n`);
+        }
+        res.end();
+      } catch {}
     }
   });
 

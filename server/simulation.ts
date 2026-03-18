@@ -122,9 +122,14 @@ export interface SimControlSignal {
   paused: boolean;
 }
 
-async function waitWhilePaused(ctrl: SimControlSignal): Promise<void> {
+async function waitWhilePaused(ctrl: SimControlSignal, emit?: SimEventCallback): Promise<void> {
+  let heartbeatCount = 0;
   while (ctrl.paused && !ctrl.aborted) {
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    heartbeatCount++;
+    if (emit && heartbeatCount % 5 === 0) {
+      emit("heartbeat", { paused: true, elapsed: heartbeatCount });
+    }
   }
 }
 
@@ -214,7 +219,7 @@ export async function runSimulation(
     }
     if (abortSignal?.paused) {
       emit("log", { message: "Simulation paused...", type: "info" });
-      await waitWhilePaused(abortSignal);
+      await waitWhilePaused(abortSignal, emit);
       if (abortSignal?.aborted) break;
       emit("log", { message: "Simulation resumed", type: "info" });
     }
@@ -261,7 +266,7 @@ export async function runSimulation(
     });
     for (const ticker of config.tickers) {
       if (abortSignal?.aborted) break;
-      if (abortSignal?.paused) await waitWhilePaused(abortSignal);
+      if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
       if (abortSignal?.aborted) break;
       try {
         const dailyBars = await getDailyBarsForTicker(ticker, today);
@@ -458,7 +463,7 @@ export async function runSimulation(
 
       for (const ticker of tickersNeeded) {
         if (abortSignal?.aborted) break;
-        if (abortSignal?.paused) await waitWhilePaused(abortSignal);
+        if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
         if (abortSignal?.aborted) break;
         try {
           const intradayPolygon = await fetchIntradayBarsCached(
