@@ -40,7 +40,7 @@ import {
 import { getBarCacheStats } from "./lib/barCache";
 import {
   startSimulation, getSimulationStatus, getSimulationLogsSince,
-  pauseSimulation, resumeSimulation, cancelSimulation, clearSimulation,
+  pauseSimulation, resumeSimulation, cancelSimulation, clearSimulation, setSimulationSpeed,
   isSimulationRunning,
 } from "./jobs/simulationRunner";
 import {
@@ -805,11 +805,12 @@ export async function registerRoutes(
   });
 
   app.post("/api/backtest/simulate-start", async (req, res) => {
-    const { tickers, setups, startDate, endDate } = req.body;
+    const { tickers, setups, startDate, endDate, phaseDelayMs } = req.body;
     if (!tickers?.length || !setups?.length || !startDate || !endDate) {
       return res.status(400).json({ message: "tickers, setups, startDate, endDate required" });
     }
-    const result = await startSimulation(tickers, setups, startDate, endDate);
+    const delay = typeof phaseDelayMs === "number" && Number.isFinite(phaseDelayMs) ? Math.max(0, Math.min(phaseDelayMs, 30000)) : 4000;
+    const result = await startSimulation(tickers, setups, startDate, endDate, delay);
     res.json(result);
   });
 
@@ -848,6 +849,19 @@ export async function registerRoutes(
   app.post("/api/backtest/simulate-cancel", (_req, res) => {
     if (cancelSimulation()) {
       res.json({ ok: true, cancelled: true });
+    } else {
+      res.status(404).json({ message: "No active simulation" });
+    }
+  });
+
+  app.post("/api/backtest/simulate-speed", (req, res) => {
+    const { phaseDelayMs } = req.body;
+    if (typeof phaseDelayMs !== "number" || !Number.isFinite(phaseDelayMs)) {
+      return res.status(400).json({ message: "phaseDelayMs (finite number) required" });
+    }
+    const clamped = Math.max(0, Math.min(phaseDelayMs, 30000));
+    if (setSimulationSpeed(clamped)) {
+      res.json({ ok: true, phaseDelayMs: clamped });
     } else {
       res.status(404).json({ message: "No active simulation" });
     }

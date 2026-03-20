@@ -114,13 +114,13 @@ export function getSimulationLogsSince(fromIndex: number): { logs: Array<{ messa
   };
 }
 
-export async function startSimulation(tickers: string[], setups: string[], startDate: string, endDate: string): Promise<{ ok: boolean; message?: string }> {
+export async function startSimulation(tickers: string[], setups: string[], startDate: string, endDate: string, phaseDelayMs: number = 4000): Promise<{ ok: boolean; message?: string }> {
   if (isSimulationRunning()) {
     activeState!.control.aborted = true;
     await new Promise(r => setTimeout(r, 200));
   }
 
-  const control: SimControlSignal = { aborted: false, paused: false };
+  const control: SimControlSignal = { aborted: false, paused: false, phaseDelayMs };
   if (autoClearTimer) { clearTimeout(autoClearTimer); autoClearTimer = null; }
   const state: SimulationState = {
     control,
@@ -149,6 +149,7 @@ export async function startSimulation(tickers: string[], setups: string[], start
         stopMode: settings.stopMode || "atr",
         atrMultiplier: parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25,
         gapThreshold: parseFloat(settings.gapThreshold || "0.30") / 100,
+        phaseDelayMs,
       };
 
       const emit = emitToState(state);
@@ -184,6 +185,12 @@ export function resumeSimulation(): boolean {
 export function cancelSimulation(): boolean {
   if (!activeState) return false;
   activeState.control.aborted = true;
+  return true;
+}
+
+export function setSimulationSpeed(phaseDelayMs: number): boolean {
+  if (!activeState || activeState.control.aborted) return false;
+  activeState.control.phaseDelayMs = phaseDelayMs;
   return true;
 }
 

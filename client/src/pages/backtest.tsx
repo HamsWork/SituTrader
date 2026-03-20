@@ -234,6 +234,7 @@ export default function BacktestPage() {
   const [simFinalStats, setSimFinalStats] = useState<any | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const [simPaused, setSimPaused] = useState(false);
+  const [simPhaseDelayMs, setSimPhaseDelayMs] = useState(4000);
   const simLogEndRef = useRef<HTMLDivElement>(null);
   const simLogCountRef = useRef(0);
   const simDayCountRef = useRef(0);
@@ -370,7 +371,7 @@ export default function BacktestPage() {
     fetch("/api/backtest/simulate-start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate }),
+      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate, phaseDelayMs: simPhaseDelayMs }),
     }).then((res) => {
       if (!res.ok) {
         toast({ title: "Simulation failed", description: "Failed to start", variant: "destructive" });
@@ -378,7 +379,7 @@ export default function BacktestPage() {
     }).catch((err) => {
       toast({ title: "Simulation failed", description: err.message, variant: "destructive" });
     });
-  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, toast]);
+  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, toast]);
 
   const btRunLogCountRef = useRef(0);
   const btRunWasRunningRef = useRef(false);
@@ -700,6 +701,41 @@ export default function BacktestPage() {
               </div>
 
               <div className="space-y-2">
+                <Label className="text-xs font-medium">Phase Speed</Label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "Instant", ms: 0 },
+                    { label: "Fast", ms: 1000 },
+                    { label: "Normal", ms: 2000 },
+                    { label: "Slow", ms: 4000 },
+                  ].map((preset) => (
+                    <Button
+                      key={preset.ms}
+                      size="sm"
+                      variant={simPhaseDelayMs === preset.ms ? "default" : "outline"}
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setSimPhaseDelayMs(preset.ms);
+                        if (simRunning) {
+                          fetch("/api/backtest/simulate-speed", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ phaseDelayMs: preset.ms }),
+                          });
+                        }
+                      }}
+                      data-testid={`btn-sim-speed-${preset.ms}`}
+                    >
+                      {preset.label} ({preset.ms === 0 ? "0s" : `${preset.ms / 1000}s`})
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Delay between each simulation phase. Changes apply immediately to running simulations.
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-medium">
                     Tickers {selectedTickers.length === 0
@@ -817,7 +853,9 @@ export default function BacktestPage() {
                             {simPaused ? "PAUSED" : simRunning ? "RUNNING" : "DONE"}
                           </Badge>
                           <span className="font-mono font-semibold">{simProgress.day}</span>
-                          <span className="text-muted-foreground">{simProgress.phase}</span>
+                          <span className="text-muted-foreground">
+                            {simProgress.phase === "preload" ? "Loading Data..." : simProgress.phase}
+                          </span>
                         </div>
                         <span className="text-muted-foreground">{simProgress.completed}/{simProgress.total} days</span>
                       </div>

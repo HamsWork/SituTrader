@@ -190,6 +190,7 @@ export interface SimConfig {
   stopMode: string;
   atrMultiplier: number;
   gapThreshold: number;
+  phaseDelayMs: number;
 }
 
 export type SimEventCallback = (
@@ -213,6 +214,7 @@ function iterateTradingDays(start: string, end: string): string[] {
 export interface SimControlSignal {
   aborted: boolean;
   paused: boolean;
+  phaseDelayMs: number;
 }
 
 async function waitWhilePaused(ctrl: SimControlSignal, emit?: SimEventCallback): Promise<void> {
@@ -353,21 +355,118 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
     });
   };
 
-  emit("progress", {
-    completed: dayIdx,
-    total: totalDays,
-    day: today,
-    phase: "pre-open-scan",
-  });
+  const getPhaseDelay = () => abortSignal?.phaseDelayMs ?? 4000;
+
   emit("log", {
     message: `═══ Day ${dayIdx + 1}/${totalDays}: ${today} ═══`,
     type: "info",
   });
 
   // ═══════════════════════════════════════════════════════
+  // STEP 0: PRELOAD DATA
+  // Fetch all data needed for today's phases upfront
+  // ═══════════════════════════════════════════════════════
+  emit("progress", {
+    completed: dayIdx,
+    total: totalDays,
+    day: today,
+    phase: "preload",
+  });
+  emit("log", {
+    message: `  Preloading data for ${today}...`,
+    type: "processing",
+  });
+
+  type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
+  const preloadedIntraday = new Map<string, IBar[]>();
+  const preloadedDaily = new Map<string, DailyBar[]>();
+  const preloadedOptions = new Map<string, Awaited<ReturnType<typeof fetchOptionsChain>>>();
+
+  const pendingForToday = Array.from(allSignals.values()).filter(
+    (s) => s.status === "pending" && s.targetDate === today && s.activationStatus !== "INVALIDATED",
+  );
+  const intradayTickers = Array.from(new Set(pendingForToday.map((s) => s.ticker)));
+
+  for (const ticker of intradayTickers) {
+    if (abortSignal?.aborted) break;
+    if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
+    if (abortSignal?.aborted) break;
+    try {
+      const raw = await fetchIntradayBarsCached(ticker, today, today, config.timeframe);
+      preloadedIntraday.set(ticker, raw.map((b: any) => ({
+        ts: new Date(b.t).toISOString(), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
+      })));
+    } catch (err: any) {
+      emit("log", { message: `  Preload intraday error ${ticker}: ${err.message}`, type: "error" });
+    }
+  }
+
+  const preOpenForPreload = pendingForToday.filter((s) => s.activationStatus === "NOT_ACTIVE");
+  if (preOpenForPreload.length > 0) {
+    const CT = "America/Chicago";
+    const minExpDate = dayjs.tz(today, CT).add(4, "day").format("YYYY-MM-DD");
+    const maxExpDate = dayjs.tz(today, CT).add(45, "day").format("YYYY-MM-DD");
+    const getRight = (bias: "BUY" | "SELL") => (bias === "BUY" ? "call" : "put") as "call" | "put";
+    const seenKeys = new Set<string>();
+
+    for (const sig of preOpenForPreload) {
+      if (abortSignal?.aborted) break;
+      if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
+      if (abortSignal?.aborted) break;
+      const key = `${sig.ticker}|${getRight(sig.tradePlan.bias)}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      try {
+        const chain = await fetchOptionsChain(sig.ticker, getRight(sig.tradePlan.bias), minExpDate, maxExpDate, 250);
+        preloadedOptions.set(key, chain);
+      } catch (err: any) {
+        emit("log", { message: `  Preload options error ${sig.ticker}: ${err.message}`, type: "error" });
+      }
+    }
+  }
+
+  for (let i = 0; i < config.tickers.length; i++) {
+    const ticker = config.tickers[i];
+    if (abortSignal?.aborted) break;
+    if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
+    if (abortSignal?.aborted) break;
+    try {
+      const from200 = getTradingDaysBack(today, 200);
+      const polygon = await fetchDailyBarsCached(ticker, from200, today);
+      const dailyBars: DailyBar[] = polygon.map((b: any) => ({
+        id: 0, ticker, date: formatDate(new Date(b.t)),
+        open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
+        vwap: b.vw ?? null, source: "polygon",
+      }));
+      dailyBars.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      preloadedDaily.set(ticker, dailyBars);
+    } catch (err: any) {
+      emit("log", { message: `  Preload daily error ${ticker}: ${err.message}`, type: "error" });
+    }
+    if ((i + 1) % 50 === 0) {
+      emit("log", { message: `  Preload: ${i + 1}/${config.tickers.length} tickers loaded`, type: "info" });
+    }
+  }
+
+  emit("log", {
+    message: `  Data loaded: ${preloadedIntraday.size} intraday, ${preloadedOptions.size} option chains, ${preloadedDaily.size} daily`,
+    type: "success",
+  });
+
+  if (abortSignal?.aborted) return { result: dayResult, nextSimSignalId, btodExecutedToday, shouldBreak: true };
+  if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
+  if (abortSignal?.aborted) return { result: dayResult, nextSimSignalId, btodExecutedToday, shouldBreak: true };
+
+  // ═══════════════════════════════════════════════════════
   // Phase 1: Pre-Open Scan (like runPreOpenScan)
   // BTOD ranking — select top 3 eligible signals
   // ═══════════════════════════════════════════════════════
+  emit("progress", {
+    completed: dayIdx,
+    total: totalDays,
+    day: today,
+    phase: "pre-open-scan",
+  });
   emit("log", {
     message: `  Phase 1: Pre-open scan (BTOD selection)`,
     type: "processing",
@@ -422,47 +521,19 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
 
   if (preOpenCandidates.length > 0) {
     emit("log", {
-      message: `  Pre-open: Enrich pending signals with options (simulation)`,
+      message: `  Pre-open: Enriching signals with preloaded options data`,
       type: "processing",
     });
 
-    const CT = "America/Chicago";
-    const minExpDate = dayjs.tz(today, CT).add(4, "day").format("YYYY-MM-DD");
-    const maxExpDate = dayjs.tz(today, CT).add(45, "day").format("YYYY-MM-DD");
     const minOI = 500;
-
-    const optionChainCache = new Map<string, Awaited<ReturnType<typeof fetchOptionsChain>>>();
-    const tickersNeeded = Array.from(new Set(preOpenCandidates.map((s) => s.ticker)));
-
     const getRight = (bias: "BUY" | "SELL") => (bias === "BUY" ? "call" : "put") as
       | "call"
       | "put";
 
-    for (const ticker of tickersNeeded) {
-      const tickerSignals = preOpenCandidates.filter((s) => s.ticker === ticker);
-      const rightsNeeded = Array.from(
-        new Set(
-          tickerSignals.map((s) => getRight(s.tradePlan.bias)),
-        ),
-      );
-
-      for (const right of rightsNeeded) {
-        try {
-          const chain = await fetchOptionsChain(ticker, right, minExpDate, maxExpDate, 250);
-          optionChainCache.set(`${ticker}|${right}`, chain);
-        } catch (err: any) {
-          emit("log", {
-            message: `  Pre-open: option chain fetch failed for ${ticker} (${right}): ${err.message}`,
-            type: "error",
-          });
-        }
-      }
-    }
-
     for (const sig of preOpenCandidates) {
       try {
         const right = getRight(sig.tradePlan.bias);
-        const chain = optionChainCache.get(`${sig.ticker}|${right}`) ?? [];
+        const chain = preloadedOptions.get(`${sig.ticker}|${right}`) ?? [];
         if (chain.length === 0) continue;
 
         const current = sig.magnetPrice;
@@ -510,21 +581,7 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
       if (abortSignal?.aborted) break;
 
       try {
-        const intradayPolygon = await fetchIntradayBarsCached(
-          ticker,
-          today,
-          today,
-          config.timeframe,
-        );
-        const intradayBarsAll = intradayPolygon.map((b: any) => ({
-          ts: new Date(b.t).toISOString(),
-          open: b.o,
-          high: b.h,
-          low: b.l,
-          close: b.c,
-          volume: b.v,
-        }));
-
+        const intradayBarsAll = preloadedIntraday.get(ticker) ?? [];
         const intradayBars = intradayBarsAll.filter(
           (b) => Date.parse(b.ts) <= preOpenEndCTMs,
         );
@@ -624,13 +681,19 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
 
   dayResult.phases.push(captureSnapshot("Pre-Open Scan"));
   emitDayUpdate();
-  await new Promise((r) => setTimeout(r, 4000));
+  await new Promise((r) => setTimeout(r, getPhaseDelay()));
   if (abortSignal?.aborted) return { result: dayResult, nextSimSignalId, btodExecutedToday, shouldBreak: true };
 
   // ═══════════════════════════════════════════════════════
   // Phase 2: Live Monitor Tick (like runLiveMonitorTick)
   // Activation scan + magnet touch validation
   // ═══════════════════════════════════════════════════════
+  emit("progress", {
+    completed: dayIdx,
+    total: totalDays,
+    day: today,
+    phase: "live-monitor",
+  });
   emit("log", {
     message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
     type: "processing",
@@ -651,20 +714,7 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
       if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
       if (abortSignal?.aborted) break;
       try {
-        const intradayPolygon = await fetchIntradayBarsCached(
-          ticker,
-          today,
-          today,
-          config.timeframe,
-        );
-        const intradayBars = intradayPolygon.map((b: any) => ({
-          ts: new Date(b.t).toISOString(),
-          open: b.o,
-          high: b.h,
-          low: b.l,
-          close: b.c,
-          volume: b.v,
-        }));
+        const intradayBars = preloadedIntraday.get(ticker) ?? [];
 
         const tickerSignals = todaysPending.filter(
           (s) => s.ticker === ticker,
@@ -807,13 +857,19 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
 
   dayResult.phases.push(captureSnapshot("Live Monitor Tick"));
   emitDayUpdate();
-  await new Promise((r) => setTimeout(r, 4000));
+  await new Promise((r) => setTimeout(r, getPhaseDelay()));
   if (abortSignal?.aborted) return { result: dayResult, nextSimSignalId, btodExecutedToday, shouldBreak: true };
 
   // ═══════════════════════════════════════════════════════
   // Phase 3: After-close Scan (like runAfterCloseScan)
   // Finalize misses for today's signals + detect new setups
   // ═══════════════════════════════════════════════════════
+  emit("progress", {
+    completed: dayIdx,
+    total: totalDays,
+    day: today,
+    phase: "after-close-scan",
+  });
   emit("log", {
     message: `  Phase 3: After-close scan (finalize misses + detect setups)`,
     type: "processing",
@@ -842,26 +898,8 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
     if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
     if (abortSignal?.aborted) break;
     try {
-      const from200 = getTradingDaysBack(today, 200);
-      const polygon = await fetchDailyBarsCached(ticker, from200, today);
-      const dailyBars: DailyBar[] = polygon.map((b: any) => ({
-        id: 0,
-        ticker,
-        date: formatDate(new Date(b.t)),
-        open: b.o,
-        high: b.h,
-        low: b.l,
-        close: b.c,
-        volume: b.v,
-        vwap: b.vw ?? null,
-        source: "polygon",
-      }));
-
-      dailyBars.sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      );
-
-      if (dailyBars.length < 5) continue;
+      const dailyBars = preloadedDaily.get(ticker);
+      if (!dailyBars || dailyBars.length < 5) continue;
 
       const recentBars = dailyBars.slice(-30);
       const setups = detectAllSetups(
@@ -1005,12 +1043,18 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
 
   dayResult.phases.push(captureSnapshot("After-Close Scan"));
   emitDayUpdate();
-  await new Promise((r) => setTimeout(r, 4000));
+  await new Promise((r) => setTimeout(r, getPhaseDelay()));
   if (abortSignal?.aborted) return { result: dayResult, nextSimSignalId, btodExecutedToday, shouldBreak: true };
 
   // ═══════════════════════════════════════════════════════
   // Phase 4: End of Day — final summary
   // ═══════════════════════════════════════════════════════
+  emit("progress", {
+    completed: dayIdx,
+    total: totalDays,
+    day: today,
+    phase: "end-of-day",
+  });
   let totalPending = 0,
     totalActive = 0,
     totalHit = 0,
