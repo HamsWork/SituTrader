@@ -1,4 +1,12 @@
-import { fetchDailyBarsCached, fetchIntradayBarsCached } from "./lib/polygon";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import {
+  fetchDailyBarsCached,
+  fetchIntradayBarsCached,
+  fetchOptionsChain,
+  fetchOptionMarkAtTime,
+} from "./lib/polygon";
 import {
   formatDate,
   getTradingDaysBack,
@@ -19,9 +27,12 @@ import {
   computeAvgDollarVolume,
 } from "./lib/quality";
 import { generateTradePlan } from "./lib/tradeplan";
-import { rankOnDeckSignals } from "./lib/btod";
+import { getBtodRankedQueueAndTop3Ids } from "./lib/btod";
 import { storage } from "./storage";
 import type { DailyBar, TradePlan, SetupType } from "@shared/schema";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 export interface SimSignal {
   id: number;
@@ -45,6 +56,9 @@ export interface SimSignal {
   stopPrice: number | null;
   mae: number | null;
   mfe: number | null;
+  // Pre-open enrichment / activation tracking (best-effort for simulation)
+  optionContractTicker?: string | null;
+  optionEntryMark?: number | null;
 }
 
 export interface RankedSimEntry {
@@ -286,7 +300,7 @@ export async function runSimulation(
       phases: [],
     };
 
-    function captureSnapshot(label: string): SimPhaseSnapshot {
+    const captureSnapshot = (label: string): SimPhaseSnapshot => {
       const onDeck = Array.from(allSignals.values())
         .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
         .map((s) => ({
@@ -301,7 +315,7 @@ export async function runSimulation(
           entryPrice: s.entryPrice, activatedTs: s.activatedTs,
         }));
       let p = 0, a = 0, h = 0, m = 0;
-      for (const sig of allSignals.values()) {
+      for (const sig of Array.from(allSignals.values())) {
         if (sig.status === "pending") p++;
         if (sig.activationStatus === "ACTIVE" && sig.status !== "hit") a++;
         if (sig.status === "hit") h++;
@@ -320,9 +334,9 @@ export async function runSimulation(
         onDeckSignals: onDeck,
         activeSignals: active,
       };
-    }
+    };
 
-    function emitDayUpdate() {
+    const emitDayUpdate = () => {
       const onDeck = Array.from(allSignals.values())
         .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
         .map((s) => ({
@@ -360,7 +374,7 @@ export async function runSimulation(
         })),
         phases: dayResult.phases,
       });
-    }
+    };
 
     emit("progress", {
       completed: dayIdx,
@@ -374,28 +388,481 @@ export async function runSimulation(
     });
 
     // ═══════════════════════════════════════════════════════
-    // Phase 1: After-Close Scan (like runAfterCloseScan)
-    // Expire old signals, detect new setups from daily bars
+    // Phase 1: Pre-Open Scan (like runPreOpenScan)
+    // BTOD ranking — select top 3 eligible signals
     // ═══════════════════════════════════════════════════════
     emit("log", {
-      message: `  Phase 1: After-close scan (detect setups, expire signals)`,
+      message: `  Phase 1: Pre-open scan (BTOD selection)`,
       type: "processing",
     });
 
-    for (const id of Array.from(allSignals.keys())) {
-      const sig = allSignals.get(id)!;
-      if (sig.status === "pending" && sig.targetDate < today) {
-        sig.status = "miss";
-        sig.missReason = "Target date expired";
-        dayResult.misses.push({
-          signalId: id,
-          ticker: sig.ticker,
-          reason: "Target date expired",
-        });
+    const pendingForBtod = Array.from(allSignals.values()).filter(
+      (s) =>
+        s.status === "pending" &&
+        s.activationStatus === "NOT_ACTIVE" &&
+        s.targetDate === today,
+    );
+
+    const { rankedQueue } = getBtodRankedQueueAndTop3Ids(pendingForBtod);
+    const top3: RankedSimEntry[] = rankedQueue.slice(0, 3).map((r) => ({
+      signalId: r.signalId,
+      ticker: r.ticker,
+      setupType: r.setupType,
+      qualityScore: r.qualityScore,
+      rank: r.rank,
+    }));
+    dayResult.btodTop3 = top3;
+    const btodSignalIds = new Set(top3.map((r) => r.signalId));
+
+    dayResult.btodStatus = {
+      phase: top3.length > 0 ? "SELECTIVE" : "CLOSED",
+      gateOpen: top3.length > 0,
+      executedSignalId: null,
+      executedTicker: null,
+      top3Ids: top3.map((r) => r.signalId),
+      eligibleCount: pendingForBtod.length,
+    };
+
+    if (top3.length > 0) {
+      emit("log", {
+        message: `  BTOD Top ${top3.length}: ${top3.map((r) => `#${r.rank} ${r.ticker}/${r.setupType} QS=${r.qualityScore}`).join(" | ")}`,
+        type: "success",
+      });
+    } else {
+      emit("log", {
+        message: `  BTOD: No eligible signals (need A/B/C with QS≥62)`,
+        type: "info",
+      });
+    }
+
+    // ===== Pre-open enrichment + activation scan (like runPreOpenScan) =====
+    // Note: simulation keeps signals in-memory, so this is a best-effort
+    // replica of enrichment + activation decisions (not DB writes).
+    const preOpenCandidates = Array.from(allSignals.values()).filter(
+      (s) =>
+        s.status === "pending" &&
+        s.activationStatus === "NOT_ACTIVE" &&
+        s.targetDate === today,
+    );
+
+    if (preOpenCandidates.length > 0) {
+      emit("log", {
+        message: `  Pre-open: Enrich pending signals with options (simulation)`,
+        type: "processing",
+      });
+
+      const CT = "America/Chicago";
+      const minExpDate = dayjs.tz(today, CT).add(4, "day").format("YYYY-MM-DD");
+      const maxExpDate = dayjs.tz(today, CT).add(45, "day").format("YYYY-MM-DD");
+      const minOI = 500;
+
+      // Fetch option chains once per (ticker,right) for performance.
+      const optionChainCache = new Map<string, Awaited<ReturnType<typeof fetchOptionsChain>>>();
+      const tickersNeeded = Array.from(new Set(preOpenCandidates.map((s) => s.ticker)));
+
+      const getRight = (bias: "BUY" | "SELL") => (bias === "BUY" ? "call" : "put") as
+        | "call"
+        | "put";
+
+      for (const ticker of tickersNeeded) {
+        const tickerSignals = preOpenCandidates.filter((s) => s.ticker === ticker);
+        const rightsNeeded = Array.from(
+          new Set(
+            tickerSignals.map((s) => getRight(s.tradePlan.bias)),
+          ),
+        );
+
+        for (const right of rightsNeeded) {
+          try {
+            const chain = await fetchOptionsChain(ticker, right, minExpDate, maxExpDate, 250);
+            optionChainCache.set(`${ticker}|${right}`, chain);
+          } catch (err: any) {
+            emit("log", {
+              message: `  Pre-open: option chain fetch failed for ${ticker} (${right}): ${err.message}`,
+              type: "error",
+            });
+          }
+        }
+      }
+
+      for (const sig of preOpenCandidates) {
+        try {
+          const right = getRight(sig.tradePlan.bias);
+          const chain = optionChainCache.get(`${sig.ticker}|${right}`) ?? [];
+          if (chain.length === 0) continue;
+
+          const current = sig.magnetPrice;
+          if (!current || current <= 0) continue;
+
+          const nearATM = chain.filter(
+            (c) => Math.abs(c.strike_price - current) / current < 0.03,
+          );
+          const pool = nearATM.length > 0 ? nearATM : chain;
+
+          const oiQualified = pool.filter((c) => (c.open_interest ?? 0) >= minOI);
+          const oiPool = oiQualified.length > 0 ? oiQualified : pool;
+
+          oiPool.sort((a, b) => {
+            const dA = Math.abs(a.strike_price - current);
+            const dB = Math.abs(b.strike_price - current);
+            if (dA !== dB) return dA - dB;
+            const oiA = a.open_interest ?? 0;
+            const oiB = b.open_interest ?? 0;
+            return oiB - oiA;
+          });
+
+          sig.optionContractTicker = oiPool[0]?.ticker ?? null;
+        } catch (err: any) {
+          emit("log", {
+            message: `  Pre-open: options enrich failed for ${sig.ticker}/${sig.setupType}: ${err.message}`,
+            type: "error",
+          });
+        }
+      }
+
+      emit("log", {
+        message: `  Pre-open: Run activation scan (simulation)`,
+        type: "processing",
+      });
+
+      const preOpenEndCTMs = dayjs
+        .tz(`${today} 08:30:00`, CT)
+        .valueOf();
+
+      const preOpenTickers = Array.from(new Set(preOpenCandidates.map((s) => s.ticker)));
+      for (const ticker of preOpenTickers) {
+        if (abortSignal?.aborted) break;
+        if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
+        if (abortSignal?.aborted) break;
+
+        try {
+          const intradayPolygon = await fetchIntradayBarsCached(
+            ticker,
+            today,
+            today,
+            config.timeframe,
+          );
+          const intradayBarsAll = intradayPolygon.map((b: any) => ({
+            ts: new Date(b.t).toISOString(),
+            open: b.o,
+            high: b.h,
+            low: b.l,
+            close: b.c,
+            volume: b.v,
+          }));
+
+          const intradayBars = intradayBarsAll.filter(
+            (b) => Date.parse(b.ts) <= preOpenEndCTMs,
+          );
+
+          const tickerSignals = preOpenCandidates.filter((s) => s.ticker === ticker);
+
+          for (const sig of tickerSignals) {
+            if (sig.activationStatus !== "NOT_ACTIVE") continue;
+
+            const triggerResult = checkEntryTrigger(
+              intradayBars,
+              sig.tradePlan,
+              config.entryMode,
+            );
+
+            if (!triggerResult.triggered) {
+              if (triggerResult.invalidated) {
+                sig.activationStatus = "INVALIDATED";
+                sig.status = "miss";
+                sig.missReason = "Entry trigger invalidated (pre-open)";
+                dayResult.misses.push({
+                  signalId: sig.id,
+                  ticker: sig.ticker,
+                  reason: "Entry trigger invalidated",
+                });
+              }
+              continue;
+            }
+
+            const isBtodCandidate = btodSignalIds.has(sig.id);
+
+            // In the real system activation happens regardless of BTOD execution;
+            // the BTOD gate only affects TradeSync/alerts.
+            sig.activationStatus = "ACTIVE";
+            sig.activatedTs = triggerResult.triggerTs ?? null;
+            sig.entryPrice = triggerResult.entryPrice ?? null;
+
+            if (sig.optionContractTicker && triggerResult.triggerTs) {
+              const triggerMs = new Date(triggerResult.triggerTs).getTime();
+              sig.optionEntryMark = await fetchOptionMarkAtTime(sig.optionContractTicker, triggerMs);
+            }
+
+            if (isBtodCandidate && !btodExecutedToday) {
+              btodExecutedToday = true;
+              dayResult.activations.push({
+                signalId: sig.id,
+                ticker: sig.ticker,
+                setupType: sig.setupType,
+                triggerTs: triggerResult.triggerTs ?? today,
+                entryPrice: triggerResult.entryPrice ?? 0,
+                isBtod: true,
+              });
+
+              dayResult.btodStatus.phase = "CLOSED";
+              dayResult.btodStatus.gateOpen = false;
+              dayResult.btodStatus.executedSignalId = sig.id;
+              dayResult.btodStatus.executedTicker = sig.ticker;
+
+              const instruments: string[] = ["Shares"];
+              if (sig.tradePlan.stopDistance) instruments.push("Options");
+              instruments.push("LETF", "LETF Options");
+
+              dayResult.tradeSyncCalls.push({
+                signalId: sig.id,
+                ticker: sig.ticker,
+                setupType: sig.setupType,
+                direction: sig.direction,
+                entryPrice: triggerResult.entryPrice ?? 0,
+                stopPrice: sig.stopPrice,
+                targetPrice: sig.magnetPrice,
+                instruments,
+                status: "SIMULATED",
+                triggerTs: triggerResult.triggerTs ?? today,
+              });
+
+              emit("log", {
+                message: `  ★ BTOD PRE-OPEN ACTIVATION: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${top3.find((r) => r.signalId === sig.id)?.rank})`,
+                type: "success",
+              });
+            } else {
+              dayResult.activations.push({
+                signalId: sig.id,
+                ticker: sig.ticker,
+                setupType: sig.setupType,
+                triggerTs: triggerResult.triggerTs ?? today,
+                entryPrice: triggerResult.entryPrice ?? 0,
+                isBtod: false,
+              });
+            }
+          }
+        } catch (err: any) {
+          emit("log", {
+            message: `  Pre-open activation scan error ${ticker}: ${err.message}`,
+            type: "error",
+          });
+        }
       }
     }
 
-    const existingSignalKeys = new Set<string>(
+    dayResult.phases.push(captureSnapshot("Pre-Open Scan"));
+    emitDayUpdate();
+    await new Promise((r) => setTimeout(r, 4000));
+    if (abortSignal?.aborted) break;
+
+    // ═══════════════════════════════════════════════════════
+    // Phase 2: Live Monitor Tick (like runLiveMonitorTick)
+    // Activation scan + magnet touch validation
+    // ═══════════════════════════════════════════════════════
+    emit("log", {
+      message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
+      type: "processing",
+    });
+
+    const todaysPending = Array.from(allSignals.values()).filter(
+      (s) =>
+        s.status === "pending" &&
+        s.targetDate === today &&
+        s.activationStatus !== "INVALIDATED",
+    );
+
+    if (todaysPending.length > 0) {
+      const tickersNeeded = Array.from(new Set(todaysPending.map((s) => s.ticker)));
+
+      for (const ticker of tickersNeeded) {
+        if (abortSignal?.aborted) break;
+        if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
+        if (abortSignal?.aborted) break;
+        try {
+          const intradayPolygon = await fetchIntradayBarsCached(
+            ticker,
+            today,
+            today,
+            config.timeframe,
+          );
+          const intradayBars = intradayPolygon.map((b: any) => ({
+            ts: new Date(b.t).toISOString(),
+            open: b.o,
+            high: b.h,
+            low: b.l,
+            close: b.c,
+            volume: b.v,
+          }));
+
+          const tickerSignals = todaysPending.filter(
+            (s) => s.ticker === ticker,
+          );
+
+          for (const sig of tickerSignals) {
+            const isBtodCandidate = btodSignalIds.has(sig.id);
+
+            // Only attempt entry-trigger activation for NOT_ACTIVE signals.
+            // Signals already activated in pre-open should still be magnet-tested.
+            if (sig.activationStatus === "NOT_ACTIVE") {
+              const triggerResult = checkEntryTrigger(
+                intradayBars,
+                sig.tradePlan,
+                config.entryMode,
+              );
+
+              if (triggerResult.triggered) {
+                sig.activationStatus = "ACTIVE";
+                sig.activatedTs = triggerResult.triggerTs ?? null;
+                sig.entryPrice = triggerResult.entryPrice ?? null;
+
+                if (isBtodCandidate && !btodExecutedToday) {
+                  btodExecutedToday = true;
+
+                  dayResult.activations.push({
+                    signalId: sig.id,
+                    ticker: sig.ticker,
+                    setupType: sig.setupType,
+                    triggerTs: triggerResult.triggerTs ?? today,
+                    entryPrice: triggerResult.entryPrice ?? 0,
+                    isBtod: true,
+                  });
+
+                  dayResult.btodStatus.phase = "CLOSED";
+                  dayResult.btodStatus.gateOpen = false;
+                  dayResult.btodStatus.executedSignalId = sig.id;
+                  dayResult.btodStatus.executedTicker = sig.ticker;
+
+                  const instruments: string[] = ["Shares"];
+                  if (sig.tradePlan.stopDistance) instruments.push("Options");
+                  instruments.push("LETF", "LETF Options");
+
+                  dayResult.tradeSyncCalls.push({
+                    signalId: sig.id,
+                    ticker: sig.ticker,
+                    setupType: sig.setupType,
+                    direction: sig.direction,
+                    entryPrice: triggerResult.entryPrice ?? 0,
+                    stopPrice: sig.stopPrice,
+                    targetPrice: sig.magnetPrice,
+                    instruments,
+                    status: "SIMULATED",
+                    triggerTs: triggerResult.triggerTs ?? today,
+                  });
+
+                  emit("log", {
+                    message: `  ★ BTOD ACTIVATION: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${top3.find((r) => r.signalId === sig.id)?.rank})`,
+                    type: "success",
+                  });
+                  emit("log", {
+                    message: `  📡 TradeSync (sim): Would send ${instruments.join(", ")} for ${sig.ticker} ${sig.direction} @$${(triggerResult.entryPrice ?? 0).toFixed(2)} → target $${sig.magnetPrice.toFixed(2)}`,
+                    type: "info",
+                  });
+                } else {
+                  dayResult.activations.push({
+                    signalId: sig.id,
+                    ticker: sig.ticker,
+                    setupType: sig.setupType,
+                    triggerTs: triggerResult.triggerTs ?? today,
+                    entryPrice: triggerResult.entryPrice ?? 0,
+                    isBtod: false,
+                  });
+
+                  emit("log", {
+                    message: `  → Activated: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)}${isBtodCandidate && btodExecutedToday ? " (BTOD gate closed)" : ""}`,
+                    type: "success",
+                  });
+                }
+              } else if (triggerResult.invalidated) {
+                sig.activationStatus = "INVALIDATED";
+                sig.status = "miss";
+                sig.missReason = "Entry trigger invalidated";
+                dayResult.misses.push({
+                  signalId: sig.id,
+                  ticker: sig.ticker,
+                  reason: "Entry trigger invalidated",
+                });
+                continue;
+              }
+            }
+
+            const touchResult = validateMagnetTouch(
+              intradayBars.map((b) => ({
+                ts: b.ts,
+                high: b.high,
+                low: b.low,
+              })),
+              sig.magnetPrice,
+              sig.direction,
+            );
+
+            if (touchResult.hit) {
+              sig.status = "hit";
+              sig.hitTs = touchResult.hitTs ?? null;
+              sig.timeToHitMin = touchResult.timeToHitMin ?? null;
+              dayResult.hits.push({
+                signalId: sig.id,
+                ticker: sig.ticker,
+                hitTs: touchResult.hitTs ?? today,
+                timeToHitMin: touchResult.timeToHitMin ?? 0,
+              });
+              emit("log", {
+                message: `  ✓ HIT: ${sig.ticker}/${sig.setupType} magnet $${sig.magnetPrice.toFixed(2)} touched at ${touchResult.timeToHitMin}min`,
+                type: "success",
+              });
+            }
+
+            if (sig.entryPrice && intradayBars.length > 0) {
+              const maeMfe = computeMAEMFE(
+                intradayBars as any,
+                sig.entryPrice,
+                sig.direction,
+              );
+              sig.mae = maeMfe.mae;
+              sig.mfe = maeMfe.mfe;
+            }
+          }
+        } catch (err: any) {
+          emit("log", {
+            message: `  Intraday error ${ticker}: ${err.message}`,
+            type: "error",
+          });
+        }
+      }
+    } else {
+      emit("log", {
+        message: `  No signals targeting ${today}`,
+        type: "info",
+      });
+    }
+
+    dayResult.phases.push(captureSnapshot("Live Monitor Tick"));
+    emitDayUpdate();
+    await new Promise((r) => setTimeout(r, 4000));
+    if (abortSignal?.aborted) break;
+
+    // ═══════════════════════════════════════════════════════
+    // Phase 3: After-close Scan (like runAfterCloseScan)
+    // Finalize misses for today's signals + detect new setups
+    // ═══════════════════════════════════════════════════════
+    emit("log", {
+      message: `  Phase 3: After-close scan (finalize misses + detect setups)`,
+      type: "processing",
+    });
+
+    // Finalize: any signal targeting `today` that never hit during the live tick is a miss.
+    for (const sig of Array.from(allSignals.values())) {
+      if (sig.status !== "pending") continue;
+      if (sig.targetDate !== today) continue;
+      sig.status = "miss";
+      sig.missReason = "Magnet not touched during RTH";
+      dayResult.misses.push({
+        signalId: sig.id,
+        ticker: sig.ticker,
+        reason: sig.missReason,
+      });
+    }
+
+    const afterCloseExistingSignalKeys = new Set<string>(
       Array.from(allSignals.values()).map(
         (s) => `${s.ticker}|${s.setupType}|${s.asofDate}|${s.targetDate}`,
       ),
@@ -434,6 +901,7 @@ export async function runSimulation(
           config.gapThreshold,
         );
 
+        // After-close setups should target future days (strictly > today)
         const relevantSetups = setups.filter((s) => s.targetDate > today);
         if (relevantSetups.length === 0) continue;
 
@@ -452,8 +920,8 @@ export async function runSimulation(
 
         for (const setup of relevantSetups) {
           const key = `${ticker}|${setup.setupType}|${setup.asofDate}|${setup.targetDate}`;
-          if (existingSignalKeys.has(key)) continue;
-          existingSignalKeys.add(key);
+          if (afterCloseExistingSignalKeys.has(key)) continue;
+          afterCloseExistingSignalKeys.add(key);
 
           const triggerDayBar = recentBars.find(
             (b) => b.date === setup.asofDate,
@@ -474,8 +942,14 @@ export async function runSimulation(
             atr,
           );
 
-          const historicalHitRate = await storage.getHitRateForTickerSetup(ticker, setup.setupType);
-          const tthStats = await storage.getTimeToHitStats(ticker, setup.setupType);
+          const historicalHitRate = await storage.getHitRateForTickerSetup(
+            ticker,
+            setup.setupType,
+          );
+          const tthStats = await storage.getTimeToHitStats(
+            ticker,
+            setup.setupType,
+          );
 
           const qualityResult = computeQualityScore({
             setupType: setup.setupType as SetupType,
@@ -562,248 +1036,6 @@ export async function runSimulation(
     }
 
     dayResult.phases.push(captureSnapshot("After-Close Scan"));
-    emitDayUpdate();
-    await new Promise((r) => setTimeout(r, 4000));
-    if (abortSignal?.aborted) break;
-
-    // ═══════════════════════════════════════════════════════
-    // Phase 2: Pre-Open Scan (like runPreOpenScan)
-    // BTOD ranking — select top 3 eligible signals
-    // ═══════════════════════════════════════════════════════
-    emit("log", {
-      message: `  Phase 2: Pre-open scan (BTOD selection)`,
-      type: "processing",
-    });
-
-    const pendingForBtod = Array.from(allSignals.values()).filter(
-      (s) =>
-        s.status === "pending" &&
-        s.activationStatus === "NOT_ACTIVE" &&
-        s.targetDate === today,
-    );
-
-    const ranked = rankOnDeckSignals(pendingForBtod as any);
-    const top3: RankedSimEntry[] = ranked.slice(0, 3).map((r) => ({
-      signalId: r.signalId,
-      ticker: r.ticker,
-      setupType: r.setupType,
-      qualityScore: r.qualityScore,
-      rank: r.rank,
-    }));
-    dayResult.btodTop3 = top3;
-    const btodSignalIds = new Set(top3.map((r) => r.signalId));
-
-    dayResult.btodStatus = {
-      phase: top3.length > 0 ? "SELECTIVE" : "CLOSED",
-      gateOpen: top3.length > 0,
-      executedSignalId: null,
-      executedTicker: null,
-      top3Ids: top3.map((r) => r.signalId),
-      eligibleCount: pendingForBtod.length,
-    };
-
-    if (top3.length > 0) {
-      emit("log", {
-        message: `  BTOD Top ${top3.length}: ${top3.map((r) => `#${r.rank} ${r.ticker}/${r.setupType} QS=${r.qualityScore}`).join(" | ")}`,
-        type: "success",
-      });
-    } else {
-      emit("log", {
-        message: `  BTOD: No eligible signals (need A/B/C with QS≥62)`,
-        type: "info",
-      });
-    }
-
-    dayResult.phases.push(captureSnapshot("Pre-Open Scan"));
-    emitDayUpdate();
-    await new Promise((r) => setTimeout(r, 4000));
-    if (abortSignal?.aborted) break;
-
-    // ═══════════════════════════════════════════════════════
-    // Phase 3: Live Monitor Tick (like runLiveMonitorTick)
-    // Activation scan + magnet touch validation
-    // ═══════════════════════════════════════════════════════
-    emit("log", {
-      message: `  Phase 3: Live monitor tick (activation + magnet touch)`,
-      type: "processing",
-    });
-
-    const todaysPending = Array.from(allSignals.values()).filter(
-      (s) =>
-        s.status === "pending" &&
-        s.targetDate === today &&
-        s.activationStatus !== "INVALIDATED",
-    );
-
-    if (todaysPending.length > 0) {
-      const tickersNeeded = Array.from(new Set(todaysPending.map((s) => s.ticker)));
-
-      for (const ticker of tickersNeeded) {
-        if (abortSignal?.aborted) break;
-        if (abortSignal?.paused) await waitWhilePaused(abortSignal, emit);
-        if (abortSignal?.aborted) break;
-        try {
-          const intradayPolygon = await fetchIntradayBarsCached(
-            ticker,
-            today,
-            today,
-            config.timeframe,
-          );
-          const intradayBars = intradayPolygon.map((b: any) => ({
-            ts: new Date(b.t).toISOString(),
-            open: b.o,
-            high: b.h,
-            low: b.l,
-            close: b.c,
-            volume: b.v,
-          }));
-
-          const tickerSignals = todaysPending.filter(
-            (s) => s.ticker === ticker,
-          );
-
-          for (const sig of tickerSignals) {
-            const isBtodCandidate = btodSignalIds.has(sig.id);
-
-            const triggerResult = checkEntryTrigger(
-              intradayBars,
-              sig.tradePlan,
-              config.entryMode,
-            );
-
-            if (triggerResult.triggered) {
-              if (isBtodCandidate && !btodExecutedToday) {
-                sig.activationStatus = "ACTIVE";
-                sig.activatedTs = triggerResult.triggerTs ?? null;
-                sig.entryPrice = triggerResult.entryPrice ?? null;
-                btodExecutedToday = true;
-
-                dayResult.activations.push({
-                  signalId: sig.id,
-                  ticker: sig.ticker,
-                  setupType: sig.setupType,
-                  triggerTs: triggerResult.triggerTs ?? today,
-                  entryPrice: triggerResult.entryPrice ?? 0,
-                  isBtod: true,
-                });
-
-                dayResult.btodStatus.phase = "CLOSED";
-                dayResult.btodStatus.gateOpen = false;
-                dayResult.btodStatus.executedSignalId = sig.id;
-                dayResult.btodStatus.executedTicker = sig.ticker;
-
-                const instruments: string[] = ["Shares"];
-                if (sig.tradePlan.stopDistance) instruments.push("Options");
-                instruments.push("LETF", "LETF Options");
-
-                dayResult.tradeSyncCalls.push({
-                  signalId: sig.id,
-                  ticker: sig.ticker,
-                  setupType: sig.setupType,
-                  direction: sig.direction,
-                  entryPrice: triggerResult.entryPrice ?? 0,
-                  stopPrice: sig.stopPrice,
-                  targetPrice: sig.magnetPrice,
-                  instruments,
-                  status: "SIMULATED",
-                  triggerTs: triggerResult.triggerTs ?? today,
-                });
-
-                emit("log", {
-                  message: `  ★ BTOD ACTIVATION: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${top3.find((r) => r.signalId === sig.id)?.rank})`,
-                  type: "success",
-                });
-                emit("log", {
-                  message: `  📡 TradeSync (sim): Would send ${instruments.join(", ")} for ${sig.ticker} ${sig.direction} @$${(triggerResult.entryPrice ?? 0).toFixed(2)} → target $${sig.magnetPrice.toFixed(2)}`,
-                  type: "info",
-                });
-              } else if (isBtodCandidate && btodExecutedToday) {
-                emit("log", {
-                  message: `  ○ BTOD gate closed: ${sig.ticker}/${sig.setupType} triggered but BTOD already executed today`,
-                  type: "info",
-                });
-              } else {
-                sig.activationStatus = "ACTIVE";
-                sig.activatedTs = triggerResult.triggerTs ?? null;
-                sig.entryPrice = triggerResult.entryPrice ?? null;
-
-                dayResult.activations.push({
-                  signalId: sig.id,
-                  ticker: sig.ticker,
-                  setupType: sig.setupType,
-                  triggerTs: triggerResult.triggerTs ?? today,
-                  entryPrice: triggerResult.entryPrice ?? 0,
-                  isBtod: false,
-                });
-
-                emit("log", {
-                  message: `  → Activated: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)}`,
-                  type: "success",
-                });
-              }
-            } else if (triggerResult.invalidated) {
-              sig.activationStatus = "INVALIDATED";
-              sig.status = "miss";
-              sig.missReason = "Entry trigger invalidated";
-              dayResult.misses.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                reason: "Entry trigger invalidated",
-              });
-              continue;
-            }
-
-            const touchResult = validateMagnetTouch(
-              intradayBars.map((b) => ({
-                ts: b.ts,
-                high: b.high,
-                low: b.low,
-              })),
-              sig.magnetPrice,
-              sig.direction,
-            );
-
-            if (touchResult.hit) {
-              sig.status = "hit";
-              sig.hitTs = touchResult.hitTs ?? null;
-              sig.timeToHitMin = touchResult.timeToHitMin ?? null;
-              dayResult.hits.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                hitTs: touchResult.hitTs ?? today,
-                timeToHitMin: touchResult.timeToHitMin ?? 0,
-              });
-              emit("log", {
-                message: `  ✓ HIT: ${sig.ticker}/${sig.setupType} magnet $${sig.magnetPrice.toFixed(2)} touched at ${touchResult.timeToHitMin}min`,
-                type: "success",
-              });
-            }
-
-            if (sig.entryPrice && intradayBars.length > 0) {
-              const maeMfe = computeMAEMFE(
-                intradayBars as any,
-                sig.entryPrice,
-                sig.direction,
-              );
-              sig.mae = maeMfe.mae;
-              sig.mfe = maeMfe.mfe;
-            }
-          }
-        } catch (err: any) {
-          emit("log", {
-            message: `  Intraday error ${ticker}: ${err.message}`,
-            type: "error",
-          });
-        }
-      }
-    } else {
-      emit("log", {
-        message: `  No signals targeting ${today}`,
-        type: "info",
-      });
-    }
-
-    dayResult.phases.push(captureSnapshot("Live Monitor Tick"));
     emitDayUpdate();
     await new Promise((r) => setTimeout(r, 4000));
     if (abortSignal?.aborted) break;

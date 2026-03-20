@@ -24,6 +24,15 @@ export interface BtodDecision {
   rank?: number;
 }
 
+export type RankableSignalLike = {
+  id: number;
+  ticker: string;
+  setupType: string;
+  qualityScore?: number | null;
+  status?: string;
+  activationStatus?: string;
+};
+
 function nowET() {
   return dayjs().tz(ET);
 }
@@ -39,7 +48,9 @@ function minutesSinceMidnightET(): number {
 
 const SELECTIVE_END_MINUTES = 11 * 60;
 
-export function rankOnDeckSignals(signals: Signal[]): RankedSignalEntry[] {
+export function rankOnDeckSignals(
+  signals: RankableSignalLike[],
+): RankedSignalEntry[] {
   const eligible = signals.filter(
     (s) =>
       s.status === "pending" &&
@@ -66,6 +77,14 @@ export function rankOnDeckSignals(signals: Signal[]): RankedSignalEntry[] {
   }));
 }
 
+export function getBtodRankedQueueAndTop3Ids(
+  signals: RankableSignalLike[],
+): { rankedQueue: RankedSignalEntry[]; top3Ids: number[] } {
+  const rankedQueue = rankOnDeckSignals(signals);
+  const top3Ids = rankedQueue.slice(0, 3).map((r) => r.signalId);
+  return { rankedQueue, top3Ids };
+}
+
 export async function initializeBtodForDay(date?: string): Promise<BtodState> {
   const tradeDate = date || todayET();
 
@@ -76,9 +95,15 @@ export async function initializeBtodForDay(date?: string): Promise<BtodState> {
   }
 
   const allSignals = await storage.getSignals(undefined, 5000);
-  const ranked = rankOnDeckSignals(allSignals);
-
-  const top3Ids = ranked.slice(0, 3).map((r) => r.signalId);
+  const eligibleForBtod = allSignals.filter(
+    (s) =>
+      s.status === "pending" &&
+      s.activationStatus === "NOT_ACTIVE" &&
+      s.targetDate === tradeDate,
+  );
+  const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
+    eligibleForBtod as unknown as RankableSignalLike[],
+  );
 
   const state = await storage.upsertBtodState({
     tradeDate,
