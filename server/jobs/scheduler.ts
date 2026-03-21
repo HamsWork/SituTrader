@@ -52,12 +52,12 @@ function computeNextAfterCloseTs(): string {
 function computeNextPreOpenTs(): string {
   let d = todayCT();
   const now = nowCT();
-  const preOpenMinutes = 8 * 60 + 20;
+  const preOpenMinutes = 8 * 60 + 35;
   const nowMin = now.hour() * 60 + now.minute();
   if (!isTradingDay(d) || nowMin >= preOpenMinutes) {
     d = nextTradingDay(d);
   }
-  return dayjs.tz(`${d} 08:20:00`, CT).toISOString();
+  return dayjs.tz(`${d} 08:35:00`, CT).toISOString();
 }
 
 async function persistNextTimes() {
@@ -106,7 +106,7 @@ export async function initScheduler() {
     }
   }, { timezone: CT });
 
-  preOpenJob = cron.schedule("20 8 * * 1-5", async () => {
+  preOpenJob = cron.schedule("35 8 * * 1-5", async () => {
     try {
       const st = await storage.getSchedulerState();
       if (!st.authorModeEnabled) {
