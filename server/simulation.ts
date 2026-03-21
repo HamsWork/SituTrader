@@ -356,6 +356,7 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
   };
 
   const getPhaseDelay = () => abortSignal?.phaseDelayMs ?? 4000;
+  const CT = "America/Chicago";
 
   emit("log", {
     message: `═══ Day ${dayIdx + 1}/${totalDays}: ${today} ═══`,
@@ -403,7 +404,6 @@ async function simulateDay(ctx: SimDayContext): Promise<SimDayOutput> {
 
   const preOpenForPreload = pendingForToday.filter((s) => s.activationStatus === "NOT_ACTIVE");
   if (preOpenForPreload.length > 0) {
-    const CT = "America/Chicago";
     const minExpDate = dayjs.tz(today, CT).add(4, "day").format("YYYY-MM-DD");
     const maxExpDate = dayjs.tz(today, CT).add(45, "day").format("YYYY-MM-DD");
     const getRight = (bias: "BUY" | "SELL") => (bias === "BUY" ? "call" : "put") as "call" | "put";
