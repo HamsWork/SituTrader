@@ -1238,7 +1238,7 @@ export default function BacktestPage() {
                                 </div>
                                 {onDeckSignals.length > 0 ? (
                                   <div className="space-y-1 max-h-32 overflow-y-auto">
-                                    {onDeckSignals.slice(0, 10).map((sig) => (
+                                    {[...onDeckSignals].sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 10).map((sig) => (
                                       <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs" data-testid={`sim-ondeck-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
@@ -1246,11 +1246,11 @@ export default function BacktestPage() {
                                           <Badge variant="outline" className="text-[9px] h-4 px-1">
                                             {sig.direction === "BEARISH" ? "SELL" : "BUY"}
                                           </Badge>
+                                          <span className="text-muted-foreground">${sig.magnetPrice.toFixed(2)}</span>
                                         </div>
-                                        <div className="flex items-center gap-2 text-muted-foreground">
+                                        <div className="flex items-center gap-2">
                                           <span className="font-semibold text-yellow-500">QS {sig.qualityScore}</span>
-                                          <span>${sig.magnetPrice.toFixed(2)}</span>
-                                          <span className="text-[9px]">{sig.tier}</span>
+                                          <span className="text-[9px] text-muted-foreground">{sig.tier}</span>
                                         </div>
                                       </div>
                                     ))}
