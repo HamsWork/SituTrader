@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { filterRTHBars, timestampToET } from "./validate";
-import { fetchSnapshot } from "./polygon";
+import { fetchSnapshot, fetchIntradayBars } from "./polygon";
 import { log } from "../index";
 import { enrichOptionData } from "./options";
 import type { Signal, TradePlan, OptionsData } from "@shared/schema";
@@ -501,7 +501,7 @@ async function checkPendingSignalsForTicker(
 ) {
   const { events, nowIso, today, entryMode, timeframe } = ctx;
   console.log(`[activation] ${ticker}: ${sigs.length} pending signal(s) to check`);
-  
+
   for (const sig of sigs) {
     const tp = sig.tradePlanJson as TradePlan | null;
     if (!tp) continue;
@@ -514,12 +514,7 @@ async function checkPendingSignalsForTicker(
       targetDate,
       timeframe,
     );
-    if (intradayBars.length === 0) {
-      if (targetDate === today && currentPrice) {
-        continue;
-      }
-      continue;
-    }
+    if (intradayBars.length === 0) continue;
 
     const result = checkEntryTrigger(
       intradayBars.map((b) => ({
@@ -587,6 +582,31 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
       tickerGroups.get(ticker)!,
       currentPrice,
     );
+  }
+
+  // 2b) Fetch fresh intraday bars from Polygon for today's pending signals.
+  const pendingTodayTickers = new Set<string>();
+  for (const [ticker, tickerSigs] of tickerGroups) {
+    if (tickerSigs.some((s) => s.targetDate === today && s.activationStatus === "NOT_ACTIVE")) {
+      pendingTodayTickers.add(ticker);
+    }
+  }
+  if (pendingTodayTickers.size > 0) {
+    log(`Activation: Fetching fresh bars for ${pendingTodayTickers.size} ticker(s)`, "activation");
+    for (const ticker of pendingTodayTickers) {
+      try {
+        const freshBars = await fetchIntradayBars(ticker, today, today, timeframe);
+        for (const bar of freshBars) {
+          const ts = new Date(bar.t).toISOString();
+          await storage.upsertIntradayBar({
+            ticker, ts, open: bar.o, high: bar.h, low: bar.l, close: bar.c,
+            volume: bar.v, timeframe, source: "polygon",
+          });
+        }
+      } catch (err: any) {
+        log(`Activation: fresh bar fetch failed for ${ticker}: ${err.message}`, "activation");
+      }
+    }
   }
 
   // 3) Pass B: handle pending signals (entry trigger + activation).
