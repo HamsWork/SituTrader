@@ -191,6 +191,7 @@ export class SimTickerStepper {
       date: this.today,
       dayIndex: this.dayIdx,
       totalDays: this.totalDays,
+      simTimeCT: this.simTimeCT,
       signalsGenerated: this.dayResult.signalsGenerated.length,
       btodTop3Count: this.dayResult.btodTop3.length,
       btodTop3: this.dayResult.btodTop3,
@@ -564,8 +565,13 @@ export class SimTickerStepper {
     return false;
   }
 
-  liveMonitorTick(min: number): { allResolved: boolean } {
+  liveMonitorTick(min: number): { allResolved: boolean; hadEvents: boolean } {
     this.simTimeCT = min;
+    const prevActivations = this.dayResult.activations.length;
+    const prevHits = this.dayResult.hits.length;
+    const prevMisses = this.dayResult.misses.length;
+    const prevTradeSyncCalls = this.dayResult.tradeSyncCalls.length;
+
     const cutoffMs = dayjs
       .tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:59`, this.CT)
       .valueOf();
@@ -575,7 +581,7 @@ export class SimTickerStepper {
     ).length;
     if (unresolvedCount === 0) {
       this.emit("log", { message: `  All signals resolved by ${formatSimTime(min)}`, type: "info" });
-      return { allResolved: true };
+      return { allResolved: true, hadEvents: false };
     }
 
     for (const ticker of this.liveMonitorTickers) {
@@ -716,7 +722,17 @@ export class SimTickerStepper {
       }
     }
 
-    return { allResolved: false };
+    const hadEvents =
+      this.dayResult.activations.length > prevActivations ||
+      this.dayResult.hits.length > prevHits ||
+      this.dayResult.misses.length > prevMisses ||
+      this.dayResult.tradeSyncCalls.length > prevTradeSyncCalls;
+
+    return { allResolved: false, hadEvents };
+  }
+
+  emitDayUpdatePublic(): void {
+    this.emitDayUpdate();
   }
 
   async liveMonitorFinalize(): Promise<boolean> {
@@ -996,7 +1012,10 @@ export class SimTickerStepper {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
 
-        const { allResolved } = this.liveMonitorTick(min);
+        const { allResolved, hadEvents } = this.liveMonitorTick(min);
+        if (hadEvents) {
+          this.emitDayUpdatePublic();
+        }
         if (allResolved) break;
       }
     }

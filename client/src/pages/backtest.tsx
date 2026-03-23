@@ -208,6 +208,7 @@ export default function BacktestPage() {
     date: string;
     dayIndex: number;
     totalDays: number;
+    simTimeCT?: number;
     signalsGenerated: number;
     btodTop3Count: number;
     btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number }>;
@@ -965,9 +966,8 @@ export default function BacktestPage() {
                           {(() => {
                             const currentDay = simDayResults[simSelectedDayIdx];
                             if (!currentDay) return null;
-                            const phase = currentDay.phases?.[simSelectedPhaseIdx];
-                            const summary = phase?.summary ?? currentDay.summary;
-                            const sigCount = phase ? phase.signalsGenerated.length : currentDay.signalsGenerated;
+                            const summary = currentDay.summary;
+                            const sigCount = currentDay.signalsGenerated;
                             return (
                               <div className="flex items-center gap-2 text-xs">
                                 <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
@@ -989,54 +989,52 @@ export default function BacktestPage() {
 
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
-                          if (!currentDay?.phases || currentDay.phases.length === 0) return null;
-                          const PHASE_LABELS = ["After-Close Scan", "Pre-Open Scan", "Live Monitor Tick", "End of Day"];
-                          const PHASE_SHORTS = ["Close", "Pre-Open", "Live", "EOD"];
-                          return (
-                            <div className="flex items-center gap-1 mb-2" data-testid="sim-phase-stepper">
-                              {PHASE_LABELS.map((label, idx) => (
-                                <button
-                                  key={label}
-                                  onClick={() => {
-                                    if (idx < (currentDay.phases?.length ?? 0)) {
-                                      simPhaseNavigatedRef.current = true;
-                                      setSimSelectedPhaseIdx(idx);
-                                    }
-                                  }}
-                                  disabled={idx >= (currentDay.phases?.length ?? 0)}
-                                  className={`flex-1 text-[10px] py-1.5 px-2 rounded-md border transition-colors ${
-                                    idx >= (currentDay.phases?.length ?? 0)
-                                      ? "opacity-30 cursor-not-allowed bg-muted/10 border-transparent text-muted-foreground"
-                                      : simSelectedPhaseIdx === idx
-                                        ? "bg-primary/15 border-primary/40 text-primary font-semibold"
-                                        : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/50"
-                                  }`}
-                                  data-testid={`btn-phase-${idx}`}
-                                >
-                                  <div className="hidden md:block">{label}</div>
-                                  <div className="md:hidden">{PHASE_SHORTS[idx]}</div>
-                                </button>
-                              ))}
+                          if (!currentDay) return null;
+                          const timeCT = currentDay.simTimeCT ?? 0;
+                          const formatCT = (min: number) => {
+                            const h = Math.floor(min / 60);
+                            const m = min % 60;
+                            const suffix = h >= 12 ? "PM" : "AM";
+                            const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                            return `${h12}:${m.toString().padStart(2, "0")} ${suffix}`;
+                          };
+                          const phaseName = timeCT < 8 * 60 + 20 ? "Pre-Market" :
+                            timeCT < 8 * 60 + 30 ? "Pre-Open" :
+                            timeCT < 15 * 60 ? "Live Monitor" :
+                            timeCT < 15 * 60 + 10 ? "After-Close" : "End of Day";
+                          return timeCT > 0 ? (
+                            <div className="flex items-center gap-3 mb-2 px-1" data-testid="sim-time-stepper">
+                              <div className="flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                                <span className="font-mono text-sm font-semibold" data-testid="text-sim-time">
+                                  {formatCT(timeCT)} CT
+                                </span>
+                              </div>
+                              <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${
+                                phaseName === "Live Monitor" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                phaseName === "Pre-Open" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                                phaseName === "After-Close" ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
+                                phaseName === "End of Day" ? "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" :
+                                "bg-violet-500/10 text-violet-400 border-violet-500/20"
+                              }`}>
+                                {phaseName}
+                              </Badge>
                             </div>
-                          );
+                          ) : null;
                         })()}
 
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
 
-                          const phase = currentDay.phases?.[simSelectedPhaseIdx];
-                          const btodTop3 = phase?.btodTop3 ?? currentDay.btodTop3;
-                          const btodStatus = phase?.btodStatus ?? currentDay.btodStatus;
-                          const activationDetails = phase?.activations ?? currentDay.activationDetails;
-                          const tradeSyncCalls = phase?.tradeSyncCalls ?? currentDay.tradeSyncCalls;
-                          const hitDetails = phase?.hits ?? currentDay.hitDetails;
-                          const onDeckSignals = phase?.onDeckSignals ?? currentDay.onDeckSignals;
-                          const activeSignals = phase?.activeSignals ?? currentDay.activeSignals;
-                          const newSignals = phase ? phase.signalsGenerated.map((s: any) => ({
-                            id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
-                            qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
-                          })) : currentDay.newSignals;
+                          const btodTop3 = currentDay.btodTop3;
+                          const btodStatus = currentDay.btodStatus;
+                          const activationDetails = currentDay.activationDetails;
+                          const tradeSyncCalls = currentDay.tradeSyncCalls;
+                          const hitDetails = currentDay.hitDetails;
+                          const onDeckSignals = currentDay.onDeckSignals;
+                          const activeSignals = currentDay.activeSignals;
+                          const newSignals = currentDay.newSignals;
                           return (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               <div className="space-y-2">
