@@ -9,7 +9,7 @@ import { generateTradePlan } from "../lib/tradeplan";
 import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
-import { enrichPendingSignalsWithOptions } from "../lib/options";
+import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions } from "../lib/options";
 import { log } from "../index";
 import type { SetupType } from "@shared/schema";
 
@@ -177,7 +177,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
             missReason,
             tradePlanJson: tradePlan as any, 
             confidenceBreakdown: confidence as any,
-            qualityScore: qualityResult.total, 
+            qualityScore: Math.round(qualityResult.total), 
             tier,
             alertState: "new", 
             nextAlertEligibleAt: null,
@@ -305,6 +305,15 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
       log("Live monitor: no active/pending signals to monitor", "scheduler");
       summary.durationMs = Date.now() - start;
       return summary;
+    }
+
+    try {
+      const reEnrichResult = await reEnrichExpiredOptions();
+      if (reEnrichResult.checked > 0) {
+        log(`Live monitor: Expired option re-enrichment: checked=${reEnrichResult.checked}, replaced=${reEnrichResult.reEnriched}, errors=${reEnrichResult.errors}`, "scheduler");
+      }
+    } catch (err: any) {
+      log(`Live monitor: Expired option re-enrichment error: ${err.message}`, "scheduler");
     }
 
     try {
