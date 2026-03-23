@@ -99,6 +99,7 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   if (signal.entry_letf_price != null)
     payload.entry_letf_price = signal.entry_letf_price;
   if (signal.leverage != null) payload.leverage = signal.leverage;
+  if (signal.alert_mode) payload.alert_mode = signal.alert_mode;
 
   return payload;
 }
