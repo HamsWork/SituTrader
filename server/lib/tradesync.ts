@@ -329,8 +329,17 @@ export function buildTradeSyncPayloadFromSignal(
     direction = isBuy ? "Long" : "Short";
   }
 
+  let payloadTicker: string;
+  if (instrumentType === "OPTION") {
+    payloadTicker = signal.ticker;
+  } else if (instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS") {
+    payloadTicker = extras?.letfTicker || instrumentTicker || signal.ticker;
+  } else {
+    payloadTicker = signal.ticker;
+  }
+
   const payload: TradeSyncSignalData = {
-    ticker: instrumentTicker || signal.ticker,
+    ticker: payloadTicker,
     instrument_type: mappedInstrument,
     direction,
     entry_price:
