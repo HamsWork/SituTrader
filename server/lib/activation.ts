@@ -500,6 +500,8 @@ async function checkPendingSignalsForTicker(
   currentPrice: number | null,
 ) {
   const { events, nowIso, today, entryMode, timeframe } = ctx;
+  console.log(`[activation] ${ticker}: ${sigs.length} pending signal(s) to check`);
+  
   for (const sig of sigs) {
     const tp = sig.tradePlanJson as TradePlan | null;
     if (!tp) continue;
