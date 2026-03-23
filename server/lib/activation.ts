@@ -443,48 +443,48 @@ async function processTriggeredSignal(
       );
     }
   } else if (!btodActive) {
-    const qualityOk = (sig.qualityScore ?? 0) >= 80;
+    // const qualityOk = (sig.qualityScore ?? 0) >= 80;
 
-    let activeProfileCheck: any = null;
-    try {
-      activeProfileCheck = await storage.getActiveProfile();
-    } catch {}
-    const profileOk = activeProfileCheck
-      ? activeProfileCheck.allowedSetups.includes(sig.setupType)
-      : true;
+    // let activeProfileCheck: any = null;
+    // try {
+    //   activeProfileCheck = await storage.getActiveProfile();
+    // } catch {}
+    // const profileOk = activeProfileCheck
+    //   ? activeProfileCheck.allowedSetups.includes(sig.setupType)
+    //   : true;
 
-    if (qualityOk && profileOk) {
-      try {
-        const freshSigs = await storage.getSignals(undefined, 5000);
-        const freshSig = freshSigs.find((s: any) => s.id === sig.id);
-        const discordSig = freshSig || sig;
-        const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
-        let discordOk = false;
-        if (instrumentTypeForExecution === "OPTION") {
-          discordOk = await postOptionsAlert(discordSig);
-        } else if (instrumentTypeForExecution === "SHARES") {
-          discordOk = await postSharesAlert(discordSig);
-        } else {
-          discordOk = await postLetfAlert(discordSig);
-        }
-        if (discordOk) {
-          log(
-            `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
-            "activation",
-          );
-        } else {
-          log(
-            `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
-            "activation",
-          );
-        }
-      } catch (discordErr: any) {
-        log(
-          `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
-          "activation",
-        );
-      }
-    }
+    // if (qualityOk && profileOk) {
+    //   try {
+    //     const freshSigs = await storage.getSignals(undefined, 5000);
+    //     const freshSig = freshSigs.find((s: any) => s.id === sig.id);
+    //     const discordSig = freshSig || sig;
+    //     const { postOptionsAlert, postLetfAlert, postSharesAlert } = await import("./discord");
+    //     let discordOk = false;
+    //     if (instrumentTypeForExecution === "OPTION") {
+    //       discordOk = await postOptionsAlert(discordSig);
+    //     } else if (instrumentTypeForExecution === "SHARES") {
+    //       discordOk = await postSharesAlert(discordSig);
+    //     } else {
+    //       discordOk = await postLetfAlert(discordSig);
+    //     }
+    //     if (discordOk) {
+    //       log(
+    //         `Discord alert sent for signal ${sig.id} on activation (${instrumentTypeForExecution})`,
+    //         "activation",
+    //       );
+    //     } else {
+    //       log(
+    //         `Discord alert failed or no webhook configured for signal ${sig.id} (${instrumentTypeForExecution})`,
+    //         "activation",
+    //       );
+    //     }
+    //   } catch (discordErr: any) {
+    //     log(
+    //       `Discord alert error for signal ${sig.id}: ${discordErr.message}`,
+    //       "activation",
+    //     );
+    //   }
+    // }
   } else {
     log(
       `Skip execution for signal ${sig.id}: BTOD gate blocked`,
