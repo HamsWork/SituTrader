@@ -92,6 +92,7 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   if (Object.keys(apiTargets).length > 0) payload.targets = apiTargets;
   if (signal.discord_webhook_url)
     payload.discord_webhook_url = signal.discord_webhook_url;
+  if (signal.option_type) payload.option_type = signal.option_type;
   if (signal.entry_option_price != null)
     payload.entry_option_price = signal.entry_option_price;
   if (signal.entry_underlying_price != null)
