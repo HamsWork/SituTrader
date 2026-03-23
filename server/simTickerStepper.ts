@@ -987,6 +987,7 @@ export class SimTickerStepper {
 
     this.simTimeCT = SIM_PRE_OPEN_CT;
     this.emit("log", { message: `  ⏰ ${formatSimTime(this.simTimeCT)} — Day starts`, type: "info" });
+    this.emitDayUpdatePublic();
 
     this.simTimeCT = SIM_PRE_OPEN_CT + 5;
     if (await this.preOpenScan()) return this.earlyReturn();
