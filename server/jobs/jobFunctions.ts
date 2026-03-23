@@ -240,6 +240,7 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
     const tickerList = Array.from(new Set(pendingSignals.map(s => s.ticker)));
     summary.tickersScanned = tickerList.length;
 
+    // TODO: dose it need?
     for (const ticker of tickerList) {
       try {
         const snap = await fetchSnapshot(ticker);

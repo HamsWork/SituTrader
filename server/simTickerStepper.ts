@@ -233,6 +233,7 @@ export class SimTickerStepper {
       type: "processing",
     });
 
+    // load intraday bars
     const pendingForToday = Array.from(this.allSignals.values()).filter(
       (s) => s.status === "pending" && s.targetDate === this.today && s.activationStatus !== "INVALIDATED",
     );
@@ -251,6 +252,7 @@ export class SimTickerStepper {
       }
     }
 
+    // load options chains
     const preOpenForPreload = pendingForToday.filter((s) => s.activationStatus === "NOT_ACTIVE");
     if (preOpenForPreload.length > 0) {
       const minExpDate = dayjs.tz(this.today, this.CT).add(4, "day").format("YYYY-MM-DD");
@@ -273,6 +275,7 @@ export class SimTickerStepper {
       }
     }
 
+    // load daily bars
     for (let i = 0; i < this.config.tickers.length; i++) {
       const ticker = this.config.tickers[i];
       if (this.isAborted()) break;
@@ -356,169 +359,7 @@ export class SimTickerStepper {
       });
     }
 
-    const preOpenCandidates = Array.from(this.allSignals.values()).filter(
-      (s) =>
-        s.status === "pending" &&
-        s.activationStatus === "NOT_ACTIVE" &&
-        s.targetDate === this.today,
-    );
 
-    if (preOpenCandidates.length > 0) {
-      this.emit("log", {
-        message: `  Pre-open: Enriching signals with preloaded options data`,
-        type: "processing",
-      });
-
-      const minOI = 500;
-      const getRight = (bias: "BUY" | "SELL") => (bias === "BUY" ? "call" : "put") as "call" | "put";
-
-      for (const sig of preOpenCandidates) {
-        try {
-          const right = getRight(sig.tradePlan.bias);
-          const chain = this.preloadedOptions.get(`${sig.ticker}|${right}`) ?? [];
-          if (chain.length === 0) continue;
-
-          const current = sig.magnetPrice;
-          if (!current || current <= 0) continue;
-
-          const nearATM = chain.filter(
-            (c) => Math.abs(c.strike_price - current) / current < 0.03,
-          );
-          const pool = nearATM.length > 0 ? nearATM : chain;
-
-          const oiQualified = pool.filter((c) => (c.open_interest ?? 0) >= minOI);
-          const oiPool = oiQualified.length > 0 ? oiQualified : pool;
-
-          oiPool.sort((a, b) => {
-            const dA = Math.abs(a.strike_price - current);
-            const dB = Math.abs(b.strike_price - current);
-            if (dA !== dB) return dA - dB;
-            const oiA = a.open_interest ?? 0;
-            const oiB = b.open_interest ?? 0;
-            return oiB - oiA;
-          });
-
-          sig.optionContractTicker = oiPool[0]?.ticker ?? null;
-        } catch (err: any) {
-          this.emit("log", {
-            message: `  Pre-open: options enrich failed for ${sig.ticker}/${sig.setupType}: ${err.message}`,
-            type: "error",
-          });
-        }
-      }
-
-      this.emit("log", {
-        message: `  Pre-open: Run activation scan (simulation)`,
-        type: "processing",
-      });
-
-      const preOpenEndCTMs = dayjs
-        .tz(`${this.today} 08:30:00`, this.CT)
-        .valueOf();
-
-      const preOpenTickers = Array.from(new Set(preOpenCandidates.map((s) => s.ticker)));
-      for (const ticker of preOpenTickers) {
-        if (this.isAborted()) break;
-        if (await this.checkPause()) break;
-
-        try {
-          const intradayBarsAll = this.preloadedIntraday.get(ticker) ?? [];
-          const intradayBars = intradayBarsAll.filter(
-            (b) => Date.parse(b.ts) <= preOpenEndCTMs,
-          );
-
-          const tickerSignals = preOpenCandidates.filter((s) => s.ticker === ticker);
-
-          for (const sig of tickerSignals) {
-            if (sig.activationStatus !== "NOT_ACTIVE") continue;
-
-            const triggerResult = checkEntryTrigger(
-              intradayBars,
-              sig.tradePlan,
-              this.config.entryMode,
-            );
-
-            if (!triggerResult.triggered) {
-              if (triggerResult.invalidated) {
-                sig.activationStatus = "INVALIDATED";
-                sig.status = "miss";
-                sig.missReason = "Entry trigger invalidated (pre-open)";
-                this.dayResult.misses.push({
-                  signalId: sig.id,
-                  ticker: sig.ticker,
-                  reason: "Entry trigger invalidated",
-                });
-              }
-              continue;
-            }
-
-            const isBtodCandidate = this.btodSignalIds.has(sig.id);
-
-            sig.activationStatus = "ACTIVE";
-            sig.activatedTs = triggerResult.triggerTs ?? null;
-            sig.entryPrice = triggerResult.entryPrice ?? null;
-
-            if (sig.optionContractTicker && triggerResult.triggerTs) {
-              const triggerMs = new Date(triggerResult.triggerTs).getTime();
-              sig.optionEntryMark = await fetchOptionMarkAtTime(sig.optionContractTicker, triggerMs);
-            }
-
-            if (isBtodCandidate && !this.btodExecutedToday) {
-              this.btodExecutedToday = true;
-              this.dayResult.activations.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                setupType: sig.setupType,
-                triggerTs: triggerResult.triggerTs ?? this.today,
-                entryPrice: triggerResult.entryPrice ?? 0,
-                isBtod: true,
-              });
-
-              this.dayResult.btodStatus.phase = "CLOSED";
-              this.dayResult.btodStatus.gateOpen = false;
-              this.dayResult.btodStatus.executedSignalId = sig.id;
-              this.dayResult.btodStatus.executedTicker = sig.ticker;
-
-              const instruments: string[] = ["Shares"];
-              if (sig.tradePlan.stopDistance) instruments.push("Options");
-              instruments.push("LETF", "LETF Options");
-
-              this.dayResult.tradeSyncCalls.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                setupType: sig.setupType,
-                direction: sig.direction,
-                entryPrice: triggerResult.entryPrice ?? 0,
-                stopPrice: sig.stopPrice,
-                targetPrice: sig.magnetPrice,
-                instruments,
-                status: "SIMULATED",
-                triggerTs: triggerResult.triggerTs ?? this.today,
-              });
-
-              this.emit("log", {
-                message: `  ★ BTOD PRE-OPEN ACTIVATION: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${this.top3.find((r) => r.signalId === sig.id)?.rank})`,
-                type: "success",
-              });
-            } else {
-              this.dayResult.activations.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                setupType: sig.setupType,
-                triggerTs: triggerResult.triggerTs ?? this.today,
-                entryPrice: triggerResult.entryPrice ?? 0,
-                isBtod: false,
-              });
-            }
-          }
-        } catch (err: any) {
-          this.emit("log", {
-            message: `  Pre-open activation scan error ${ticker}: ${err.message}`,
-            type: "error",
-          });
-        }
-      }
-    }
 
     return await this.phaseTransition("Pre-Open Scan");
   }
@@ -1008,6 +849,7 @@ export class SimTickerStepper {
     this.emitDayUpdatePublic();
 
     const noSignals = await this.liveMonitorInit();
+    
     if (!noSignals) {
       for (let min = SIM_RTH_START_CT; min < SIM_RTH_END_CT; min++) {
         if (this.isAborted()) break;
