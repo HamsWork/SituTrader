@@ -1248,8 +1248,8 @@ export default function BacktestPage() {
                                   On Deck ({onDeckSignals.length})
                                 </div>
                                 {onDeckSignals.length > 0 ? (
-                                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                                    {[...onDeckSignals].sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 10).map((sig) => (
+                                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                                    {[...onDeckSignals].sort((a, b) => b.qualityScore - a.qualityScore).map((sig) => (
                                       <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs" data-testid={`sim-ondeck-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
@@ -1265,9 +1265,6 @@ export default function BacktestPage() {
                                         </div>
                                       </div>
                                     ))}
-                                    {onDeckSignals.length > 10 && (
-                                      <p className="text-[10px] text-muted-foreground px-2">+{onDeckSignals.length - 10} more</p>
-                                    )}
                                   </div>
                                 ) : (
                                   <p className="text-[10px] text-muted-foreground px-2">No pending on-deck signals</p>
