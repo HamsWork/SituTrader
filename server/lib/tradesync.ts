@@ -33,6 +33,7 @@ export interface TradeSyncSignalData {
   underlying_ticker?: string | null;
   leverage?: number;
   tradesync_id?: number;
+  alert_mode?: "normal" | "ten_percent";
 }
 
 export interface TradeSyncResult {
@@ -55,11 +56,14 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
     for (const [key, t] of Object.entries(signal.targets)) {
       const target: Record<string, any> = {};
       if (t.price != null) target.price = t.price;
-      if (t.take_off_percent != null) target.take_off_percent = t.take_off_percent;
+      if (t.take_off_percent != null)
+        target.take_off_percent = t.take_off_percent;
       if (t.raise_stop_loss) {
         const rsl: Record<string, any> = {};
-        if (t.raise_stop_loss.price != null) rsl.price = t.raise_stop_loss.price;
-        if (t.raise_stop_loss.trailing_stop_percent != null) rsl.trailing_stop_percent = t.raise_stop_loss.trailing_stop_percent;
+        if (t.raise_stop_loss.price != null)
+          rsl.price = t.raise_stop_loss.price;
+        if (t.raise_stop_loss.trailing_stop_percent != null)
+          rsl.trailing_stop_percent = t.raise_stop_loss.trailing_stop_percent;
         target.raise_stop_loss = rsl;
       }
       apiTargets[key] = target;
@@ -76,36 +80,51 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   if (signal.expiration) payload.expiration = signal.expiration;
   if (signal.strike != null) payload.strike = signal.strike;
   if (signal.stop_loss != null) payload.stop_loss = signal.stop_loss;
-  if (signal.stop_loss_percentage != null) payload.stop_loss_percentage = signal.stop_loss_percentage;
+  if (signal.stop_loss_percentage != null)
+    payload.stop_loss_percentage = signal.stop_loss_percentage;
   if (signal.auto_track != null) payload.auto_track = signal.auto_track;
-  if (signal.underlying_price_based != null) payload.underlying_price_based = signal.underlying_price_based;
+  if (signal.underlying_price_based != null)
+    payload.underlying_price_based = signal.underlying_price_based;
   if (signal.time_stop) payload.time_stop = signal.time_stop;
   if (signal.trade_type) payload.tradeType = signal.trade_type;
-  if (signal.underlying_ticker) payload.underlying_ticker = signal.underlying_ticker;
+  if (signal.underlying_ticker)
+    payload.underlying_ticker = signal.underlying_ticker;
   if (Object.keys(apiTargets).length > 0) payload.targets = apiTargets;
-  if (signal.discord_webhook_url) payload.discord_webhook_url = signal.discord_webhook_url;
-  if (signal.entry_option_price != null) payload.entry_option_price = signal.entry_option_price;
-  if (signal.entry_underlying_price != null) payload.entry_underlying_price = signal.entry_underlying_price;
-  if (signal.entry_letf_price != null) payload.entry_letf_price = signal.entry_letf_price;
+  if (signal.discord_webhook_url)
+    payload.discord_webhook_url = signal.discord_webhook_url;
+  if (signal.entry_option_price != null)
+    payload.entry_option_price = signal.entry_option_price;
+  if (signal.entry_underlying_price != null)
+    payload.entry_underlying_price = signal.entry_underlying_price;
+  if (signal.entry_letf_price != null)
+    payload.entry_letf_price = signal.entry_letf_price;
   if (signal.leverage != null) payload.leverage = signal.leverage;
 
   return payload;
 }
 
-export async function sendToTradeSync(signal: TradeSyncSignalData): Promise<TradeSyncResult> {
+export async function sendToTradeSync(
+  signal: TradeSyncSignalData,
+): Promise<TradeSyncResult> {
   if (!isConfigured()) {
-    return { ok: false, error: "TradeSync not configured (missing BASE_URL or API_KEY)" };
+    return {
+      ok: false,
+      error: "TradeSync not configured (missing BASE_URL or API_KEY)",
+    };
   }
 
   const payload = toApiPayload(signal);
-  log(`TradeSync: Sending signal for ${signal.ticker} (${signal.instrument_type})`, "tradesync");
+  log(
+    `TradeSync: Sending signal for ${signal.ticker} (${signal.instrument_type})`,
+    "tradesync",
+  );
 
   try {
     const res = await fetch(`${TRADESYNC_BASE_URL}/api/ingest/signals`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+        Authorization: `Bearer ${TRADESYNC_API_KEY}`,
       },
       body: JSON.stringify(payload),
     });
@@ -119,10 +138,16 @@ export async function sendToTradeSync(signal: TradeSyncSignalData): Promise<Trad
     }
 
     const tradeSyncId = body?.id || body?.signal?.id || body?.signalId;
-    log(`TradeSync: Signal accepted for ${signal.ticker}, id=${tradeSyncId}`, "tradesync");
+    log(
+      `TradeSync: Signal accepted for ${signal.ticker}, id=${tradeSyncId}`,
+      "tradesync",
+    );
     return { ok: true, data: body };
   } catch (err: any) {
-    log(`TradeSync: Network error sending ${signal.ticker}: ${err.message}`, "tradesync");
+    log(
+      `TradeSync: Network error sending ${signal.ticker}: ${err.message}`,
+      "tradesync",
+    );
     return { ok: false, error: err.message || "Failed to reach TradeSync API" };
   }
 }
@@ -133,12 +158,15 @@ export async function fetchDiscordTemplates(): Promise<TradeSyncResult> {
   }
 
   try {
-    const res = await fetch(`${TRADESYNC_BASE_URL}/api/discord-templates/var-templates`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+    const res = await fetch(
+      `${TRADESYNC_BASE_URL}/api/discord-templates/var-templates`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
       },
-    });
+    );
 
     const body = await res.json().catch(() => null);
 
@@ -153,19 +181,24 @@ export async function fetchDiscordTemplates(): Promise<TradeSyncResult> {
   }
 }
 
-export async function stopAutoTrack(tradeSyncSignalId: string | number): Promise<TradeSyncResult> {
+export async function stopAutoTrack(
+  tradeSyncSignalId: string | number,
+): Promise<TradeSyncResult> {
   if (!isConfigured()) {
     return { ok: false, error: "TradeSync not configured" };
   }
   const idSegment = encodeURIComponent(String(tradeSyncSignalId));
   try {
-    const res = await fetch(`${TRADESYNC_BASE_URL}/api/signals/${idSegment}/stop-auto-track`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+    const res = await fetch(
+      `${TRADESYNC_BASE_URL}/api/signals/${idSegment}/stop-auto-track`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
       },
-    });
+    );
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = body?.message || `TradeSync API error (${res.status})`;
@@ -173,23 +206,31 @@ export async function stopAutoTrack(tradeSyncSignalId: string | number): Promise
     }
     return { ok: true, data: body };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to reach TradeSync API" };
+    return {
+      ok: false,
+      error: err?.message || "Failed to reach TradeSync API",
+    };
   }
 }
 
-export async function markTargetHit(tradeSyncSignalId: string | number): Promise<TradeSyncResult> {
+export async function markTargetHit(
+  tradeSyncSignalId: string | number,
+): Promise<TradeSyncResult> {
   if (!isConfigured()) {
     return { ok: false, error: "TradeSync not configured" };
   }
   const idSegment = encodeURIComponent(String(tradeSyncSignalId));
   try {
-    const res = await fetch(`${TRADESYNC_BASE_URL}/api/signals/${idSegment}/target-hit`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+    const res = await fetch(
+      `${TRADESYNC_BASE_URL}/api/signals/${idSegment}/target-hit`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
       },
-    });
+    );
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = body?.message || `TradeSync API error (${res.status})`;
@@ -197,23 +238,31 @@ export async function markTargetHit(tradeSyncSignalId: string | number): Promise
     }
     return { ok: true, data: body };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to reach TradeSync API" };
+    return {
+      ok: false,
+      error: err?.message || "Failed to reach TradeSync API",
+    };
   }
 }
 
-export async function markStopLossHit(tradeSyncSignalId: string | number): Promise<TradeSyncResult> {
+export async function markStopLossHit(
+  tradeSyncSignalId: string | number,
+): Promise<TradeSyncResult> {
   if (!isConfigured()) {
     return { ok: false, error: "TradeSync not configured" };
   }
   const idSegment = encodeURIComponent(String(tradeSyncSignalId));
   try {
-    const res = await fetch(`${TRADESYNC_BASE_URL}/api/signals/${idSegment}/stop-loss-hit`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+    const res = await fetch(
+      `${TRADESYNC_BASE_URL}/api/signals/${idSegment}/stop-loss-hit`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
       },
-    });
+    );
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = body?.message || `TradeSync API error (${res.status})`;
@@ -221,7 +270,10 @@ export async function markStopLossHit(tradeSyncSignalId: string | number): Promi
     }
     return { ok: true, data: body };
   } catch (err: any) {
-    return { ok: false, error: err?.message || "Failed to reach TradeSync API" };
+    return {
+      ok: false,
+      error: err?.message || "Failed to reach TradeSync API",
+    };
   }
 }
 
@@ -279,10 +331,13 @@ export function buildTradeSyncPayloadFromSignal(
     ticker: instrumentTicker || signal.ticker,
     instrument_type: mappedInstrument,
     direction,
-    entry_price: instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null,
-    stop_loss: targets.stop != null ? parseFloat(targets.stop.toFixed(2)) : undefined,
+    entry_price:
+      instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null,
+    stop_loss:
+      targets.stop != null ? parseFloat(targets.stop.toFixed(2)) : undefined,
     auto_track: true,
-    underlying_price_based: instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS",
+    underlying_price_based:
+      instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS",
     trade_type: "Swing",
     targets: Object.keys(targetMap).length > 0 ? targetMap : undefined,
   };
@@ -295,14 +350,16 @@ export function buildTradeSyncPayloadFromSignal(
     payload.expiration = extras.optionExpiry;
     payload.strike = extras.optionStrike;
     payload.option_type = extras.optionRight || (isBuy ? "CALL" : "PUT");
-    payload.entry_option_price = instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
+    payload.entry_option_price =
+      instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
   }
 
   if (instrumentType === "LETF_OPTIONS" && extras?.optionExpiry) {
     payload.expiration = extras.optionExpiry;
     payload.strike = extras.optionStrike;
     payload.option_type = extras.optionRight || (isBuy ? "CALL" : "PUT");
-    payload.entry_option_price = instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
+    payload.entry_option_price =
+      instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
     payload.underlying_ticker = signal.ticker;
     payload.leverage = extras.leverage;
   }
@@ -310,21 +367,28 @@ export function buildTradeSyncPayloadFromSignal(
   if (instrumentType === "LEVERAGED_ETF") {
     payload.underlying_ticker = signal.ticker;
     payload.leverage = extras?.leverage;
-    payload.entry_letf_price = instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
+    payload.entry_letf_price =
+      instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
   }
 
   if (instrumentType === "SHARES") {
-    payload.entry_underlying_price = instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
+    payload.entry_underlying_price =
+      instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
   }
 
   if (extras?.webhookUrl) {
     payload.discord_webhook_url = extras.webhookUrl;
   }
 
+  payload.alert_mode = "ten_percent";
+
   return payload;
 }
 
-export async function fetchTradeHistory(limit: number = 100, status?: string): Promise<TradeSyncResult> {
+export async function fetchTradeHistory(
+  limit: number = 100,
+  status?: string,
+): Promise<TradeSyncResult> {
   if (!isConfigured()) {
     return { ok: false, error: "TradeSync not configured" };
   }
@@ -333,13 +397,16 @@ export async function fetchTradeHistory(limit: number = 100, status?: string): P
     const params = new URLSearchParams({ limit: String(limit) });
     if (status) params.set("status", status);
 
-    const res = await fetch(`${TRADESYNC_BASE_URL}/api/signals?${params.toString()}`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+    const res = await fetch(
+      `${TRADESYNC_BASE_URL}/api/signals?${params.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
+        signal: AbortSignal.timeout(10000),
       },
-      signal: AbortSignal.timeout(10000),
-    });
+    );
 
     const body = await res.json().catch(() => null);
 
@@ -354,16 +421,24 @@ export async function fetchTradeHistory(limit: number = 100, status?: string): P
   }
 }
 
-export async function getTradesyncStatus(): Promise<{ configured: boolean; reachable: boolean; error?: string }> {
+export async function getTradesyncStatus(): Promise<{
+  configured: boolean;
+  reachable: boolean;
+  error?: string;
+}> {
   if (!isConfigured()) {
-    return { configured: false, reachable: false, error: "TRADESYNC_BASE_URL or TRADESYNC_API_KEY not set" };
+    return {
+      configured: false,
+      reachable: false,
+      error: "TRADESYNC_BASE_URL or TRADESYNC_API_KEY not set",
+    };
   }
 
   try {
     const res = await fetch(`${TRADESYNC_BASE_URL}/api/signals?limit=1`, {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${TRADESYNC_API_KEY}`,
+        Authorization: `Bearer ${TRADESYNC_API_KEY}`,
       },
       signal: AbortSignal.timeout(5000),
     });

@@ -1355,6 +1355,148 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/btod/test-multi-instrument", async (req, res) => {
+    try {
+      const signalId = Number(req.body.signalId);
+      if (!signalId) return res.status(400).json({ message: "signalId required" });
+
+      const sigs = await storage.getSignals(undefined, 5000);
+      const signal = sigs.find((s) => s.id === signalId);
+      if (!signal) return res.status(404).json({ message: `Signal ${signalId} not found` });
+
+      const tp = signal.tradePlanJson as any;
+      if (!tp) return res.status(400).json({ message: "Signal has no trade plan" });
+
+      const isBuy = tp.bias === "BUY";
+      const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
+
+      let optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
+      const optionsJson = signal.optionsJson as any;
+      const optionHadNoQuote = optionsJson?.checks?.reasonIfFail?.includes("NO_QUOTE") || (optionsJson?.checks?.bid === 0 && optionsJson?.checks?.ask === 0);
+      let optionQuoteInfo: any = null;
+
+      if (optionTicker && optionHadNoQuote) {
+        try {
+          const { fetchOptionSnapshot } = await import("./lib/polygon");
+          const liveSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
+          if (liveSnap && liveSnap.bid != null && liveSnap.bid > 0 && liveSnap.ask != null && liveSnap.ask > 0) {
+            optionQuoteInfo = { bid: liveSnap.bid, ask: liveSnap.ask, status: "LIVE_QUOTE_OK" };
+          } else {
+            optionQuoteInfo = { status: "LIVE_QUOTE_UNAVAILABLE" };
+            optionTicker = null;
+          }
+        } catch (err: any) {
+          optionQuoteInfo = { status: "QUOTE_CHECK_FAILED", error: err.message };
+          optionTicker = null;
+        }
+      }
+
+      const letfJson = signal.leveragedEtfJson as any;
+      const letfTicker = signal.instrumentTicker || letfJson?.ticker;
+
+      const instrumentsToExecute: Array<{ type: string; ticker: string | null }> = [];
+      instrumentsToExecute.push({ type: "SHARES", ticker: signal.ticker });
+      if (optionTicker) instrumentsToExecute.push({ type: "OPTION", ticker: optionTicker });
+      if (letfTicker) instrumentsToExecute.push({ type: "LEVERAGED_ETF", ticker: letfTicker });
+
+      let letfOptionContract: any = null;
+      if (letfTicker) {
+        try {
+          const { fetchSnapshot } = await import("./lib/polygon");
+          const { findLetfOptionContract } = await import("./lib/btod");
+          const letfSnap = await fetchSnapshot(letfTicker);
+          const letfPrice = letfSnap?.lastPrice ?? signal.instrumentEntryPrice ?? 0;
+          if (letfPrice > 0) {
+            letfOptionContract = await findLetfOptionContract(letfTicker, action, letfPrice);
+            if (letfOptionContract && letfOptionContract.markPrice > 0) {
+              instrumentsToExecute.push({ type: "LETF_OPTIONS", ticker: letfOptionContract.contractTicker });
+            }
+          }
+        } catch (err: any) {
+          letfOptionContract = { error: err.message };
+        }
+      }
+
+      const stockEntry = signal.entryPriceAtActivation ?? 0;
+      const stockT1 = tp.t1 ?? null;
+      const stockT2 = tp.t2 ?? null;
+      const stockStop = signal.stopPrice ?? null;
+
+      const tradeDetails: any[] = [];
+      for (const inst of instrumentsToExecute) {
+        try {
+          const { convertStockTargetsToInstrument } = await import("./lib/ibkrOrders");
+          let instrumentEntry = 0;
+          let delta: number | null = null;
+          let leverage = 1;
+
+          if (inst.type === "SHARES") {
+            instrumentEntry = stockEntry;
+          } else if (inst.type === "OPTION" && inst.ticker) {
+            instrumentEntry = signal.optionEntryMark ?? 0;
+            try {
+              const { fetchOptionSnapshot } = await import("./lib/polygon");
+              const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
+              delta = optSnap?.delta ?? null;
+            } catch { delta = isBuy ? 0.5 : -0.5; }
+          } else if (inst.type === "LEVERAGED_ETF") {
+            instrumentEntry = signal.instrumentEntryPrice ?? 0;
+            leverage = letfJson?.leverage ?? 1;
+          } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
+            instrumentEntry = letfOptionContract.markPrice;
+            delta = letfOptionContract.delta ?? (letfOptionContract.right === "P" ? -0.5 : 0.5);
+            leverage = letfJson?.leverage ?? 1;
+          }
+
+          const converted = convertStockTargetsToInstrument(stockEntry, instrumentEntry, stockT1, stockT2, stockStop, delta, leverage, inst.type);
+
+          let optionMeta: any = undefined;
+          if (inst.type === "OPTION" && inst.ticker) {
+            optionMeta = { expiry: optionsJson?.candidate?.expiry, strike: optionsJson?.candidate?.strike, right: optionsJson?.candidate?.right === "P" ? "PUT" : "CALL" };
+          } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
+            optionMeta = { expiry: letfOptionContract.expiry, strike: letfOptionContract.strike, right: letfOptionContract.right === "P" ? "PUT" : "CALL" };
+          }
+
+          const { buildTradeSyncPayloadFromSignal } = await import("./lib/tradesync");
+          const tsPayload = buildTradeSyncPayloadFromSignal(signal, inst.type, instrumentEntry, inst.ticker, { t1: converted.t1, t2: converted.t2, stop: converted.stop }, { delta, leverage, optionExpiry: optionMeta?.expiry, optionStrike: optionMeta?.strike, optionRight: optionMeta?.right, letfTicker: letfTicker ?? undefined });
+
+          tradeDetails.push({
+            instrumentType: inst.type,
+            ticker: inst.ticker,
+            entry: instrumentEntry,
+            targets: converted,
+            delta,
+            leverage,
+            optionMeta,
+            tradeSyncPayload: tsPayload,
+          });
+        } catch (err: any) {
+          tradeDetails.push({ instrumentType: inst.type, ticker: inst.ticker, error: err.message });
+        }
+      }
+
+      res.json({
+        dryRun: true,
+        signalId,
+        ticker: signal.ticker,
+        setupType: signal.setupType,
+        bias: tp.bias,
+        qualityScore: signal.qualityScore,
+        stockEntry,
+        stockT1,
+        stockT2,
+        stockStop,
+        optionQuoteRecheck: optionQuoteInfo,
+        letfOptionContract,
+        instrumentCount: instrumentsToExecute.length,
+        instruments: instrumentsToExecute,
+        tradeDetails,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/btod/initialize", async (_req, res) => {
     try {
       const { initializeBtodForDay } = await import("./lib/btod");

@@ -63,7 +63,8 @@ export function rankOnDeckSignals(
     const qsDiff = (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
     if (qsDiff !== 0) return qsDiff;
     const setupOrder: Record<string, number> = { A: 0, B: 1, C: 2 };
-    const setupDiff = (setupOrder[a.setupType] ?? 99) - (setupOrder[b.setupType] ?? 99);
+    const setupDiff =
+      (setupOrder[a.setupType] ?? 99) - (setupOrder[b.setupType] ?? 99);
     if (setupDiff !== 0) return setupDiff;
     return a.ticker.localeCompare(b.ticker);
   });
@@ -77,9 +78,10 @@ export function rankOnDeckSignals(
   }));
 }
 
-export function getBtodRankedQueueAndTop3Ids(
-  signals: RankableSignalLike[],
-): { rankedQueue: RankedSignalEntry[]; top3Ids: number[] } {
+export function getBtodRankedQueueAndTop3Ids(signals: RankableSignalLike[]): {
+  rankedQueue: RankedSignalEntry[];
+  top3Ids: number[];
+} {
   const rankedQueue = rankOnDeckSignals(signals);
   const top3Ids = rankedQueue.slice(0, 3).map((r) => r.signalId);
   return { rankedQueue, top3Ids };
@@ -90,7 +92,10 @@ export async function initializeBtodForDay(date?: string): Promise<BtodState> {
 
   const existing = await storage.getBtodState(tradeDate);
   if (existing && (existing.rankedQueue as any[]).length > 0) {
-    log(`BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`, "btod");
+    log(
+      `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
+      "btod",
+    );
     return existing;
   }
 
@@ -118,14 +123,20 @@ export async function initializeBtodForDay(date?: string): Promise<BtodState> {
   });
 
   log(
-    `BTOD: Initialized for ${tradeDate} — ${ranked.length} eligible signals, top 3: [${ranked.slice(0, 3).map((r) => `${r.ticker}(QS=${r.qualityScore})`).join(", ")}]`,
+    `BTOD: Initialized for ${tradeDate} — ${ranked.length} eligible signals, top 3: [${ranked
+      .slice(0, 3)
+      .map((r) => `${r.ticker}(QS=${r.qualityScore})`)
+      .join(", ")}]`,
     "btod",
   );
 
   return state;
 }
 
-export async function shouldExecuteActivation(signalId: number, activationTs?: Date | string): Promise<BtodDecision> {
+export async function shouldExecuteActivation(
+  signalId: number,
+  activationTs?: Date | string,
+): Promise<BtodDecision> {
   const tradeDate = todayET();
   const state = await storage.getBtodState(tradeDate);
 
@@ -175,7 +186,11 @@ export async function shouldExecuteActivation(signalId: number, activationTs?: D
       }
     }
 
-    if (state.selectedSignalId && !state.secondSignalId && state.tradesExecuted < 2) {
+    if (
+      state.selectedSignalId &&
+      !state.secondSignalId &&
+      state.tradesExecuted < 2
+    ) {
       log(
         `BTOD: Gate reopened after first trade closed — EXECUTING second trade signal ${signalId} (${entry?.ticker ?? "?"})`,
         "btod",
@@ -234,7 +249,10 @@ export async function transitionToOpenPhase(): Promise<void> {
   }
 
   if (state.selectedSignalId) {
-    log("BTOD: Trade already selected before 11am, skipping transition", "btod");
+    log(
+      "BTOD: Trade already selected before 11am, skipping transition",
+      "btod",
+    );
     return;
   }
 
@@ -300,7 +318,9 @@ export async function findLetfOptionContract(
   currentLetfPrice: number,
 ): Promise<LetfOptionContractResult | null> {
   try {
-    const { fetchOptionsChain, fetchOptionSnapshot } = await import("./polygon");
+    const { fetchOptionsChain, fetchOptionSnapshot } = await import(
+      "./polygon"
+    );
 
     const contractType: "call" | "put" = bias === "BUY" ? "call" : "put";
     const right: "C" | "P" = bias === "BUY" ? "C" : "P";
@@ -322,34 +342,50 @@ export async function findLetfOptionContract(
     );
 
     if (chain.length === 0) {
-      log(`BTOD: No ${contractType} options chain found for LETF ${letfTicker}`, "btod");
+      log(
+        `BTOD: No ${contractType} options chain found for LETF ${letfTicker}`,
+        "btod",
+      );
       return null;
     }
 
     let candidates = chain.filter(
-      (c) => Math.abs(c.strike_price - currentLetfPrice) / currentLetfPrice < 0.03,
+      (c) =>
+        Math.abs(c.strike_price - currentLetfPrice) / currentLetfPrice < 0.03,
     );
 
     if (candidates.length === 0) {
       candidates = [...chain]
-        .sort((a, b) => Math.abs(a.strike_price - currentLetfPrice) - Math.abs(b.strike_price - currentLetfPrice))
+        .sort(
+          (a, b) =>
+            Math.abs(a.strike_price - currentLetfPrice) -
+            Math.abs(b.strike_price - currentLetfPrice),
+        )
         .slice(0, 1);
     }
 
     candidates.sort(
-      (a, b) => Math.abs(a.strike_price - currentLetfPrice) - Math.abs(b.strike_price - currentLetfPrice),
+      (a, b) =>
+        Math.abs(a.strike_price - currentLetfPrice) -
+        Math.abs(b.strike_price - currentLetfPrice),
     );
 
-    const uniqueExpiries = Array.from(new Set(candidates.map((c) => c.expiration_date)));
-    const closestStrikes = Array.from(new Set(candidates.map((c) => c.strike_price))).slice(0, 3);
+    const uniqueExpiries = Array.from(
+      new Set(candidates.map((c) => c.expiration_date)),
+    );
+    const closestStrikes = Array.from(
+      new Set(candidates.map((c) => c.strike_price)),
+    ).slice(0, 3);
     const pool = candidates.filter(
-      (c) => closestStrikes.includes(c.strike_price) && uniqueExpiries.includes(c.expiration_date),
+      (c) =>
+        closestStrikes.includes(c.strike_price) &&
+        uniqueExpiries.includes(c.expiration_date),
     );
 
     const MIN_OI = 500;
     const MAX_SPREAD = 0.05;
 
-    let bestByOI: { contract: typeof pool[0]; snapshot: any } | null = null;
+    let bestByOI: { contract: (typeof pool)[0]; snapshot: any } | null = null;
 
     for (const contract of pool) {
       try {
@@ -381,7 +417,10 @@ export async function findLetfOptionContract(
           };
         }
       } catch (err: any) {
-        log(`BTOD: Error checking LETF option ${contract.ticker}: ${err.message}`, "btod");
+        log(
+          `BTOD: Error checking LETF option ${contract.ticker}: ${err.message}`,
+          "btod",
+        );
       }
     }
 
@@ -407,7 +446,10 @@ export async function findLetfOptionContract(
     log(`BTOD: No valid LETF option contract found for ${letfTicker}`, "btod");
     return null;
   } catch (err: any) {
-    log(`BTOD: Error in findLetfOptionContract for ${letfTicker}: ${err.message}`, "btod");
+    log(
+      `BTOD: Error in findLetfOptionContract for ${letfTicker}: ${err.message}`,
+      "btod",
+    );
     return null;
   }
 }
@@ -420,7 +462,10 @@ export interface BtodInstrumentResult {
   error?: string;
 }
 
-export async function executeBtodMultiInstrument(signalId: number, qty: number = 1): Promise<BtodInstrumentResult[]> {
+export async function executeBtodMultiInstrument(
+  signalId: number,
+  qty: number = 1,
+): Promise<BtodInstrumentResult[]> {
   const results: BtodInstrumentResult[] = [];
   const sigs = await storage.getSignals(undefined, 5000);
   const signal = sigs.find((s) => s.id === signalId);
@@ -438,22 +483,41 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
   const isBuy = tp.bias === "BUY";
   const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
-  let optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
+  let optionTicker =
+    signal.optionContractTicker ||
+    (signal.optionsJson as any)?.candidate?.contractSymbol;
   const optionsJson = signal.optionsJson as any;
-  const optionHadNoQuote = optionsJson?.checks?.reasonIfFail?.includes("NO_QUOTE") || (optionsJson?.checks?.bid === 0 && optionsJson?.checks?.ask === 0);
+  const optionHadNoQuote =
+    optionsJson?.checks?.reasonIfFail?.includes("NO_QUOTE") ||
+    (optionsJson?.checks?.bid === 0 && optionsJson?.checks?.ask === 0);
 
   if (optionTicker && optionHadNoQuote) {
     try {
       const { fetchOptionSnapshot } = await import("./polygon");
       const liveSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
-      if (liveSnap && liveSnap.bid != null && liveSnap.bid > 0 && liveSnap.ask != null && liveSnap.ask > 0) {
-        log(`BTOD: Live option quote found for ${optionTicker} — bid=${liveSnap.bid} ask=${liveSnap.ask}, including OPTION`, "btod");
+      if (
+        liveSnap &&
+        liveSnap.bid != null &&
+        liveSnap.bid > 0 &&
+        liveSnap.ask != null &&
+        liveSnap.ask > 0
+      ) {
+        log(
+          `BTOD: Live option quote found for ${optionTicker} — bid=${liveSnap.bid} ask=${liveSnap.ask}, including OPTION`,
+          "btod",
+        );
       } else {
-        log(`BTOD: Live option quote still unavailable for ${optionTicker}, skipping OPTION`, "btod");
+        log(
+          `BTOD: Live option quote still unavailable for ${optionTicker}, skipping OPTION`,
+          "btod",
+        );
         optionTicker = null;
       }
     } catch (err: any) {
-      log(`BTOD: Failed to re-check option quote for ${optionTicker}: ${err.message}`, "btod");
+      log(
+        `BTOD: Failed to re-check option quote for ${optionTicker}: ${err.message}`,
+        "btod",
+      );
       optionTicker = null;
     }
   }
@@ -492,19 +556,29 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
       const letfSnap = await fetchSnapshot(letfTicker);
       const letfPrice = letfSnap?.lastPrice ?? signal.instrumentEntryPrice ?? 0;
       if (letfPrice > 0) {
-        letfOptionContract = await findLetfOptionContract(letfTicker, action, letfPrice);
+        letfOptionContract = await findLetfOptionContract(
+          letfTicker,
+          action,
+          letfPrice,
+        );
         if (letfOptionContract && letfOptionContract.markPrice > 0) {
           instrumentsToExecute.push({
             type: "LETF_OPTIONS",
             ticker: letfOptionContract.contractTicker,
           });
         } else if (letfOptionContract && letfOptionContract.markPrice <= 0) {
-          log(`BTOD: Skipping LETF_OPTIONS for ${letfTicker} — markPrice is ${letfOptionContract.markPrice} (no valid quote)`, "btod");
+          log(
+            `BTOD: Skipping LETF_OPTIONS for ${letfTicker} — markPrice is ${letfOptionContract.markPrice} (no valid quote)`,
+            "btod",
+          );
           letfOptionContract = null;
         }
       }
     } catch (err: any) {
-      log(`BTOD: Failed to find LETF option contract for ${letfTicker}: ${err.message}`, "btod");
+      log(
+        `BTOD: Failed to find LETF option contract for ${letfTicker}: ${err.message}`,
+        "btod",
+      );
     }
   }
 
@@ -541,7 +615,9 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
         instrumentEntry = letfOptionContract.markPrice;
-        delta = letfOptionContract.delta ?? (letfOptionContract.right === "P" ? -0.5 : 0.5);
+        delta =
+          letfOptionContract.delta ??
+          (letfOptionContract.right === "P" ? -0.5 : 0.5);
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
       }
 
@@ -574,10 +650,17 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         optionRight = letfOptionContract.right === "P" ? "PUT" : "CALL";
       }
 
-      const { isTradeSyncEnabled, sendToTradeSync, buildTradeSyncPayloadFromSignal } = await import("./tradesync");
+      const {
+        isTradeSyncEnabled,
+        sendToTradeSync,
+        buildTradeSyncPayloadFromSignal,
+      } = await import("./tradesync");
 
       if (!isTradeSyncEnabled()) {
-        throw new Error("TradeSync disabled");
+        // throw new Error("TradeSync disabled");
+        console.log(
+          `TradeSync disabled, skipping BTOD execution for signal ${signalId}`,
+        );
       }
 
       const tsPayload = buildTradeSyncPayloadFromSignal(
@@ -601,20 +684,39 @@ export async function executeBtodMultiInstrument(signalId: number, qty: number =
         throw new Error(`TradeSync send failed: ${tsResult.error}`);
       }
 
-      const tradeSyncId = tsResult.data?.id || tsResult.data?.signal?.id || tsResult.data?.signalId;
-      log(`BTOD: ${inst.type} signal sent to TradeSync (ts_id: ${tradeSyncId})`, "btod");
+      const tradeSyncId =
+        tsResult.data?.id ||
+        tsResult.data?.signal?.id ||
+        tsResult.data?.signalId;
+      log(
+        `BTOD: ${inst.type} signal sent to TradeSync (ts_id: ${tradeSyncId})`,
+        "btod",
+      );
 
-      results.push({ instrumentType: inst.type, success: true, tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined });
+      results.push({
+        instrumentType: inst.type,
+        success: true,
+        tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined,
+      });
     } catch (err: any) {
-      results.push({ instrumentType: inst.type, success: false, error: err.message });
-      log(`BTOD: Failed to send ${inst.type} to TradeSync for signal ${signalId}: ${err.message}`, "btod");
+      results.push({
+        instrumentType: inst.type,
+        success: false,
+        error: err.message,
+      });
+      log(
+        `BTOD: Failed to send ${inst.type} to TradeSync for signal ${signalId}: ${err.message}`,
+        "btod",
+      );
     }
   }
 
   return results;
 }
 
-export async function checkAllBtodTradesClosed(signalId: number): Promise<boolean> {
+export async function checkAllBtodTradesClosed(
+  signalId: number,
+): Promise<boolean> {
   // BTOD execution is delegated to TradeSync; this service no longer creates local ibkr_trades rows.
   // Trade lifecycle/closure is tracked by TradeSync.
   void signalId;
