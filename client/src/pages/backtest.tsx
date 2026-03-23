@@ -970,7 +970,19 @@ export default function BacktestPage() {
                             <Button
                               variant="ghost" size="sm" className="h-7 w-7 p-0"
                               disabled={simSelectedDayIdx <= 0}
-                              onClick={() => { simUserNavigatedRef.current = true; simTimeNavigatedRef.current = false; setSimSelectedTimeCT(null); setSimSelectedDayIdx((prev) => Math.max(0, prev - 1)); }}
+                              onClick={() => {
+                                simUserNavigatedRef.current = true;
+                                simTimeNavigatedRef.current = false;
+                                const targetIdx = Math.max(0, simSelectedDayIdx - 1);
+                                const targetDay = simDayResults[targetIdx];
+                                if (targetDay) {
+                                  const keys = (simTimeSnapshotKeys[targetDay.dayIndex] ?? []);
+                                  setSimSelectedTimeCT(keys.length > 0 ? keys[keys.length - 1] : targetDay.simTimeCT ?? null);
+                                } else {
+                                  setSimSelectedTimeCT(null);
+                                }
+                                setSimSelectedDayIdx(targetIdx);
+                              }}
                               data-testid="button-sim-prev-day"
                             >
                               <ArrowRight className="w-4 h-4 rotate-180" />
@@ -984,7 +996,19 @@ export default function BacktestPage() {
                             <Button
                               variant="ghost" size="sm" className="h-7 w-7 p-0"
                               disabled={simSelectedDayIdx >= simDayResults.length - 1}
-                              onClick={() => { simUserNavigatedRef.current = true; simTimeNavigatedRef.current = false; setSimSelectedTimeCT(null); setSimSelectedDayIdx((prev) => Math.min(simDayResults.length - 1, prev + 1)); }}
+                              onClick={() => {
+                                simUserNavigatedRef.current = true;
+                                simTimeNavigatedRef.current = false;
+                                const targetIdx = Math.min(simDayResults.length - 1, simSelectedDayIdx + 1);
+                                const targetDay = simDayResults[targetIdx];
+                                if (targetDay) {
+                                  const keys = (simTimeSnapshotKeys[targetDay.dayIndex] ?? []);
+                                  setSimSelectedTimeCT(keys.length > 0 ? keys[keys.length - 1] : targetDay.simTimeCT ?? null);
+                                } else {
+                                  setSimSelectedTimeCT(null);
+                                }
+                                setSimSelectedDayIdx(targetIdx);
+                              }}
                               data-testid="button-sim-next-day"
                             >
                               <ArrowRight className="w-4 h-4" />
@@ -994,7 +1018,12 @@ export default function BacktestPage() {
                             const currentDay = simDayResults[simSelectedDayIdx];
                             if (!currentDay) return null;
                             const daySnaps = simTimeSnapshotsRef.current[currentDay.dayIndex] ?? {};
-                            const eff = (simSelectedTimeCT != null && daySnaps[simSelectedTimeCT]) ? daySnaps[simSelectedTimeCT] : currentDay;
+                            const availKeys = (simTimeSnapshotKeys[currentDay.dayIndex] ?? []).slice().sort((a, b) => a - b);
+                            let resolvedTimeCT = simSelectedTimeCT;
+                            if (resolvedTimeCT != null && !daySnaps[resolvedTimeCT] && availKeys.length > 0) {
+                              resolvedTimeCT = availKeys[availKeys.length - 1];
+                            }
+                            const eff = (resolvedTimeCT != null && daySnaps[resolvedTimeCT]) ? daySnaps[resolvedTimeCT] : currentDay;
                             const summary = eff.summary;
                             const sigCount = eff.signalsGenerated;
                             return (
@@ -1020,9 +1049,13 @@ export default function BacktestPage() {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
                           const availTimes = (simTimeSnapshotKeys[currentDay.dayIndex] ?? []).slice().sort((a, b) => a - b);
-                          const timeCT = simSelectedTimeCT ?? currentDay.simTimeCT ?? 0;
-                          if (availTimes.length === 0 && timeCT === 0) return null;
-                          const currentIdx = availTimes.indexOf(timeCT);
+                          if (availTimes.length === 0) return null;
+                          let timeCT = simSelectedTimeCT ?? currentDay.simTimeCT ?? availTimes[availTimes.length - 1];
+                          let currentIdx = availTimes.indexOf(timeCT);
+                          if (currentIdx < 0) {
+                            currentIdx = availTimes.length - 1;
+                            timeCT = availTimes[currentIdx];
+                          }
                           const canPrev = currentIdx > 0;
                           const canNext = currentIdx >= 0 && currentIdx < availTimes.length - 1;
                           const formatCT = (min: number) => {
@@ -1089,7 +1122,12 @@ export default function BacktestPage() {
                           if (!currentDay) return null;
 
                           const daySnaps = simTimeSnapshotsRef.current[currentDay.dayIndex] ?? {};
-                          const effectiveDay = (simSelectedTimeCT != null && daySnaps[simSelectedTimeCT]) ? daySnaps[simSelectedTimeCT] : currentDay;
+                          const availKeys = (simTimeSnapshotKeys[currentDay.dayIndex] ?? []).slice().sort((a, b) => a - b);
+                          let resolvedTime = simSelectedTimeCT;
+                          if (resolvedTime != null && !daySnaps[resolvedTime] && availKeys.length > 0) {
+                            resolvedTime = availKeys[availKeys.length - 1];
+                          }
+                          const effectiveDay = (resolvedTime != null && daySnaps[resolvedTime]) ? daySnaps[resolvedTime] : currentDay;
 
                           const btodTop3 = effectiveDay.btodTop3;
                           const btodStatus = effectiveDay.btodStatus;
