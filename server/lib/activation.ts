@@ -590,6 +590,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   }
 
   // 3) Pass B: handle pending signals (entry trigger + activation).
+  console.log(`[activation] currentPriceByTicker: ${currentPriceByTicker.size} ticker(s)`);
   for (const ticker of Array.from(currentPriceByTicker.keys())) {
     const currentPrice = currentPriceByTicker.get(ticker) ?? null;
     await checkPendingSignalsForTicker(
