@@ -1065,7 +1065,7 @@ export default function BacktestPage() {
                             const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
                             return `${h12}:${m.toString().padStart(2, "0")} ${suffix}`;
                           };
-                          const phaseName = timeCT < 8 * 60 + 20 ? "Pre-Market" :
+                          const phaseName = timeCT < 8 * 60 + 20 ? "Start of Day" :
                             timeCT < 8 * 60 + 30 ? "Pre-Open" :
                             timeCT < 15 * 60 ? "Live Monitor" :
                             timeCT < 15 * 60 + 10 ? "After-Close" : "End of Day";
