@@ -1005,6 +1005,7 @@ export class SimTickerStepper {
 
     this.simTimeCT = SIM_PRE_OPEN_CT + 5;
     if (await this.preOpenScan()) return this.earlyReturn();
+    this.emitDayUpdatePublic();
 
     const noSignals = await this.liveMonitorInit();
     if (!noSignals) {
@@ -1012,10 +1013,8 @@ export class SimTickerStepper {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
 
-        const { allResolved, hadEvents } = this.liveMonitorTick(min);
-        if (hadEvents) {
-          this.emitDayUpdatePublic();
-        }
+        const { allResolved } = this.liveMonitorTick(min);
+        this.emitDayUpdatePublic();
         if (allResolved) break;
       }
     }
@@ -1023,7 +1022,9 @@ export class SimTickerStepper {
 
     this.simTimeCT = SIM_AFTER_CLOSE_CT;
     if (await this.afterCloseScan()) return this.earlyReturn();
+    this.emitDayUpdatePublic();
 
+    this.simTimeCT = SIM_AFTER_CLOSE_CT + 5;
     return await this.endOfDay();
   }
 }

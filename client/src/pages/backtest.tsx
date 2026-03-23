@@ -241,7 +241,8 @@ export default function BacktestPage() {
   const sseRef = useRef<EventSource | null>(null);
   const simDayCountRef = useRef(0);
 
-  const [simTimeSnapshots, setSimTimeSnapshots] = useState<Record<number, Record<number, SimDayDetail>>>({});
+  const simTimeSnapshotsRef = useRef<Record<number, Record<number, SimDayDetail>>>({});
+  const [simTimeSnapshotKeys, setSimTimeSnapshotKeys] = useState<Record<number, number[]>>({});
   const [simSelectedTimeCT, setSimSelectedTimeCT] = useState<number | null>(null);
 
   const connectSSE = useCallback(() => {
@@ -270,14 +271,17 @@ export default function BacktestPage() {
         if (!simUserNavigatedRef.current) {
           setSimSelectedDayIdx(catchUpDays.length - 1);
         }
-        const snapshots: Record<number, Record<number, SimDayDetail>> = {};
+        const snapData: Record<number, Record<number, SimDayDetail>> = {};
+        const snapKeys: Record<number, number[]> = {};
         for (const d of catchUpDays) {
           if (d.simTimeCT != null && d.simTimeCT > 0) {
-            if (!snapshots[d.dayIndex]) snapshots[d.dayIndex] = {};
-            snapshots[d.dayIndex][d.simTimeCT] = structuredClone(d);
+            if (!snapData[d.dayIndex]) { snapData[d.dayIndex] = {}; snapKeys[d.dayIndex] = []; }
+            snapData[d.dayIndex][d.simTimeCT] = d;
+            if (!snapKeys[d.dayIndex].includes(d.simTimeCT)) snapKeys[d.dayIndex].push(d.simTimeCT);
           }
         }
-        setSimTimeSnapshots(snapshots);
+        simTimeSnapshotsRef.current = snapData;
+        setSimTimeSnapshotKeys(snapKeys);
         const lastDay = catchUpDays[catchUpDays.length - 1];
         if (lastDay?.simTimeCT && !simTimeNavigatedRef.current) {
           setSimSelectedTimeCT(lastDay.simTimeCT);
@@ -332,9 +336,12 @@ export default function BacktestPage() {
             if (data.simTimeCT != null && data.simTimeCT > 0) {
               const dayIdx = data.dayIndex as number;
               const t = data.simTimeCT as number;
-              setSimTimeSnapshots((prev) => {
-                const daySnaps = prev[dayIdx] ?? {};
-                return { ...prev, [dayIdx]: { ...daySnaps, [t]: structuredClone(data) } };
+              if (!simTimeSnapshotsRef.current[dayIdx]) simTimeSnapshotsRef.current[dayIdx] = {};
+              simTimeSnapshotsRef.current[dayIdx][t] = data;
+              setSimTimeSnapshotKeys((prev) => {
+                const existing = prev[dayIdx] ?? [];
+                if (existing.length > 0 && existing[existing.length - 1] === t) return prev;
+                return { ...prev, [dayIdx]: [...existing, t] };
               });
               if (!simTimeNavigatedRef.current && !simUserNavigatedRef.current) {
                 setSimSelectedTimeCT(t);
@@ -425,7 +432,8 @@ export default function BacktestPage() {
     simUserNavigatedRef.current = false;
     simTimeNavigatedRef.current = false;
     setSimSelectedTimeCT(null);
-    setSimTimeSnapshots({});
+    simTimeSnapshotsRef.current = {};
+    setSimTimeSnapshotKeys({});
 
     fetch("/api/backtest/simulate-start", {
       method: "POST",
@@ -985,7 +993,7 @@ export default function BacktestPage() {
                           {(() => {
                             const currentDay = simDayResults[simSelectedDayIdx];
                             if (!currentDay) return null;
-                            const daySnaps = simTimeSnapshots[currentDay.dayIndex] ?? {};
+                            const daySnaps = simTimeSnapshotsRef.current[currentDay.dayIndex] ?? {};
                             const eff = (simSelectedTimeCT != null && daySnaps[simSelectedTimeCT]) ? daySnaps[simSelectedTimeCT] : currentDay;
                             const summary = eff.summary;
                             const sigCount = eff.signalsGenerated;
@@ -1011,8 +1019,7 @@ export default function BacktestPage() {
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
-                          const daySnaps = simTimeSnapshots[currentDay.dayIndex] ?? {};
-                          const availTimes = Object.keys(daySnaps).map(Number).sort((a, b) => a - b);
+                          const availTimes = (simTimeSnapshotKeys[currentDay.dayIndex] ?? []).slice().sort((a, b) => a - b);
                           const timeCT = simSelectedTimeCT ?? currentDay.simTimeCT ?? 0;
                           if (availTimes.length === 0 && timeCT === 0) return null;
                           const currentIdx = availTimes.indexOf(timeCT);
@@ -1081,7 +1088,7 @@ export default function BacktestPage() {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
 
-                          const daySnaps = simTimeSnapshots[currentDay.dayIndex] ?? {};
+                          const daySnaps = simTimeSnapshotsRef.current[currentDay.dayIndex] ?? {};
                           const effectiveDay = (simSelectedTimeCT != null && daySnaps[simSelectedTimeCT]) ? daySnaps[simSelectedTimeCT] : currentDay;
 
                           const btodTop3 = effectiveDay.btodTop3;
