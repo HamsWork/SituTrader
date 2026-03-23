@@ -1,5 +1,17 @@
 import { storage } from "../storage";
-import { fetchSnapshot, fetchOptionsChain, fetchOptionSnapshot } from "./polygon";
+import {
+  fetchSnapshot,
+  fetchOptionsChain,
+  fetchOptionSnapshot,
+  fetchOptionMark,
+  fetchOptionMarkAtTime,
+  fetchStockPriceAtTime,
+} from "./polygon";
+import {
+  selectBestLeveragedEtf,
+  fetchStockNbbo,
+  hasLeveragedEtfMapping,
+} from "./leveragedEtf";
 import { log } from "../index";
 import type { Signal, TradePlan, OptionsData, OptionsCandidate, OptionsChecks } from "@shared/schema";
 
@@ -709,4 +721,93 @@ export async function enrichSignalWithOptions(
     log(`enrichSignalWithOptions error for signal ${signal.id} (${signal.ticker}): ${err.message}`, "options");
     return false;
   }
+}
+
+export async function enrichOptionData(
+  ticker: string,
+  sig: Signal,
+  tp: TradePlan,
+  triggerTs: string | undefined,
+): Promise<"OPTION" | "SHARES" | "LEVERAGED_ETF"> {
+  let instrumentType: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
+    (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") ||
+    "OPTION";
+
+  const opts = sig.optionsJson as OptionsData | null;
+  const contractTicker =
+    sig.optionContractTicker || opts?.candidate?.contractSymbol;
+
+  if (contractTicker) {
+    try {
+      const triggerMs = triggerTs
+        ? new Date(triggerTs).getTime()
+        : Date.now();
+      let entryMarkPrice = await fetchOptionMarkAtTime(
+        contractTicker,
+        triggerMs,
+      );
+      if (entryMarkPrice == null) {
+        const liveQuote = await fetchOptionMark(contractTicker, ticker);
+        if (liveQuote && liveQuote.mark != null)
+          entryMarkPrice = liveQuote.mark;
+      }
+      if (entryMarkPrice != null) {
+        await storage.updateSignalOptionTracking(sig.id, {
+          optionContractTicker: contractTicker,
+          optionEntryMark: entryMarkPrice,
+        });
+        log(
+          `Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${triggerTs} (${contractTicker})`,
+          "activation",
+        );
+      }
+    } catch (err: any) {
+      log(
+        `Failed to capture option entry mark at activation for signal ${sig.id}: ${err.message}`,
+        "activation",
+      );
+    }
+  }
+
+  if (
+    hasLeveragedEtfMapping(ticker) &&
+    (!sig.instrumentType || sig.instrumentType === "OPTION") &&
+    !sig.instrumentTicker
+  ) {
+    try {
+      const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
+      if (suggestion) {
+        const triggerMs = triggerTs
+          ? new Date(triggerTs).getTime()
+          : Date.now();
+        let letfEntry = await fetchStockPriceAtTime(
+          suggestion.ticker,
+          triggerMs,
+        );
+        if (letfEntry == null) {
+          const letfQuote = await fetchStockNbbo(suggestion.ticker);
+          letfEntry = letfQuote?.mid ?? null;
+        }
+        await storage.updateSignalLeveragedEtf(sig.id, suggestion);
+        await storage.updateSignalInstrument(
+          sig.id,
+          "LEVERAGED_ETF",
+          suggestion.ticker,
+          letfEntry,
+        );
+        instrumentType = "LEVERAGED_ETF";
+        log(
+          `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${triggerTs}`,
+          "activation",
+        );
+      }
+    } catch (err: any) {
+      log(
+        `Failed to auto-select LETF for signal ${sig.id}: ${err.message}`,
+        "activation",
+      );
+    }
+  }
+
+  return instrumentType;
 }
