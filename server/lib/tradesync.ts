@@ -352,6 +352,7 @@ export function buildTradeSyncPayloadFromSignal(
     payload.option_type = extras.optionRight || (isBuy ? "CALL" : "PUT");
     payload.entry_option_price =
       instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
+    payload.underlying_ticker = signal.ticker;
   }
 
   if (instrumentType === "LETF_OPTIONS" && extras?.optionExpiry) {
@@ -362,6 +363,9 @@ export function buildTradeSyncPayloadFromSignal(
       instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null;
     payload.underlying_ticker = signal.ticker;
     payload.leverage = extras.leverage;
+    const letfEntryPrice = signal.instrumentEntryPrice ?? 0;
+    payload.entry_letf_price =
+      letfEntryPrice > 0 ? parseFloat(letfEntryPrice.toFixed(2)) : null;
   }
 
   if (instrumentType === "LEVERAGED_ETF") {
