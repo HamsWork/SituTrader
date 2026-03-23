@@ -231,16 +231,18 @@ export default function BacktestPage() {
   const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
   const [simDayResults, setSimDayResults] = useState<SimDayDetail[]>([]);
   const [simSelectedDayIdx, setSimSelectedDayIdx] = useState<number>(-1);
-  const [simSelectedPhaseIdx, setSimSelectedPhaseIdx] = useState<number>(3);
   const [simFinalStats, setSimFinalStats] = useState<any | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const [simPaused, setSimPaused] = useState(false);
   const [simPhaseDelayMs, setSimPhaseDelayMs] = useState(4000);
   const simLogEndRef = useRef<HTMLDivElement>(null);
   const simUserNavigatedRef = useRef(false);
-  const simPhaseNavigatedRef = useRef(false);
+  const simTimeNavigatedRef = useRef(false);
   const sseRef = useRef<EventSource | null>(null);
   const simDayCountRef = useRef(0);
+
+  const [simTimeSnapshots, setSimTimeSnapshots] = useState<Record<number, Record<number, SimDayDetail>>>({});
+  const [simSelectedTimeCT, setSimSelectedTimeCT] = useState<number | null>(null);
 
   const connectSSE = useCallback(() => {
     if (sseRef.current) {
@@ -268,9 +270,17 @@ export default function BacktestPage() {
         if (!simUserNavigatedRef.current) {
           setSimSelectedDayIdx(catchUpDays.length - 1);
         }
+        const snapshots: Record<number, Record<number, SimDayDetail>> = {};
+        for (const d of catchUpDays) {
+          if (d.simTimeCT != null && d.simTimeCT > 0) {
+            if (!snapshots[d.dayIndex]) snapshots[d.dayIndex] = {};
+            snapshots[d.dayIndex][d.simTimeCT] = structuredClone(d);
+          }
+        }
+        setSimTimeSnapshots(snapshots);
         const lastDay = catchUpDays[catchUpDays.length - 1];
-        if (lastDay?.phases?.length && !simPhaseNavigatedRef.current && !simUserNavigatedRef.current) {
-          setSimSelectedPhaseIdx(lastDay.phases.length - 1);
+        if (lastDay?.simTimeCT && !simTimeNavigatedRef.current) {
+          setSimSelectedTimeCT(lastDay.simTimeCT);
         }
         catchUpDays = [];
       }
@@ -312,16 +322,24 @@ export default function BacktestPage() {
               const isNewDay = updated.length > simDayCountRef.current;
               if (isNewDay) {
                 simDayCountRef.current = updated.length;
-                simPhaseNavigatedRef.current = false;
+                simTimeNavigatedRef.current = false;
               }
               if (!simUserNavigatedRef.current) {
                 setSimSelectedDayIdx(updated.length - 1);
               }
-              if (data.phases?.length > 0 && !simPhaseNavigatedRef.current && !simUserNavigatedRef.current) {
-                setSimSelectedPhaseIdx(data.phases.length - 1);
-              }
               return updated;
             });
+            if (data.simTimeCT != null && data.simTimeCT > 0) {
+              const dayIdx = data.dayIndex as number;
+              const t = data.simTimeCT as number;
+              setSimTimeSnapshots((prev) => {
+                const daySnaps = prev[dayIdx] ?? {};
+                return { ...prev, [dayIdx]: { ...daySnaps, [t]: structuredClone(data) } };
+              });
+              if (!simTimeNavigatedRef.current && !simUserNavigatedRef.current) {
+                setSimSelectedTimeCT(t);
+              }
+            }
           }
         } else if (event === "complete") {
           flushCatchUp();
@@ -405,8 +423,9 @@ export default function BacktestPage() {
     setSimFinalStats(null);
     simDayCountRef.current = 0;
     simUserNavigatedRef.current = false;
-    simPhaseNavigatedRef.current = false;
-    setSimSelectedPhaseIdx(0);
+    simTimeNavigatedRef.current = false;
+    setSimSelectedTimeCT(null);
+    setSimTimeSnapshots({});
 
     fetch("/api/backtest/simulate-start", {
       method: "POST",
@@ -943,7 +962,7 @@ export default function BacktestPage() {
                             <Button
                               variant="ghost" size="sm" className="h-7 w-7 p-0"
                               disabled={simSelectedDayIdx <= 0}
-                              onClick={() => { simUserNavigatedRef.current = true; setSimSelectedDayIdx((prev) => Math.max(0, prev - 1)); }}
+                              onClick={() => { simUserNavigatedRef.current = true; simTimeNavigatedRef.current = false; setSimSelectedTimeCT(null); setSimSelectedDayIdx((prev) => Math.max(0, prev - 1)); }}
                               data-testid="button-sim-prev-day"
                             >
                               <ArrowRight className="w-4 h-4 rotate-180" />
@@ -957,7 +976,7 @@ export default function BacktestPage() {
                             <Button
                               variant="ghost" size="sm" className="h-7 w-7 p-0"
                               disabled={simSelectedDayIdx >= simDayResults.length - 1}
-                              onClick={() => { simUserNavigatedRef.current = true; setSimSelectedDayIdx((prev) => Math.min(simDayResults.length - 1, prev + 1)); }}
+                              onClick={() => { simUserNavigatedRef.current = true; simTimeNavigatedRef.current = false; setSimSelectedTimeCT(null); setSimSelectedDayIdx((prev) => Math.min(simDayResults.length - 1, prev + 1)); }}
                               data-testid="button-sim-next-day"
                             >
                               <ArrowRight className="w-4 h-4" />
@@ -966,8 +985,10 @@ export default function BacktestPage() {
                           {(() => {
                             const currentDay = simDayResults[simSelectedDayIdx];
                             if (!currentDay) return null;
-                            const summary = currentDay.summary;
-                            const sigCount = currentDay.signalsGenerated;
+                            const daySnaps = simTimeSnapshots[currentDay.dayIndex] ?? {};
+                            const eff = (simSelectedTimeCT != null && daySnaps[simSelectedTimeCT]) ? daySnaps[simSelectedTimeCT] : currentDay;
+                            const summary = eff.summary;
+                            const sigCount = eff.signalsGenerated;
                             return (
                               <div className="flex items-center gap-2 text-xs">
                                 <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
@@ -990,7 +1011,13 @@ export default function BacktestPage() {
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
-                          const timeCT = currentDay.simTimeCT ?? 0;
+                          const daySnaps = simTimeSnapshots[currentDay.dayIndex] ?? {};
+                          const availTimes = Object.keys(daySnaps).map(Number).sort((a, b) => a - b);
+                          const timeCT = simSelectedTimeCT ?? currentDay.simTimeCT ?? 0;
+                          if (availTimes.length === 0 && timeCT === 0) return null;
+                          const currentIdx = availTimes.indexOf(timeCT);
+                          const canPrev = currentIdx > 0;
+                          const canNext = currentIdx >= 0 && currentIdx < availTimes.length - 1;
                           const formatCT = (min: number) => {
                             const h = Math.floor(min / 60);
                             const m = min % 60;
@@ -1002,14 +1029,25 @@ export default function BacktestPage() {
                             timeCT < 8 * 60 + 30 ? "Pre-Open" :
                             timeCT < 15 * 60 ? "Live Monitor" :
                             timeCT < 15 * 60 + 10 ? "After-Close" : "End of Day";
-                          return timeCT > 0 ? (
-                            <div className="flex items-center gap-3 mb-2 px-1" data-testid="sim-time-stepper">
-                              <div className="flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                                <span className="font-mono text-sm font-semibold" data-testid="text-sim-time">
-                                  {formatCT(timeCT)} CT
-                                </span>
-                              </div>
+                          return (
+                            <div className="flex items-center gap-2 mb-2" data-testid="sim-time-stepper">
+                              <Button
+                                variant="ghost" size="sm" className="h-7 w-7 p-0"
+                                disabled={!canPrev}
+                                onClick={() => {
+                                  if (canPrev) {
+                                    simTimeNavigatedRef.current = true;
+                                    setSimSelectedTimeCT(availTimes[currentIdx - 1]);
+                                  }
+                                }}
+                                data-testid="button-sim-prev-time"
+                              >
+                                <ArrowRight className="w-4 h-4 rotate-180" />
+                              </Button>
+                              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                              <span className="font-mono text-sm font-semibold" data-testid="text-sim-time">
+                                {formatCT(timeCT)} CT
+                              </span>
                               <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${
                                 phaseName === "Live Monitor" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
                                 phaseName === "Pre-Open" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
@@ -1019,22 +1057,41 @@ export default function BacktestPage() {
                               }`}>
                                 {phaseName}
                               </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {currentIdx >= 0 ? currentIdx + 1 : "—"} of {availTimes.length}
+                              </span>
+                              <Button
+                                variant="ghost" size="sm" className="h-7 w-7 p-0"
+                                disabled={!canNext}
+                                onClick={() => {
+                                  if (canNext) {
+                                    simTimeNavigatedRef.current = true;
+                                    setSimSelectedTimeCT(availTimes[currentIdx + 1]);
+                                  }
+                                }}
+                                data-testid="button-sim-next-time"
+                              >
+                                <ArrowRight className="w-4 h-4" />
+                              </Button>
                             </div>
-                          ) : null;
+                          );
                         })()}
 
                         {(() => {
                           const currentDay = simDayResults[simSelectedDayIdx];
                           if (!currentDay) return null;
 
-                          const btodTop3 = currentDay.btodTop3;
-                          const btodStatus = currentDay.btodStatus;
-                          const activationDetails = currentDay.activationDetails;
-                          const tradeSyncCalls = currentDay.tradeSyncCalls;
-                          const hitDetails = currentDay.hitDetails;
-                          const onDeckSignals = currentDay.onDeckSignals;
-                          const activeSignals = currentDay.activeSignals;
-                          const newSignals = currentDay.newSignals;
+                          const daySnaps = simTimeSnapshots[currentDay.dayIndex] ?? {};
+                          const effectiveDay = (simSelectedTimeCT != null && daySnaps[simSelectedTimeCT]) ? daySnaps[simSelectedTimeCT] : currentDay;
+
+                          const btodTop3 = effectiveDay.btodTop3;
+                          const btodStatus = effectiveDay.btodStatus;
+                          const activationDetails = effectiveDay.activationDetails;
+                          const tradeSyncCalls = effectiveDay.tradeSyncCalls;
+                          const hitDetails = effectiveDay.hitDetails;
+                          const onDeckSignals = effectiveDay.onDeckSignals;
+                          const activeSignals = effectiveDay.activeSignals;
+                          const newSignals = effectiveDay.newSignals;
                           return (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               <div className="space-y-2">
@@ -1226,7 +1283,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground">{h.timeToHitMin}min</span>
                                     </div>
                                   ))}
-                                  {(currentDay.missDetails ?? []).map((m, i) => (
+                                  {(effectiveDay.missDetails ?? []).map((m, i) => (
                                     <div key={`miss-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-red-500/5 border border-red-500/10 text-xs">
                                       <div className="flex items-center gap-2">
                                         <XCircle className="w-3 h-3 text-red-400" />
@@ -1235,7 +1292,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground text-[10px]">{m.reason}</span>
                                     </div>
                                   ))}
-                                  {activationDetails.length === 0 && hitDetails.length === 0 && (currentDay.missDetails ?? []).length === 0 && (
+                                  {activationDetails.length === 0 && hitDetails.length === 0 && (effectiveDay.missDetails ?? []).length === 0 && (
                                     <p className="text-[10px] text-muted-foreground px-2">No events today</p>
                                   )}
                                 </div>
