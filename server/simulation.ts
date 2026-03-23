@@ -26,9 +26,9 @@ export interface SimSignal {
   activatedTs: string | null;
   entryPrice: number | null;
   stopPrice: number | null;
+  stopStage: "INITIAL" | "BE" | "TIME_TIGHTENED";
   mae: number | null;
   mfe: number | null;
-  // Pre-open enrichment / activation tracking (best-effort for simulation)
   optionContractTicker?: string | null;
   optionEntryMark?: number | null;
 }

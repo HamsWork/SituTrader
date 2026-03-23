@@ -233,11 +233,16 @@ export class SimTickerStepper {
       type: "processing",
     });
 
-    // load intraday bars
     const pendingForToday = Array.from(this.allSignals.values()).filter(
       (s) => s.status === "pending" && s.targetDate === this.today && s.activationStatus !== "INVALIDATED",
     );
-    const intradayTickers = Array.from(new Set(pendingForToday.map((s) => s.ticker)));
+    const activatedFromPriorDays = Array.from(this.allSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    );
+    const intradayTickers = Array.from(new Set([
+      ...pendingForToday.map((s) => s.ticker),
+      ...activatedFromPriorDays.map((s) => s.ticker),
+    ]));
 
     for (const ticker of intradayTickers) {
       if (this.isAborted()) break;
@@ -389,12 +394,20 @@ export class SimTickerStepper {
         s.activationStatus !== "INVALIDATED",
     );
 
-    if (this.liveMonitorPending.length === 0) {
+    const activatedSignals = Array.from(this.allSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    );
+
+    const allMonitorSignals = [...this.liveMonitorPending, ...activatedSignals.filter(
+      (s) => !this.liveMonitorPending.some((p) => p.id === s.id),
+    )];
+
+    if (allMonitorSignals.length === 0) {
       this.emit("log", { message: `  No signals targeting ${this.today}`, type: "info" });
       return true;
     }
 
-    this.liveMonitorTickers = Array.from(new Set(this.liveMonitorPending.map((s) => s.ticker)));
+    this.liveMonitorTickers = Array.from(new Set(allMonitorSignals.map((s) => s.ticker)));
 
     this.liveMonitorRthBars = new Map();
     for (const ticker of this.liveMonitorTickers) {
@@ -403,7 +416,268 @@ export class SimTickerStepper {
       if (rthBars.length > 0) this.liveMonitorRthBars.set(ticker, rthBars);
     }
 
+    if (activatedSignals.length > 0) {
+      this.emit("log", {
+        message: `  Monitoring ${this.liveMonitorPending.length} pending + ${activatedSignals.length} active signals across ${this.liveMonitorTickers.length} tickers`,
+        type: "info",
+      });
+    }
+
     return false;
+  }
+
+  private checkInvalidation(currentPrice: number, sig: SimSignal): boolean {
+    const tp = sig.tradePlan;
+    const entryPrice = sig.entryPrice ?? 0;
+    const effectiveStop = sig.stopPrice;
+    if (effectiveStop == null) {
+      const stopDistance = tp.stopDistance;
+      if (!stopDistance || stopDistance <= 0) return false;
+      if (tp.bias === "SELL") return currentPrice > entryPrice + stopDistance * 1.5;
+      return currentPrice < entryPrice - stopDistance * 1.5;
+    }
+    if (tp.bias === "SELL") return currentPrice > effectiveStop;
+    return currentPrice < effectiveStop;
+  }
+
+  private computeRNow(currentPrice: number, entryPrice: number, stopPrice: number, isSell: boolean): number {
+    const stopDist = Math.abs(entryPrice - stopPrice);
+    if (stopDist === 0) return 0;
+    return isSell ? (entryPrice - currentPrice) / stopDist : (currentPrice - entryPrice) / stopDist;
+  }
+
+  private computeProgressToTarget(currentPrice: number, entryPrice: number, targetPrice: number, isSell: boolean): number {
+    let progress: number;
+    if (isSell) {
+      progress = entryPrice - targetPrice !== 0 ? (entryPrice - currentPrice) / (entryPrice - targetPrice) : 0;
+    } else {
+      progress = targetPrice - entryPrice !== 0 ? (currentPrice - entryPrice) / (targetPrice - entryPrice) : 0;
+    }
+    return Math.max(0, Math.min(1, progress));
+  }
+
+  private shouldApplyBE(): boolean {
+    return this.config.stopMode === "VOLATILITY_BE" || this.config.stopMode === "FULL";
+  }
+
+  private shouldApplyTimeStop(): boolean {
+    return this.config.stopMode === "VOLATILITY_TIME" || this.config.stopMode === "FULL";
+  }
+
+  private checkActivatedSignals(min: number, barsMap: Map<string, IBar[]>, cutoffMs: number): void {
+    const activatedSignals = Array.from(this.allSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    );
+    if (activatedSignals.length === 0) return;
+
+    const tickerGroups = new Map<string, SimSignal[]>();
+    for (const sig of activatedSignals) {
+      if (!tickerGroups.has(sig.ticker)) tickerGroups.set(sig.ticker, []);
+      tickerGroups.get(sig.ticker)!.push(sig);
+    }
+
+    for (const [ticker, sigs] of tickerGroups) {
+      const rthBars = barsMap.get(ticker);
+      if (!rthBars) continue;
+      const barsToNow = rthBars.filter((b) => Date.parse(b.ts) <= cutoffMs);
+      if (barsToNow.length === 0) continue;
+
+      const currentPrice = barsToNow[barsToNow.length - 1].close;
+
+      for (const sig of sigs) {
+        const entryPrice = sig.entryPrice ?? 0;
+        const isSell = sig.tradePlan.bias === "SELL";
+
+        if (this.checkInvalidation(currentPrice, sig)) {
+          sig.activationStatus = "INVALIDATED";
+          sig.status = "miss";
+          sig.missReason = `Stopped out at $${currentPrice.toFixed(2)}`;
+          this.dayResult.misses.push({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            reason: `Stopped out at $${currentPrice.toFixed(2)}`,
+          });
+          this.emit("log", {
+            message: `  ✗ INVALIDATED [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} stopped out at $${currentPrice.toFixed(2)} (entry $${entryPrice.toFixed(2)})`,
+            type: "error",
+          });
+          continue;
+        }
+
+        if (entryPrice > 0 && sig.stopPrice != null) {
+          const rNow = this.computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
+          const progress = this.computeProgressToTarget(currentPrice, entryPrice, sig.tradePlan.t1, isSell);
+
+          const activatedAtMs = sig.activatedTs ? new Date(sig.activatedTs).getTime() : 0;
+          const nowMs = dayjs.tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:00`, this.CT).valueOf();
+          const activeMinutes = activatedAtMs > 0 ? Math.floor((nowMs - activatedAtMs) / 60000) : 0;
+
+          if (this.shouldApplyBE() && sig.stopStage === "INITIAL") {
+            const beEarned = rNow >= 0.5 || progress >= 0.25;
+            if (beEarned) {
+              sig.stopStage = "BE";
+              sig.stopPrice = entryPrice;
+              this.emit("log", {
+                message: `  ⟳ STOP→BE [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} stop moved to breakeven $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`,
+                type: "info",
+              });
+            }
+          }
+
+          if (this.shouldApplyTimeStop() && sig.stopStage !== "TIME_TIGHTENED") {
+            if (activeMinutes >= 120 && progress < 0.15) {
+              const stopDist = Math.abs(entryPrice - sig.stopPrice);
+              const tightenedDist = stopDist * 0.5;
+              const newStop = isSell ? entryPrice + tightenedDist : entryPrice - tightenedDist;
+              sig.stopStage = "TIME_TIGHTENED";
+              sig.stopPrice = newStop;
+              this.emit("log", {
+                message: `  ⏱ TIME STOP [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min (progress=${(progress * 100).toFixed(0)}%)`,
+                type: "info",
+              });
+            }
+          }
+        }
+
+        const touchResult = validateMagnetTouch(
+          barsToNow.map((b) => ({ ts: b.ts, high: b.high, low: b.low })),
+          sig.magnetPrice,
+          sig.direction,
+        );
+        if (touchResult.hit) {
+          sig.status = "hit";
+          sig.hitTs = touchResult.hitTs ?? null;
+          sig.timeToHitMin = touchResult.timeToHitMin ?? null;
+          this.dayResult.hits.push({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            hitTs: touchResult.hitTs ?? this.today,
+            timeToHitMin: touchResult.timeToHitMin ?? 0,
+          });
+          this.emit("log", {
+            message: `  ✓ HIT [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} magnet $${sig.magnetPrice.toFixed(2)} touched`,
+            type: "success",
+          });
+        }
+
+        if (sig.entryPrice) {
+          const allRthBars = barsMap.get(ticker) ?? [];
+          const maeMfe = computeMAEMFE(allRthBars as any, sig.entryPrice, sig.direction);
+          sig.mae = maeMfe.mae;
+          sig.mfe = maeMfe.mfe;
+        }
+      }
+    }
+  }
+
+  private processTriggeredSignal(sig: SimSignal, triggerResult: { triggered: boolean; triggerTs?: string; entryPrice?: number }, min: number): void {
+    const isBtodCandidate = this.btodSignalIds.has(sig.id);
+
+    sig.activationStatus = "ACTIVE";
+    sig.activatedTs = triggerResult.triggerTs ?? null;
+    sig.entryPrice = triggerResult.entryPrice ?? null;
+
+    if (sig.tradePlan.stopDistance && sig.tradePlan.stopDistance > 0 && triggerResult.entryPrice) {
+      sig.stopPrice = sig.tradePlan.bias === "SELL"
+        ? triggerResult.entryPrice + sig.tradePlan.stopDistance
+        : triggerResult.entryPrice - sig.tradePlan.stopDistance;
+    }
+    sig.stopStage = "INITIAL";
+
+    if (isBtodCandidate && !this.btodExecutedToday) {
+      this.btodExecutedToday = true;
+
+      this.dayResult.activations.push({
+        signalId: sig.id,
+        ticker: sig.ticker,
+        setupType: sig.setupType,
+        triggerTs: triggerResult.triggerTs ?? this.today,
+        entryPrice: triggerResult.entryPrice ?? 0,
+        isBtod: true,
+      });
+
+      this.dayResult.btodStatus.phase = "CLOSED";
+      this.dayResult.btodStatus.gateOpen = false;
+      this.dayResult.btodStatus.executedSignalId = sig.id;
+      this.dayResult.btodStatus.executedTicker = sig.ticker;
+
+      const instruments: string[] = ["Shares"];
+      if (sig.tradePlan.stopDistance) instruments.push("Options");
+      instruments.push("LETF", "LETF Options");
+
+      this.dayResult.tradeSyncCalls.push({
+        signalId: sig.id,
+        ticker: sig.ticker,
+        setupType: sig.setupType,
+        direction: sig.direction,
+        entryPrice: triggerResult.entryPrice ?? 0,
+        stopPrice: sig.stopPrice,
+        targetPrice: sig.magnetPrice,
+        instruments,
+        status: "SIMULATED",
+        triggerTs: triggerResult.triggerTs ?? this.today,
+      });
+
+      this.emit("log", {
+        message: `  ★ BTOD ACTIVATION [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${this.top3.find((r) => r.signalId === sig.id)?.rank})`,
+        type: "success",
+      });
+      this.emit("log", {
+        message: `  📡 TradeSync (sim): Would send ${instruments.join(", ")} for ${sig.ticker} ${sig.direction} @$${(triggerResult.entryPrice ?? 0).toFixed(2)} → target $${sig.magnetPrice.toFixed(2)}`,
+        type: "info",
+      });
+    } else {
+      this.dayResult.activations.push({
+        signalId: sig.id,
+        ticker: sig.ticker,
+        setupType: sig.setupType,
+        triggerTs: triggerResult.triggerTs ?? this.today,
+        entryPrice: triggerResult.entryPrice ?? 0,
+        isBtod: false,
+      });
+
+      this.emit("log", {
+        message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)}${isBtodCandidate && this.btodExecutedToday ? " (BTOD gate closed)" : ""}`,
+        type: "success",
+      });
+    }
+  }
+
+  private checkPendingSignals(min: number, barsMap: Map<string, IBar[]>, cutoffMs: number): void {
+    for (const ticker of this.liveMonitorTickers) {
+      const rthBars = barsMap.get(ticker);
+      if (!rthBars) continue;
+
+      const barsToNow = rthBars.filter((b) => Date.parse(b.ts) <= cutoffMs);
+      if (barsToNow.length === 0) continue;
+
+      const tickerSignals = this.liveMonitorPending.filter((s) => s.ticker === ticker);
+
+      for (const sig of tickerSignals) {
+        if (sig.status !== "pending") continue;
+        if (sig.activationStatus === "INVALIDATED") continue;
+        if (sig.activationStatus === "ACTIVE") continue;
+
+        const triggerResult = checkEntryTrigger(
+          barsToNow,
+          sig.tradePlan,
+          this.config.entryMode,
+        );
+
+        if (triggerResult.triggered && triggerResult.entryPrice) {
+          this.processTriggeredSignal(sig, triggerResult, min);
+        } else if (triggerResult.invalidated) {
+          sig.activationStatus = "INVALIDATED";
+          sig.status = "miss";
+          sig.missReason = "Entry trigger invalidated";
+          this.dayResult.misses.push({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            reason: "Entry trigger invalidated",
+          });
+        }
+      }
+    }
   }
 
   liveMonitorTick(min: number): { allResolved: boolean; hadEvents: boolean } {
@@ -417,151 +691,20 @@ export class SimTickerStepper {
       .tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:59`, this.CT)
       .valueOf();
 
-    const unresolvedCount = this.liveMonitorPending.filter(
+    const pendingCount = this.liveMonitorPending.filter(
       (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
     ).length;
-    if (unresolvedCount === 0) {
+    const activeCount = Array.from(this.allSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    ).length;
+    if (pendingCount === 0 && activeCount === 0) {
       this.emit("log", { message: `  All signals resolved by ${formatSimTime(min)}`, type: "info" });
       return { allResolved: true, hadEvents: false };
     }
 
-    for (const ticker of this.liveMonitorTickers) {
-      const rthBars = this.liveMonitorRthBars.get(ticker);
-      if (!rthBars) continue;
+    this.checkActivatedSignals(min, this.liveMonitorRthBars, cutoffMs);
 
-      const barsToNow = rthBars.filter((b) => Date.parse(b.ts) <= cutoffMs);
-      if (barsToNow.length === 0) continue;
-
-      const tickerSignals = this.liveMonitorPending.filter((s) => s.ticker === ticker);
-
-      for (const sig of tickerSignals) {
-        if (sig.status !== "pending") continue;
-        if (sig.activationStatus === "INVALIDATED") continue;
-
-        const isBtodCandidate = this.btodSignalIds.has(sig.id);
-
-        if (sig.activationStatus === "NOT_ACTIVE") {
-          const triggerResult = checkEntryTrigger(
-            barsToNow,
-            sig.tradePlan,
-            this.config.entryMode,
-          );
-
-          if (triggerResult.triggered) {
-            sig.activationStatus = "ACTIVE";
-            sig.activatedTs = triggerResult.triggerTs ?? null;
-            sig.entryPrice = triggerResult.entryPrice ?? null;
-
-            if (isBtodCandidate && !this.btodExecutedToday) {
-              this.btodExecutedToday = true;
-
-              this.dayResult.activations.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                setupType: sig.setupType,
-                triggerTs: triggerResult.triggerTs ?? this.today,
-                entryPrice: triggerResult.entryPrice ?? 0,
-                isBtod: true,
-              });
-
-              this.dayResult.btodStatus.phase = "CLOSED";
-              this.dayResult.btodStatus.gateOpen = false;
-              this.dayResult.btodStatus.executedSignalId = sig.id;
-              this.dayResult.btodStatus.executedTicker = sig.ticker;
-
-              const instruments: string[] = ["Shares"];
-              if (sig.tradePlan.stopDistance) instruments.push("Options");
-              instruments.push("LETF", "LETF Options");
-
-              this.dayResult.tradeSyncCalls.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                setupType: sig.setupType,
-                direction: sig.direction,
-                entryPrice: triggerResult.entryPrice ?? 0,
-                stopPrice: sig.stopPrice,
-                targetPrice: sig.magnetPrice,
-                instruments,
-                status: "SIMULATED",
-                triggerTs: triggerResult.triggerTs ?? this.today,
-              });
-
-              this.emit("log", {
-                message: `  ★ BTOD ACTIVATION [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)} (Rank #${this.top3.find((r) => r.signalId === sig.id)?.rank})`,
-                type: "success",
-              });
-              this.emit("log", {
-                message: `  📡 TradeSync (sim): Would send ${instruments.join(", ")} for ${sig.ticker} ${sig.direction} @$${(triggerResult.entryPrice ?? 0).toFixed(2)} → target $${sig.magnetPrice.toFixed(2)}`,
-                type: "info",
-              });
-            } else {
-              this.dayResult.activations.push({
-                signalId: sig.id,
-                ticker: sig.ticker,
-                setupType: sig.setupType,
-                triggerTs: triggerResult.triggerTs ?? this.today,
-                entryPrice: triggerResult.entryPrice ?? 0,
-                isBtod: false,
-              });
-
-              this.emit("log", {
-                message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${triggerResult.entryPrice?.toFixed(2)}${isBtodCandidate && this.btodExecutedToday ? " (BTOD gate closed)" : ""}`,
-                type: "success",
-              });
-            }
-          } else if (triggerResult.invalidated) {
-            sig.activationStatus = "INVALIDATED";
-            sig.status = "miss";
-            sig.missReason = "Entry trigger invalidated";
-            this.dayResult.misses.push({
-              signalId: sig.id,
-              ticker: sig.ticker,
-              reason: "Entry trigger invalidated",
-            });
-            continue;
-          }
-        }
-
-        if (sig.status === "pending") {
-          const touchResult = validateMagnetTouch(
-            barsToNow.map((b) => ({
-              ts: b.ts,
-              high: b.high,
-              low: b.low,
-            })),
-            sig.magnetPrice,
-            sig.direction,
-          );
-
-          if (touchResult.hit) {
-            sig.status = "hit";
-            sig.hitTs = touchResult.hitTs ?? null;
-            sig.timeToHitMin = touchResult.timeToHitMin ?? null;
-            this.dayResult.hits.push({
-              signalId: sig.id,
-              ticker: sig.ticker,
-              hitTs: touchResult.hitTs ?? this.today,
-              timeToHitMin: touchResult.timeToHitMin ?? 0,
-            });
-            this.emit("log", {
-              message: `  ✓ HIT [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} magnet $${sig.magnetPrice.toFixed(2)} touched at ${touchResult.timeToHitMin}min`,
-              type: "success",
-            });
-          }
-        }
-
-        if (sig.entryPrice && sig.status !== "pending") {
-          const allRthBars = this.liveMonitorRthBars.get(ticker) ?? [];
-          const maeMfe = computeMAEMFE(
-            allRthBars as any,
-            sig.entryPrice,
-            sig.direction,
-          );
-          sig.mae = maeMfe.mae;
-          sig.mfe = maeMfe.mfe;
-        }
-      }
-    }
+    this.checkPendingSignals(min, this.liveMonitorRthBars, cutoffMs);
 
     const hadEvents =
       this.dayResult.activations.length > prevActivations ||
@@ -731,6 +874,7 @@ export class SimTickerStepper {
                 ? lastBar.close + tradePlan.stopDistance
                 : lastBar.close - tradePlan.stopDistance
               : null,
+            stopStage: "INITIAL",
             mae: null,
             mfe: null,
           };
