@@ -1013,8 +1013,8 @@ export class SimTickerStepper {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
 
-        const { allResolved } = this.liveMonitorTick(min);
-        this.emitDayUpdatePublic();
+        const { allResolved, hadEvents } = this.liveMonitorTick(min);
+        if (hadEvents || allResolved) this.emitDayUpdatePublic();
         if (allResolved) break;
       }
     }
