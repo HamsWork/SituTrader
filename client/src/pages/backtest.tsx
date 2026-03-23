@@ -192,7 +192,7 @@ export default function BacktestPage() {
 
   interface SimPhaseSnapshot {
     label: string;
-    btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number }>;
+    btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number; activationStatus?: string }>;
     btodStatus: SimBtodStatus;
     tradeSyncCalls: SimTradeSyncCall[];
     activations: Array<{ signalId: number; ticker: string; setupType: string; triggerTs: string; entryPrice: number; isBtod: boolean }>;
@@ -211,7 +211,7 @@ export default function BacktestPage() {
     simTimeCT?: number;
     signalsGenerated: number;
     btodTop3Count: number;
-    btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number }>;
+    btodTop3: Array<{ signalId: number; ticker: string; setupType: string; qualityScore: number; rank: number; activationStatus?: string }>;
     btodStatus: SimBtodStatus;
     tradeSyncCalls: SimTradeSyncCall[];
     activations: number;
@@ -1155,7 +1155,18 @@ export default function BacktestPage() {
                                           <span className="font-mono font-semibold">{entry.ticker}</span>
                                           <span className="text-muted-foreground">{entry.setupType}</span>
                                         </div>
-                                        <span className="text-muted-foreground">QS {entry.qualityScore}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">QS {entry.qualityScore}</span>
+                                          <Badge variant="outline" className={`text-[9px] h-4 px-1 ${
+                                            entry.activationStatus === "ACTIVE" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                            entry.activationStatus === "INVALIDATED" ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                                            "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                                          }`}>
+                                            {entry.activationStatus === "ACTIVE" ? "ACTIVE" :
+                                             entry.activationStatus === "INVALIDATED" ? "INVALIDATED" :
+                                             "PENDING"}
+                                          </Badge>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>

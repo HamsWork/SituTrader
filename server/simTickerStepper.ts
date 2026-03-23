@@ -160,7 +160,10 @@ export class SimTickerStepper {
     }
     return {
       label,
-      btodTop3: [...this.dayResult.btodTop3],
+      btodTop3: this.dayResult.btodTop3.map((e) => {
+        const sig = this.allSignals.get(e.signalId);
+        return { ...e, activationStatus: sig?.activationStatus ?? "NOT_ACTIVE" };
+      }),
       btodStatus: { ...this.dayResult.btodStatus, top3Ids: [...this.dayResult.btodStatus.top3Ids] },
       tradeSyncCalls: [...this.dayResult.tradeSyncCalls],
       activations: [...this.dayResult.activations],
