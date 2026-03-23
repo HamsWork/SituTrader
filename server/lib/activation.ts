@@ -362,35 +362,15 @@ interface EntryTriggerResult {
   invalidated?: boolean;
 }
 
-async function processTriggeredSignal(
-  ctx: ScanContext,
+async function enrichOptionData(
   ticker: string,
   sig: Signal,
   tp: TradePlan,
-  result: EntryTriggerResult,
-) {
-  const { events, nowIso } = ctx;
-  const entryPrice = result.entryPrice!;
-
-  let instrumentTypeForExecution: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
+  triggerTs: string | undefined,
+): Promise<"OPTION" | "SHARES" | "LEVERAGED_ETF"> {
+  let instrumentType: "OPTION" | "SHARES" | "LEVERAGED_ETF" =
     (sig.instrumentType as "OPTION" | "SHARES" | "LEVERAGED_ETF") ||
     "OPTION";
-
-  let stopPrice: number | undefined;
-  if (tp.stopDistance && tp.stopDistance > 0) {
-    stopPrice =
-      tp.bias === "SELL"
-        ? entryPrice + tp.stopDistance
-        : entryPrice - tp.stopDistance;
-  }
-  await storage.updateSignalActivation(
-    sig.id,
-    "ACTIVE",
-    result.triggerTs,
-    entryPrice,
-    stopPrice,
-    result.entryTriggerPrice,
-  );
 
   const opts = sig.optionsJson as OptionsData | null;
   const contractTicker =
@@ -398,8 +378,8 @@ async function processTriggeredSignal(
 
   if (contractTicker) {
     try {
-      const triggerMs = result.triggerTs
-        ? new Date(result.triggerTs).getTime()
+      const triggerMs = triggerTs
+        ? new Date(triggerTs).getTime()
         : Date.now();
       let entryMarkPrice = await fetchOptionMarkAtTime(
         contractTicker,
@@ -416,7 +396,7 @@ async function processTriggeredSignal(
           optionEntryMark: entryMarkPrice,
         });
         log(
-          `Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${result.triggerTs} (${contractTicker})`,
+          `Option entry mark captured at activation for ${ticker} signal ${sig.id}: $${entryMarkPrice.toFixed(2)} @ ${triggerTs} (${contractTicker})`,
           "activation",
         );
       }
@@ -436,8 +416,8 @@ async function processTriggeredSignal(
     try {
       const suggestion = await selectBestLeveragedEtf(ticker, tp.bias);
       if (suggestion) {
-        const triggerMs = result.triggerTs
-          ? new Date(result.triggerTs).getTime()
+        const triggerMs = triggerTs
+          ? new Date(triggerTs).getTime()
           : Date.now();
         let letfEntry = await fetchStockPriceAtTime(
           suggestion.ticker,
@@ -454,9 +434,9 @@ async function processTriggeredSignal(
           suggestion.ticker,
           letfEntry,
         );
-        instrumentTypeForExecution = "LEVERAGED_ETF";
+        instrumentType = "LEVERAGED_ETF";
         log(
-          `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${result.triggerTs}`,
+          `Auto-selected LETF ${suggestion.ticker} (${suggestion.leverage}x) for ${ticker} signal ${sig.id}, entry $${letfEntry?.toFixed(2) ?? "n/a"} @ ${triggerTs}`,
           "activation",
         );
       }
@@ -467,6 +447,42 @@ async function processTriggeredSignal(
       );
     }
   }
+
+  return instrumentType;
+}
+
+async function processTriggeredSignal(
+  ctx: ScanContext,
+  ticker: string,
+  sig: Signal,
+  tp: TradePlan,
+  result: EntryTriggerResult,
+) {
+  const { events, nowIso } = ctx;
+  const entryPrice = result.entryPrice!;
+
+  const instrumentTypeForExecution = await enrichOptionData(
+    ticker,
+    sig,
+    tp,
+    result.triggerTs,
+  );
+
+  let stopPrice: number | undefined;
+  if (tp.stopDistance && tp.stopDistance > 0) {
+    stopPrice =
+      tp.bias === "SELL"
+        ? entryPrice + tp.stopDistance
+        : entryPrice - tp.stopDistance;
+  }
+  await storage.updateSignalActivation(
+    sig.id,
+    "ACTIVE",
+    result.triggerTs,
+    entryPrice,
+    stopPrice,
+    result.entryTriggerPrice,
+  );
 
   events.push({
     signalId: sig.id,
