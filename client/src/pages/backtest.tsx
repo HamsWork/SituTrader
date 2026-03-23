@@ -1226,7 +1226,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground">{h.timeToHitMin}min</span>
                                     </div>
                                   ))}
-                                  {(phase?.misses ?? currentDay.missDetails).map((m, i) => (
+                                  {(currentDay.missDetails ?? []).map((m, i) => (
                                     <div key={`miss-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-red-500/5 border border-red-500/10 text-xs">
                                       <div className="flex items-center gap-2">
                                         <XCircle className="w-3 h-3 text-red-400" />
@@ -1235,7 +1235,7 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground text-[10px]">{m.reason}</span>
                                     </div>
                                   ))}
-                                  {activationDetails.length === 0 && hitDetails.length === 0 && (phase?.misses ?? currentDay.missDetails).length === 0 && (
+                                  {activationDetails.length === 0 && hitDetails.length === 0 && (currentDay.missDetails ?? []).length === 0 && (
                                     <p className="text-[10px] text-muted-foreground px-2">No events today</p>
                                   )}
                                 </div>
