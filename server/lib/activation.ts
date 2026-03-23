@@ -423,19 +423,27 @@ async function processTriggeredSignal(
 
   if (btodActive && btodAllowed) {
     try {
-      const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
-      const qty =
-        parseInt(
-          (await storage.getSetting("ibkrDefaultQuantity")) || "1",
-        ) || 1;
-      const results = await executeBtodMultiInstrument(sig.id, qty);
-      const successCount = results.filter((r) => r.success).length;
-      log(
-        `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
-        "activation",
-      );
+      const { executeBtodMultiInstrument, onBtodTradeExecuted, shouldExecuteActivation } = await import("./btod");
+      const recheck = await shouldExecuteActivation(sig.id, new Date());
+      if (!recheck.execute) {
+        log(
+          `BTOD: Re-check blocked signal ${sig.id} (${ticker}) — reason: ${recheck.reason} (race prevented)`,
+          "activation",
+        );
+      } else {
+        const qty =
+          parseInt(
+            (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+          ) || 1;
+        const results = await executeBtodMultiInstrument(sig.id, qty);
+        const successCount = results.filter((r) => r.success).length;
+        log(
+          `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
+          "activation",
+        );
 
-      await onBtodTradeExecuted(sig.id);
+        await onBtodTradeExecuted(sig.id);
+      }
     } catch (btodExecErr: any) {
       log(
         `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,

@@ -146,12 +146,18 @@ export async function initScheduler() {
 
   let lastOptionReEnrichMs = 0;
   const OPTION_REENRICH_INTERVAL = 60 * 60 * 1000;
+  let liveMonitorRunning = false;
 
   liveMonitorJob = cron.schedule("* * * * *", async () => {
+    if (liveMonitorRunning) {
+      log("Live monitor tick skipped — previous tick still running", "scheduler");
+      return;
+    }
+    liveMonitorRunning = true;
     try {
       const st = await storage.getSchedulerState();
-      if (!st.authorModeEnabled) return;
-      if (!isRTH()) return;
+      if (!st.authorModeEnabled) { liveMonitorRunning = false; return; }
+      if (!isRTH()) { liveMonitorRunning = false; return; }
 
       try {
         const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
@@ -193,6 +199,8 @@ export async function initScheduler() {
       log(`Live monitor tick: ${JSON.stringify(summary)}`, "scheduler");
     } catch (err: any) {
       log(`Live monitor error: ${err.message}`, "scheduler");
+    } finally {
+      liveMonitorRunning = false;
     }
   }, { timezone: CT });
 
