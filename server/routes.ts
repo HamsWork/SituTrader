@@ -1355,6 +1355,18 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/btod/test-send-tradesync", async (req, res) => {
+    try {
+      const { payload } = req.body;
+      if (!payload) return res.status(400).json({ message: "payload required" });
+      const { sendToTradeSync } = await import("./lib/tradesync");
+      const result = await sendToTradeSync(payload);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/btod/test-multi-instrument", async (req, res) => {
     try {
       const signalId = Number(req.body.signalId);
