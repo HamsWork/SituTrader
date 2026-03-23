@@ -52,6 +52,19 @@ async function waitWhilePaused(ctrl: SimControlSignal, emit?: SimEventCallback):
   }
 }
 
+const SIM_PRE_OPEN_CT = 8 * 60 + 15;
+const SIM_RTH_START_CT = 8 * 60 + 30;
+const SIM_RTH_END_CT = 15 * 60;
+const SIM_AFTER_CLOSE_CT = 15 * 60 + 10;
+
+function formatSimTime(minutesCT: number): string {
+  const h = Math.floor(minutesCT / 60);
+  const m = minutesCT % 60;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${h12}:${m.toString().padStart(2, "0")} ${suffix} CT`;
+}
+
 export class SimTickerStepper {
   private ctx: SimDayContext;
   private dayResult: SimDayResult;
@@ -62,6 +75,7 @@ export class SimTickerStepper {
   private top3: RankedSimEntry[] = [];
   private nextSimSignalId: number;
   private btodExecutedToday: boolean;
+  private simTimeCT: number = SIM_PRE_OPEN_CT;
 
   private get config() { return this.ctx.config; }
   private get emit() { return this.ctx.emit; }
@@ -516,9 +530,12 @@ export class SimTickerStepper {
       phase: "live-monitor",
     });
     this.emit("log", {
-      message: `  Phase 2: Live monitor tick (activation + magnet touch)`,
+      message: `  Phase 2: Live monitor (${formatSimTime(SIM_RTH_START_CT)} → ${formatSimTime(SIM_RTH_END_CT)}) — activation + magnet touch`,
       type: "processing",
     });
+
+    const rthStartMs = dayjs.tz(`${this.today} 08:30:00`, this.CT).valueOf();
+    const rthEndMs = dayjs.tz(`${this.today} 15:00:00`, this.CT).valueOf();
 
     const todaysPending = Array.from(this.allSignals.values()).filter(
       (s) =>
@@ -534,7 +551,11 @@ export class SimTickerStepper {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
         try {
-          const intradayBars = this.preloadedIntraday.get(ticker) ?? [];
+          const allBars = this.preloadedIntraday.get(ticker) ?? [];
+          const intradayBars = allBars.filter((b) => {
+            const t = Date.parse(b.ts);
+            return t >= rthStartMs && t <= rthEndMs;
+          });
 
           const tickerSignals = todaysPending.filter(
             (s) => s.ticker === ticker,
@@ -937,9 +958,20 @@ export class SimTickerStepper {
     });
 
     if (await this.preloadData()) return this.earlyReturn();
+
+    this.simTimeCT = SIM_PRE_OPEN_CT;
+    this.emit("log", { message: `  ⏰ ${formatSimTime(this.simTimeCT)} — Day starts`, type: "info" });
+
+    this.simTimeCT = SIM_PRE_OPEN_CT + 5;
     if (await this.preOpenScan()) return this.earlyReturn();
+
+    this.simTimeCT = SIM_RTH_START_CT;
     if (await this.liveMonitor()) return this.earlyReturn();
+    this.simTimeCT = SIM_RTH_END_CT;
+
+    this.simTimeCT = SIM_AFTER_CLOSE_CT;
     if (await this.afterCloseScan()) return this.earlyReturn();
+
     return await this.endOfDay();
   }
 }
