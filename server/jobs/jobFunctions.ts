@@ -249,11 +249,11 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
       }
     }
 
-    try {
-      await enrichPendingSignalsWithOptions();
-    } catch (err: any) {
-      log(`PreOpen: Options enrichment error: ${err.message}`, "scheduler");
-    }
+    // try {
+    //   await enrichPendingSignalsWithOptions();
+    // } catch (err: any) {
+    //   log(`PreOpen: Options enrichment error: ${err.message}`, "scheduler");
+    // }
 
     try {
       const btodEnabled = (await storage.getSetting("btodEnabled")) !== "false";
@@ -265,16 +265,16 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
       log(`BTOD init error: ${btodErr.message}`, "scheduler");
     }
 
-    try {
-      const activationEvents = await runActivationScan();
-      summary.signalsGenerated = activationEvents.length;
-      for (const evt of activationEvents) {
-        summary.bySetup[evt.type] = (summary.bySetup[evt.type] || 0) + 1;
-      }
-    } catch (err: any) {
-      log(`PreOpen: Activation scan error: ${err.message}`, "scheduler");
-      summary.errors++;
-    }
+    // try {
+    //   const activationEvents = await runActivationScan();
+    //   summary.signalsGenerated = activationEvents.length;
+    //   for (const evt of activationEvents) {
+    //     summary.bySetup[evt.type] = (summary.bySetup[evt.type] || 0) + 1;
+    //   }
+    // } catch (err: any) {
+    //   log(`PreOpen: Activation scan error: ${err.message}`, "scheduler");
+    //   summary.errors++;
+    // }
 
     await storage.setSetting("lastRefresh", new Date().toISOString());
   } catch (err: any) {
