@@ -102,6 +102,7 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   if (signal.leverage != null) payload.leverage = signal.leverage;
   if (signal.alert_mode) payload.alert_mode = signal.alert_mode;
 
+  payload.trade_type = "Swing";
   return payload;
 }
 
@@ -332,7 +333,10 @@ export function buildTradeSyncPayloadFromSignal(
   let payloadTicker: string;
   if (instrumentType === "OPTION") {
     payloadTicker = signal.ticker;
-  } else if (instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS") {
+  } else if (
+    instrumentType === "LEVERAGED_ETF" ||
+    instrumentType === "LETF_OPTIONS"
+  ) {
     payloadTicker = extras?.letfTicker || instrumentTicker || signal.ticker;
   } else {
     payloadTicker = signal.ticker;
