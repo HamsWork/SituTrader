@@ -1248,6 +1248,7 @@ export default function BacktestPage() {
                                           </Badge>
                                         </div>
                                         <div className="flex items-center gap-2 text-muted-foreground">
+                                          <span className="font-semibold text-yellow-500">QS {sig.qualityScore}</span>
                                           <span>${sig.magnetPrice.toFixed(2)}</span>
                                           <span className="text-[9px]">{sig.tier}</span>
                                         </div>
