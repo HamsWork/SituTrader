@@ -236,94 +236,134 @@ export default function BacktestPage() {
   const [simPaused, setSimPaused] = useState(false);
   const [simPhaseDelayMs, setSimPhaseDelayMs] = useState(4000);
   const simLogEndRef = useRef<HTMLDivElement>(null);
-  const simLogCountRef = useRef(0);
-  const simDayCountRef = useRef(0);
-  const simWasRunningRef = useRef(false);
-  const simPollIdRef = useRef(0);
   const simUserNavigatedRef = useRef(false);
   const simPhaseNavigatedRef = useRef(false);
+  const sseRef = useRef<EventSource | null>(null);
+  const simDayCountRef = useRef(0);
 
-  useEffect(() => {
-    const pollId = ++simPollIdRef.current;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+  const connectSSE = useCallback(() => {
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+    }
 
-    const poll = async () => {
-      if (pollId !== simPollIdRef.current) return;
-      try {
-        const res = await fetch(`/api/backtest/simulate-status?logsFrom=${simLogCountRef.current}&dayFrom=${simDayCountRef.current}`);
-        if (pollId !== simPollIdRef.current) return;
-        const data = await res.json();
+    let catchUpLogs: Array<{ message: string; type: string; ts: number }> = [];
+    let catchUpDays: SimDayDetail[] = [];
+    let isCatchUp = true;
 
-        if (data.logs?.length > 0) {
-          setSimLogs((prev) => [...prev, ...data.logs]);
-          simLogCountRef.current = data.totalLogs;
+    const es = new EventSource("/api/backtest/simulate-stream");
+    sseRef.current = es;
+
+    const flushCatchUp = () => {
+      if (!isCatchUp) return;
+      isCatchUp = false;
+      if (catchUpLogs.length > 0) {
+        setSimLogs(catchUpLogs);
+        catchUpLogs = [];
+      }
+      if (catchUpDays.length > 0) {
+        setSimDayResults(catchUpDays);
+        simDayCountRef.current = catchUpDays.length;
+        if (!simUserNavigatedRef.current) {
+          setSimSelectedDayIdx(catchUpDays.length - 1);
         }
-
-        if (data.progress) {
-          setSimProgress(data.progress);
+        const lastDay = catchUpDays[catchUpDays.length - 1];
+        if (lastDay?.phases?.length && !simPhaseNavigatedRef.current && !simUserNavigatedRef.current) {
+          setSimSelectedPhaseIdx(lastDay.phases.length - 1);
         }
-
-        if (data.dayResults?.length > 0) {
-          setSimDayResults((prev) => {
-            const updated = [...prev];
-            for (const incoming of data.dayResults as SimDayDetail[]) {
-              const existingIdx = updated.findIndex((d) => d.dayIndex === incoming.dayIndex);
-              if (existingIdx >= 0) {
-                updated[existingIdx] = incoming;
-              } else {
-                updated.push(incoming);
-              }
-            }
-            return updated;
-          });
-          const prevDayCount = simDayCountRef.current;
-          simDayCountRef.current = data.totalDayResults;
-          const newDayArrived = data.totalDayResults > prevDayCount;
-          if (newDayArrived) {
-            simPhaseNavigatedRef.current = false;
-          }
-          if (!simUserNavigatedRef.current) {
-            setSimSelectedDayIdx(data.totalDayResults - 1);
-          }
-          const lastResult = data.dayResults[data.dayResults.length - 1];
-          if (lastResult?.phases?.length > 0 && !simPhaseNavigatedRef.current && !simUserNavigatedRef.current) {
-            setSimSelectedPhaseIdx(lastResult.phases.length - 1);
-          }
-        }
-
-        setSimRunning(data.running);
-        setSimPaused(data.paused);
-
-        if (data.finalStats && !simFinalStats) {
-          setSimFinalStats(data.finalStats);
-          setSimProgress({ completed: data.finalStats.totalDays, total: data.finalStats.totalDays, day: "done", phase: "complete" });
-          if (simWasRunningRef.current) {
-            toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
-          }
-        }
-
-        if (data.error && simWasRunningRef.current) {
-          toast({ title: "Simulation failed", description: data.error, variant: "destructive" });
-        }
-
-        simWasRunningRef.current = data.running;
-
-        if (!data.running && (data.finalStats || data.error)) {
-          return;
-        }
-      } catch {}
-
-      if (pollId === simPollIdRef.current) {
-        timer = setTimeout(poll, 1000);
+        catchUpDays = [];
       }
     };
 
-    poll();
-    return () => {
-      simPollIdRef.current++;
-      if (timer) clearTimeout(timer);
+    es.onmessage = (evt) => {
+      try {
+        const { event, data } = JSON.parse(evt.data);
+
+        if (event === "init") {
+          setSimRunning(true);
+          setSimPaused(false);
+        } else if (event === "log") {
+          if (isCatchUp) {
+            catchUpLogs.push(data);
+          } else {
+            setSimLogs((prev) => [...prev, data]);
+          }
+        } else if (event === "progress") {
+          flushCatchUp();
+          setSimProgress(data);
+        } else if (event === "day") {
+          if (isCatchUp) {
+            const existingIdx = catchUpDays.findIndex((d) => d.dayIndex === data.dayIndex);
+            if (existingIdx >= 0) {
+              catchUpDays[existingIdx] = data;
+            } else {
+              catchUpDays.push(data);
+            }
+          } else {
+            setSimDayResults((prev) => {
+              const updated = [...prev];
+              const existingIdx = updated.findIndex((d) => d.dayIndex === data.dayIndex);
+              if (existingIdx >= 0) {
+                updated[existingIdx] = data;
+              } else {
+                updated.push(data);
+              }
+              const isNewDay = updated.length > simDayCountRef.current;
+              if (isNewDay) {
+                simDayCountRef.current = updated.length;
+                simPhaseNavigatedRef.current = false;
+              }
+              if (!simUserNavigatedRef.current) {
+                setSimSelectedDayIdx(updated.length - 1);
+              }
+              if (data.phases?.length > 0 && !simPhaseNavigatedRef.current && !simUserNavigatedRef.current) {
+                setSimSelectedPhaseIdx(data.phases.length - 1);
+              }
+              return updated;
+            });
+          }
+        } else if (event === "complete") {
+          flushCatchUp();
+          setSimFinalStats(data);
+          setSimRunning(false);
+          setSimProgress({ completed: data.totalDays, total: data.totalDays, day: "done", phase: "complete" });
+          toast({ title: "Simulation complete", description: "Day-by-day results are ready." });
+        } else if (event === "error") {
+          flushCatchUp();
+          setSimRunning(false);
+          toast({ title: "Simulation failed", description: data.message, variant: "destructive" });
+        } else if (event === "paused") {
+          flushCatchUp();
+          setSimPaused(true);
+        } else if (event === "resumed") {
+          setSimPaused(false);
+        } else if (event === "cancelled") {
+          setSimRunning(false);
+          setSimPaused(false);
+        } else if (event === "speed") {
+          setSimPhaseDelayMs(data.phaseDelayMs);
+        }
+      } catch {}
     };
-  }, [simFinalStats, toast]);
+
+    es.onerror = () => {
+      setTimeout(() => {
+        if (sseRef.current === es) {
+          connectSSE();
+        }
+      }, 3000);
+    };
+  }, [toast]);
+
+  useEffect(() => {
+    connectSSE();
+    return () => {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+    };
+  }, [connectSSE]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -362,7 +402,6 @@ export default function BacktestPage() {
     setSimDayResults([]);
     setSimSelectedDayIdx(-1);
     setSimFinalStats(null);
-    simLogCountRef.current = 0;
     simDayCountRef.current = 0;
     simUserNavigatedRef.current = false;
     simPhaseNavigatedRef.current = false;
@@ -375,11 +414,13 @@ export default function BacktestPage() {
     }).then((res) => {
       if (!res.ok) {
         toast({ title: "Simulation failed", description: "Failed to start", variant: "destructive" });
+      } else {
+        connectSSE();
       }
     }).catch((err) => {
       toast({ title: "Simulation failed", description: err.message, variant: "destructive" });
     });
-  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, toast]);
+  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, toast, connectSSE]);
 
   const btRunLogCountRef = useRef(0);
   const btRunWasRunningRef = useRef(false);
@@ -701,11 +742,36 @@ export default function BacktestPage() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-xs font-medium">Phase Speed</Label>
-                <div className="flex flex-wrap gap-2">
+                <Label className="text-xs font-medium">Step Delay</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={5000}
+                    step={100}
+                    value={simPhaseDelayMs}
+                    onChange={(e) => {
+                      const ms = parseInt(e.target.value, 10);
+                      setSimPhaseDelayMs(ms);
+                      if (simRunning) {
+                        fetch("/api/backtest/simulate-speed", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ phaseDelayMs: ms }),
+                        });
+                      }
+                    }}
+                    className="flex-1 h-2 accent-primary cursor-pointer"
+                    data-testid="slider-sim-speed"
+                  />
+                  <span className="text-xs font-mono w-14 text-right tabular-nums" data-testid="text-sim-speed-value">
+                    {simPhaseDelayMs === 0 ? "Instant" : `${(simPhaseDelayMs / 1000).toFixed(1)}s`}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
                   {[
                     { label: "Instant", ms: 0 },
-                    { label: "Fast", ms: 1000 },
+                    { label: "Fast", ms: 500 },
                     { label: "Normal", ms: 2000 },
                     { label: "Slow", ms: 4000 },
                   ].map((preset) => (
@@ -713,7 +779,7 @@ export default function BacktestPage() {
                       key={preset.ms}
                       size="sm"
                       variant={simPhaseDelayMs === preset.ms ? "default" : "outline"}
-                      className="h-7 text-xs"
+                      className="h-6 text-[10px] px-2"
                       onClick={() => {
                         setSimPhaseDelayMs(preset.ms);
                         if (simRunning) {
@@ -726,12 +792,12 @@ export default function BacktestPage() {
                       }}
                       data-testid={`btn-sim-speed-${preset.ms}`}
                     >
-                      {preset.label} ({preset.ms === 0 ? "0s" : `${preset.ms / 1000}s`})
+                      {preset.label}
                     </Button>
                   ))}
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  Delay between each simulation phase. Changes apply immediately to running simulations.
+                  Delay between each simulation phase. Drag the slider or pick a preset. Changes apply immediately.
                 </p>
               </div>
 
@@ -849,12 +915,17 @@ export default function BacktestPage() {
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
-                          <Badge variant={simPaused ? "secondary" : "default"} className="text-[10px]">
-                            {simPaused ? "PAUSED" : simRunning ? "RUNNING" : "DONE"}
+                          <Badge variant={simPaused ? "secondary" : "default"} className={`text-[10px] ${simRunning && !simPaused ? "animate-pulse" : ""}`}>
+                            {simPaused ? "PAUSED" : simRunning ? "LIVE" : "DONE"}
                           </Badge>
                           <span className="font-mono font-semibold">{simProgress.day}</span>
                           <span className="text-muted-foreground">
-                            {simProgress.phase === "preload" ? "Loading Data..." : simProgress.phase}
+                            {simProgress.phase === "preload" ? "Loading Data..." :
+                             simProgress.phase === "pre-open-scan" ? "Pre-Open Scan" :
+                             simProgress.phase === "live-monitor" ? "Live Monitor" :
+                             simProgress.phase === "after-close-scan" ? "After-Close Scan" :
+                             simProgress.phase === "end-of-day" ? "End of Day" :
+                             simProgress.phase}
                           </span>
                         </div>
                         <span className="text-muted-foreground">{simProgress.completed}/{simProgress.total} days</span>

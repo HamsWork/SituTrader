@@ -26,22 +26,41 @@ interface SimulationState {
   config: { tickers: string[]; setups: string[]; startDate: string; endDate: string };
 }
 
+export type SimSSEListener = (event: string, data: any) => void;
+
 let activeState: SimulationState | null = null;
+const sseListeners = new Set<SimSSEListener>();
 
 const MAX_LOGS = 5000;
 const AUTO_CLEAR_MS = 30 * 60 * 1000;
 
+function broadcastSSE(event: string, data: any) {
+  sseListeners.forEach((listener) => {
+    try {
+      listener(event, data);
+    } catch {}
+  });
+}
+
+export function addSSEListener(listener: SimSSEListener): () => void {
+  sseListeners.add(listener);
+  return () => { sseListeners.delete(listener); };
+}
+
 function emitToState(state: SimulationState): SimEventCallback {
   return (event: string, data: Record<string, any>) => {
     if (event === "log") {
-      state.logs.push({ message: data.message, type: data.type, ts: Date.now() });
+      const logEntry = { message: data.message, type: data.type, ts: Date.now() };
+      state.logs.push(logEntry);
       if (state.logs.length > MAX_LOGS) {
         const drop = state.logs.length - MAX_LOGS;
         state.logs = state.logs.slice(drop);
         state.logBaseOffset += drop;
       }
+      broadcastSSE("log", logEntry);
     } else if (event === "progress") {
       state.progress = data as any;
+      broadcastSSE("progress", data);
     } else if (event === "day") {
       const existingIdx = state.dayResults.findIndex((d: any) => d.dayIndex === data.dayIndex);
       if (existingIdx >= 0) {
@@ -49,12 +68,17 @@ function emitToState(state: SimulationState): SimEventCallback {
       } else {
         state.dayResults.push(data);
       }
+      broadcastSSE("day", data);
     } else if (event === "done") {
       state.finalStats = data;
       scheduleAutoClear();
+      broadcastSSE("complete", data);
     } else if (event === "error") {
       state.error = data.message;
       scheduleAutoClear();
+      broadcastSSE("error", { message: data.message });
+    } else if (event === "heartbeat") {
+      broadcastSSE("heartbeat", data);
     }
   };
 }
@@ -136,6 +160,14 @@ export async function startSimulation(tickers: string[], setups: string[], start
 
   activeState = state;
 
+  broadcastSSE("init", {
+    tickers: tickers.length,
+    setups,
+    startDate,
+    endDate,
+    startedAt: state.startedAt,
+  });
+
   (async () => {
     try {
       const settings = await storage.getAllSettings();
@@ -156,13 +188,19 @@ export async function startSimulation(tickers: string[], setups: string[], start
       await runSimulation(config, emit, control);
 
       if (control.aborted && !state.finalStats) {
-        state.logs.push({ message: "Simulation cancelled", type: "info", ts: Date.now() });
+        const cancelEntry = { message: "Simulation cancelled", type: "info", ts: Date.now() };
+        state.logs.push(cancelEntry);
+        broadcastSSE("log", cancelEntry);
+        broadcastSSE("cancelled", {});
       }
 
       log(`Simulation finished: ${state.dayResults.length} days processed`, "simulation");
     } catch (err: any) {
       state.error = err.message;
-      state.logs.push({ message: `Fatal error: ${err.message}`, type: "error", ts: Date.now() });
+      const errorEntry = { message: `Fatal error: ${err.message}`, type: "error", ts: Date.now() };
+      state.logs.push(errorEntry);
+      broadcastSSE("log", errorEntry);
+      broadcastSSE("error", { message: err.message });
       log(`Simulation error: ${err.message}`, "simulation");
     }
   })();
@@ -173,12 +211,14 @@ export async function startSimulation(tickers: string[], setups: string[], start
 export function pauseSimulation(): boolean {
   if (!activeState || activeState.control.aborted) return false;
   activeState.control.paused = true;
+  broadcastSSE("paused", { paused: true });
   return true;
 }
 
 export function resumeSimulation(): boolean {
   if (!activeState || activeState.control.aborted) return false;
   activeState.control.paused = false;
+  broadcastSSE("resumed", { paused: false });
   return true;
 }
 
@@ -191,6 +231,7 @@ export function cancelSimulation(): boolean {
 export function setSimulationSpeed(phaseDelayMs: number): boolean {
   if (!activeState || activeState.control.aborted) return false;
   activeState.control.phaseDelayMs = phaseDelayMs;
+  broadcastSSE("speed", { phaseDelayMs });
   return true;
 }
 

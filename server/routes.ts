@@ -41,7 +41,7 @@ import { getBarCacheStats } from "./lib/barCache";
 import {
   startSimulation, getSimulationStatus, getSimulationLogsSince,
   pauseSimulation, resumeSimulation, cancelSimulation, clearSimulation, setSimulationSpeed,
-  isSimulationRunning,
+  isSimulationRunning, addSSEListener,
 } from "./jobs/simulationRunner";
 import {
   startBacktestRun, getBacktestRunStatus, getBacktestRunLogsSince,
@@ -870,6 +870,63 @@ export async function registerRoutes(
   app.post("/api/backtest/simulate-clear", (_req, res) => {
     clearSimulation();
     res.json({ ok: true });
+  });
+
+  app.get("/api/backtest/simulate-stream", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.flushHeaders();
+
+    const status = getSimulationStatus();
+    if (status.running || status.finalStats || status.error) {
+      res.write(`data: ${JSON.stringify({ event: "init", data: { tickers: status.config?.tickers.length ?? 0, setups: status.config?.setups ?? [], startDate: status.config?.startDate ?? "", endDate: status.config?.endDate ?? "", startedAt: status.startedAt ?? Date.now() } })}\n\n`);
+
+      for (const log of status.logs) {
+        res.write(`data: ${JSON.stringify({ event: "log", data: log })}\n\n`);
+      }
+
+      if (status.progress) {
+        res.write(`data: ${JSON.stringify({ event: "progress", data: status.progress })}\n\n`);
+      }
+
+      for (const day of status.dayResults) {
+        res.write(`data: ${JSON.stringify({ event: "day", data: day })}\n\n`);
+      }
+
+      if (status.paused) {
+        res.write(`data: ${JSON.stringify({ event: "paused", data: { paused: true } })}\n\n`);
+      }
+
+      if (status.finalStats) {
+        res.write(`data: ${JSON.stringify({ event: "complete", data: status.finalStats })}\n\n`);
+      }
+      if (status.error) {
+        res.write(`data: ${JSON.stringify({ event: "error", data: { message: status.error } })}\n\n`);
+      }
+    }
+
+    const removeListener = addSSEListener((event: string, data: any) => {
+      try {
+        res.write(`data: ${JSON.stringify({ event, data })}\n\n`);
+      } catch {}
+    });
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`: heartbeat\n\n`);
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 15000);
+
+    req.on("close", () => {
+      removeListener();
+      clearInterval(heartbeat);
+    });
   });
 
   app.get("/api/time-to-hit-stats/:ticker/:setup", async (req, res) => {
