@@ -1296,14 +1296,13 @@ export default function BacktestPage() {
                                         <div className="flex items-center gap-2">
                                           <span className="font-semibold text-yellow-500">QS {sig.qualityScore}</span>
                                           <span className="text-[9px] text-muted-foreground">{sig.tier}</span>
-                                          {sig.status && sig.status !== "pending" && (
-                                            <Badge variant="outline" className={`text-[9px] h-4 px-1 ${
-                                              sig.status === "hit" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                              "bg-red-500/10 text-red-400 border-red-500/20"
-                                            }`}>
-                                              {sig.status === "hit" ? "HIT" : "MISS"}
-                                            </Badge>
-                                          )}
+                                          <span className={`text-[9px] font-medium ${
+                                            sig.status === "hit" ? "text-emerald-400" :
+                                            sig.status === "miss" ? "text-red-400" :
+                                            "text-muted-foreground"
+                                          }`}>
+                                            {sig.status === "hit" ? "HIT" : sig.status === "miss" ? "MISS" : "PENDING"}
+                                          </span>
                                         </div>
                                       </div>
                                     ))}
