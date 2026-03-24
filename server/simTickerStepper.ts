@@ -223,6 +223,7 @@ export class SimTickerStepper {
     return this.isAborted();
   }
 
+  //TODO should remove or update
   async preloadData(): Promise<boolean> {
     this.emit("progress", {
       completed: this.dayIdx,
@@ -235,6 +236,7 @@ export class SimTickerStepper {
       type: "processing",
     });
 
+    // load intraday bars
     const pendingForToday = Array.from(this.allSignals.values()).filter(
       (s) => s.status === "pending" && s.targetDate === this.today && s.activationStatus !== "INVALIDATED",
     );
@@ -990,7 +992,7 @@ export class SimTickerStepper {
       type: "info",
     });
 
-    if (await this.preloadData()) return this.earlyReturn();
+    // if (await this.preloadData()) return this.earlyReturn();
 
     this.simTimeCT = SIM_PRE_OPEN_CT;
     this.emit("log", { message: `  ⏰ ${formatSimTime(this.simTimeCT)} — Day starts`, type: "info" });
