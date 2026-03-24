@@ -10,6 +10,13 @@ dayjs.extend(timezone);
 
 const ET = "America/New_York";
 
+export async function getOnDeckSignals(): Promise<Signal[]> {
+  const allSignals = await storage.getSignals(undefined, 5000);
+  return allSignals.filter(
+    (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
+  );
+}
+
 export interface RankedSignalEntry {
   signalId: number;
   ticker: string;
@@ -99,14 +106,9 @@ export async function initializeBtodForDay(date?: string): Promise<BtodState> {
     return existing;
   }
 
-  const allSignals = await storage.getSignals(undefined, 5000);
-  const eligibleForBtod = allSignals.filter(
-    (s) =>
-      s.status === "pending" &&
-      s.activationStatus === "NOT_ACTIVE",
-  );
+  const onDeck = await getOnDeckSignals();
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
-    eligibleForBtod as unknown as RankableSignalLike[],
+    onDeck as unknown as RankableSignalLike[],
   );
 
   const state = await storage.upsertBtodState({

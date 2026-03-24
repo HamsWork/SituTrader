@@ -292,9 +292,9 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
   const summary: LiveSummary = { activeTickers: 0, activeSignals: 0, activationEvents: 0, alertEvents: 0, durationMs: 0 };
 
   try {
+    const { getOnDeckSignals } = await import("../lib/btod");
     const activeSignals = await storage.getActiveSignals();
-    const pendingSignals = (await storage.getSignals(undefined, 200))
-      .filter(s => s.status === "pending" && s.activationStatus === "NOT_ACTIVE");
+    const pendingSignals = await getOnDeckSignals();
 
     const monitorSignals = [...activeSignals, ...pendingSignals];
     summary.activeSignals = activeSignals.length;
