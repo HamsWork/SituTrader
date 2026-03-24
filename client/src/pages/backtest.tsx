@@ -165,6 +165,7 @@ export default function BacktestPage() {
     tier: string;
     magnetPrice: number;
     targetDate?: string;
+    status?: string;
     entryPrice?: number | null;
     activatedTs?: string | null;
   }
@@ -1276,24 +1277,38 @@ export default function BacktestPage() {
                                 {onDeckSignals.length > 0 ? (
                                   <div className="space-y-1 max-h-64 overflow-y-auto">
                                     {[...onDeckSignals].sort((a, b) => b.qualityScore - a.qualityScore).map((sig) => (
-                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-blue-500/5 border border-blue-500/10 text-xs" data-testid={`sim-ondeck-${sig.id}`}>
+                                      <div key={sig.id} className={`flex items-center justify-between px-2 py-1.5 rounded text-xs ${
+                                        sig.status === "hit" ? "bg-emerald-500/5 border border-emerald-500/10" :
+                                        sig.status === "miss" ? "bg-red-500/5 border border-red-500/10" :
+                                        "bg-blue-500/5 border border-blue-500/10"
+                                      }`} data-testid={`sim-ondeck-${sig.id}`}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
                                           <span className="text-muted-foreground">{sig.setupType}</span>
                                           <Badge variant="outline" className="text-[9px] h-4 px-1">
                                             {sig.direction === "BEARISH" ? "SELL" : "BUY"}
                                           </Badge>
-                                          <span className="text-muted-foreground">${sig.magnetPrice.toFixed(2)}</span>
+                                          {sig.targetDate && (
+                                            <span className="text-[9px] text-muted-foreground">{sig.targetDate}</span>
+                                          )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <span className="font-semibold text-yellow-500">QS {sig.qualityScore}</span>
                                           <span className="text-[9px] text-muted-foreground">{sig.tier}</span>
+                                          {sig.status && sig.status !== "pending" && (
+                                            <Badge variant="outline" className={`text-[9px] h-4 px-1 ${
+                                              sig.status === "hit" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                              "bg-red-500/10 text-red-400 border-red-500/20"
+                                            }`}>
+                                              {sig.status === "hit" ? "HIT" : "MISS"}
+                                            </Badge>
+                                          )}
                                         </div>
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
-                                  <p className="text-[10px] text-muted-foreground px-2">No pending on-deck signals</p>
+                                  <p className="text-[10px] text-muted-foreground px-2">No on-deck signals</p>
                                 )}
                               </div>
 

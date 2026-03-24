@@ -165,10 +165,11 @@ export class SimTickerStepper {
 
   private captureSnapshot(label: string): SimPhaseSnapshot {
     const onDeck = Array.from(this.allSignals.values())
-      .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
+      .filter((s) => s.activationStatus === "NOT_ACTIVE")
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+        status: s.status,
       }));
     const active = Array.from(this.allSignals.values())
       .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
@@ -204,10 +205,11 @@ export class SimTickerStepper {
 
   private emitDayUpdate(): void {
     const onDeck = Array.from(this.allSignals.values())
-      .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
+      .filter((s) => s.activationStatus === "NOT_ACTIVE")
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+        status: s.status,
       }));
     const active = Array.from(this.allSignals.values())
       .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
@@ -831,10 +833,11 @@ export class SimTickerStepper {
     });
 
     const onDeckSignals = Array.from(this.allSignals.values())
-      .filter((s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE")
+      .filter((s) => s.activationStatus === "NOT_ACTIVE")
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
+        status: s.status,
       }));
 
     const activeSignals = Array.from(this.allSignals.values())
