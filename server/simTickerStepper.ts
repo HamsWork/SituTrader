@@ -734,10 +734,13 @@ export class SimTickerStepper {
     const from200 = getTradingDaysBack(today, 200);
     const from15 = getTradingDaysBack(today, 15);
 
+    console.log("tickers", this.config.tickers);
+
     for (const ticker of this.config.tickers) {
       if (this.isAborted()) break;
       if (await this.checkPause()) break;
       try {
+        console.log("processing ticker", ticker);
         const processed = await processTickerAfterClose({
           ticker,
           config: scanConfig,
@@ -754,6 +757,8 @@ export class SimTickerStepper {
             timeframe,
           },
         });
+
+        console.log("processed", processed);
 
         for (const scored of processed) {
 

@@ -262,6 +262,7 @@ export async function processTickerAfterClose(
             });
         }
 
+
         const intradayPolygon = await fetchIntradayBarsCached(ticker, from15, today, timeframe);
         for (const bar of intradayPolygon) {
             const ts = new Date(bar.t).toISOString();
@@ -278,7 +279,10 @@ export async function processTickerAfterClose(
         return [];
     }
 
+    console.log("dailyBars", dailyBars);
+
     const scoredSetups = await scanTickerSetups(ticker, dailyBars, config, isOnWatchlist);
+    console.log("scoredSetups", scoredSetups);
     const results: ProcessedSetup[] = [];
 
     for (const scored of scoredSetups) {
