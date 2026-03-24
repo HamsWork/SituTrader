@@ -3,7 +3,7 @@ import { filterRTHBars, timestampToET } from "./validate";
 import { fetchSnapshot, fetchIntradayBars } from "./polygon";
 import { log } from "../index";
 import { enrichOptionData } from "./options";
-import { checkInvalidation } from "./signalHelper";
+import { checkInvalidation, computeRNow, computeProgressToTarget, shouldApplyBE, shouldApplyTimeStop } from "./signalHelper";
 import type { Signal, TradePlan, OptionsData } from "@shared/schema";
 
 export interface ActivationEvent {
@@ -131,40 +131,6 @@ export function checkEntryTrigger(
 }
 
 
-function computeRNow(
-  currentPrice: number,
-  entryPrice: number,
-  stopPrice: number,
-  isSell: boolean,
-): number {
-  const stopDist = Math.abs(entryPrice - stopPrice);
-  if (stopDist === 0) return 0;
-  return isSell
-    ? (entryPrice - currentPrice) / stopDist
-    : (currentPrice - entryPrice) / stopDist;
-}
-
-function computeProgressToTarget(
-  currentPrice: number,
-  entryPrice: number,
-  targetPrice: number,
-  isSell: boolean,
-): number {
-  let progress: number;
-  if (isSell) {
-    progress =
-      entryPrice - targetPrice !== 0
-        ? (entryPrice - currentPrice) / (entryPrice - targetPrice)
-        : 0;
-  } else {
-    progress =
-      targetPrice - entryPrice !== 0
-        ? (currentPrice - entryPrice) / (targetPrice - entryPrice)
-        : 0;
-  }
-  return Math.max(0, Math.min(1, progress));
-}
-
 interface StopConfig {
   stopMode: string;
   beProgressThreshold: number;
@@ -185,14 +151,6 @@ function getStopConfig(settings: Record<string, string>): StopConfig {
     ),
     timeStopTightenFactor: parseFloat(settings.timeStopTightenFactor || "0.5"),
   };
-}
-
-function shouldApplyBE(stopMode: string): boolean {
-  return stopMode === "VOLATILITY_BE" || stopMode === "FULL";
-}
-
-function shouldApplyTimeStop(stopMode: string): boolean {
-  return stopMode === "VOLATILITY_TIME" || stopMode === "FULL";
 }
 
 interface ScanContext {

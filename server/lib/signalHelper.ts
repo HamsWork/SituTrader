@@ -30,6 +30,48 @@ export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals?: 
     );
 }
 
+export function computeRNow(
+    currentPrice: number,
+    entryPrice: number,
+    stopPrice: number,
+    isSell: boolean,
+): number {
+    const stopDist = Math.abs(entryPrice - stopPrice);
+    if (stopDist === 0) return 0;
+    return isSell
+        ? (entryPrice - currentPrice) / stopDist
+        : (currentPrice - entryPrice) / stopDist;
+}
+
+export function computeProgressToTarget(
+    currentPrice: number,
+    entryPrice: number,
+    targetPrice: number,
+    isSell: boolean,
+): number {
+    let progress: number;
+    if (isSell) {
+        progress =
+            entryPrice - targetPrice !== 0
+                ? (entryPrice - currentPrice) / (entryPrice - targetPrice)
+                : 0;
+    } else {
+        progress =
+            targetPrice - entryPrice !== 0
+                ? (currentPrice - entryPrice) / (targetPrice - entryPrice)
+                : 0;
+    }
+    return Math.max(0, Math.min(1, progress));
+}
+
+export function shouldApplyBE(stopMode: string): boolean {
+    return stopMode === "VOLATILITY_BE" || stopMode === "FULL";
+}
+
+export function shouldApplyTimeStop(stopMode: string): boolean {
+    return stopMode === "VOLATILITY_TIME" || stopMode === "FULL";
+}
+
 export function checkInvalidation(
     currentPrice: number,
     tradePlan: TradePlan,

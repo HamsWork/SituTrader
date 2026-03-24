@@ -39,7 +39,7 @@ import type {
 } from "./simulation";
 import { initializeBtodForDay } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
-import { checkInvalidation } from "./lib/signalHelper";
+import { checkInvalidation, computeRNow, computeProgressToTarget, shouldApplyBE, shouldApplyTimeStop } from "./lib/signalHelper";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -436,30 +436,6 @@ export class SimTickerStepper {
     return false;
   }
 
-  private computeRNow(currentPrice: number, entryPrice: number, stopPrice: number, isSell: boolean): number {
-    const stopDist = Math.abs(entryPrice - stopPrice);
-    if (stopDist === 0) return 0;
-    return isSell ? (entryPrice - currentPrice) / stopDist : (currentPrice - entryPrice) / stopDist;
-  }
-
-  private computeProgressToTarget(currentPrice: number, entryPrice: number, targetPrice: number, isSell: boolean): number {
-    let progress: number;
-    if (isSell) {
-      progress = entryPrice - targetPrice !== 0 ? (entryPrice - currentPrice) / (entryPrice - targetPrice) : 0;
-    } else {
-      progress = targetPrice - entryPrice !== 0 ? (currentPrice - entryPrice) / (targetPrice - entryPrice) : 0;
-    }
-    return Math.max(0, Math.min(1, progress));
-  }
-
-  private shouldApplyBE(): boolean {
-    return this.config.stopMode === "VOLATILITY_BE" || this.config.stopMode === "FULL";
-  }
-
-  private shouldApplyTimeStop(): boolean {
-    return this.config.stopMode === "VOLATILITY_TIME" || this.config.stopMode === "FULL";
-  }
-
   private checkActivatedSignals(min: number, barsMap: Map<string, IBar[]>, cutoffMs: number): void {
     const activatedSignals = Array.from(this.allSignals.values()).filter(
       (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
@@ -501,14 +477,14 @@ export class SimTickerStepper {
         }
 
         if (entryPrice > 0 && sig.stopPrice != null) {
-          const rNow = this.computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
-          const progress = this.computeProgressToTarget(currentPrice, entryPrice, sig.tradePlan.t1, isSell);
+          const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
+          const progress = computeProgressToTarget(currentPrice, entryPrice, sig.tradePlan.t1, isSell);
 
           const activatedAtMs = sig.activatedTs ? new Date(sig.activatedTs).getTime() : 0;
           const nowMs = dayjs.tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:00`, this.CT).valueOf();
           const activeMinutes = activatedAtMs > 0 ? Math.floor((nowMs - activatedAtMs) / 60000) : 0;
 
-          if (this.shouldApplyBE() && sig.stopStage === "INITIAL") {
+          if (shouldApplyBE(this.config.stopMode) && sig.stopStage === "INITIAL") {
             const beEarned = rNow >= 0.5 || progress >= 0.25;
             if (beEarned) {
               sig.stopStage = "BE";
@@ -520,7 +496,7 @@ export class SimTickerStepper {
             }
           }
 
-          if (this.shouldApplyTimeStop() && sig.stopStage !== "TIME_TIGHTENED") {
+          if (shouldApplyTimeStop(this.config.stopMode) && sig.stopStage !== "TIME_TIGHTENED") {
             if (activeMinutes >= 120 && progress < 0.15) {
               const stopDist = Math.abs(entryPrice - sig.stopPrice);
               const tightenedDist = stopDist * 0.5;
