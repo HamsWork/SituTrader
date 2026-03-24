@@ -1282,12 +1282,13 @@ export default function BacktestPage() {
                                         sig.status === "miss" ? "bg-red-500/5 border border-red-500/10" :
                                         "bg-blue-500/5 border border-blue-500/10"
                                       }`} data-testid={`sim-ondeck-${sig.id}`}>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-mono font-semibold">{sig.ticker}</span>
                                           <span className="text-muted-foreground">{sig.setupType}</span>
                                           <Badge variant="outline" className="text-[9px] h-4 px-1">
                                             {sig.direction === "BEARISH" ? "SELL" : "BUY"}
                                           </Badge>
+                                          <span className="text-muted-foreground">${sig.magnetPrice.toFixed(2)}</span>
                                           {sig.targetDate && (
                                             <span className="text-[9px] text-muted-foreground">{sig.targetDate}</span>
                                           )}
