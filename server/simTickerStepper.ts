@@ -114,6 +114,36 @@ export class SimTickerStepper {
       summary: { totalPending: 0, totalActive: 0, totalHit: 0, totalMiss: 0 },
       phases: [],
     };
+
+    this.initLiveMonitorSignals();
+  }
+
+  private initLiveMonitorSignals(): void {
+    const rthStartMs = dayjs.tz(`${this.today} 08:30:00`, this.CT).valueOf();
+
+    this.liveMonitorPending = Array.from(this.allSignals.values()).filter(
+      (s) =>
+        s.status === "pending" &&
+        s.targetDate === this.today &&
+        s.activationStatus !== "INVALIDATED",
+    );
+
+    const activatedSignals = Array.from(this.allSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    );
+
+    const allMonitorSignals = [...this.liveMonitorPending, ...activatedSignals.filter(
+      (s) => !this.liveMonitorPending.some((p) => p.id === s.id),
+    )];
+
+    this.liveMonitorTickers = Array.from(new Set(allMonitorSignals.map((s) => s.ticker)));
+
+    this.liveMonitorRthBars = new Map();
+    for (const ticker of this.liveMonitorTickers) {
+      const allBars = this.preloadedIntraday.get(ticker) ?? [];
+      const rthBars = allBars.filter((b) => Date.parse(b.ts) >= rthStartMs);
+      if (rthBars.length > 0) this.liveMonitorRthBars.set(ticker, rthBars);
+    }
   }
 
   private getPhaseDelay(): number {
@@ -374,7 +404,7 @@ export class SimTickerStepper {
   private liveMonitorTickers: string[] = [];
   private liveMonitorRthBars = new Map<string, IBar[]>();
 
-  async liveMonitorInit(): Promise<boolean> {
+  liveMonitorStart(): boolean {
     this.emit("progress", {
       completed: this.dayIdx,
       total: this.totalDays,
@@ -386,40 +416,18 @@ export class SimTickerStepper {
       type: "processing",
     });
 
-    const rthStartMs = dayjs.tz(`${this.today} 08:30:00`, this.CT).valueOf();
-
-    this.liveMonitorPending = Array.from(this.allSignals.values()).filter(
-      (s) =>
-        s.status === "pending" &&
-        s.targetDate === this.today &&
-        s.activationStatus !== "INVALIDATED",
-    );
-
-    const activatedSignals = Array.from(this.allSignals.values()).filter(
-      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
-    );
-
-    const allMonitorSignals = [...this.liveMonitorPending, ...activatedSignals.filter(
-      (s) => !this.liveMonitorPending.some((p) => p.id === s.id),
-    )];
-
-    if (allMonitorSignals.length === 0) {
+    if (this.liveMonitorPending.length === 0 && this.liveMonitorTickers.length === 0) {
       this.emit("log", { message: `  No signals targeting ${this.today}`, type: "info" });
       return true;
     }
 
-    this.liveMonitorTickers = Array.from(new Set(allMonitorSignals.map((s) => s.ticker)));
+    const activatedCount = Array.from(this.allSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    ).length;
 
-    this.liveMonitorRthBars = new Map();
-    for (const ticker of this.liveMonitorTickers) {
-      const allBars = this.preloadedIntraday.get(ticker) ?? [];
-      const rthBars = allBars.filter((b) => Date.parse(b.ts) >= rthStartMs);
-      if (rthBars.length > 0) this.liveMonitorRthBars.set(ticker, rthBars);
-    }
-
-    if (activatedSignals.length > 0) {
+    if (activatedCount > 0) {
       this.emit("log", {
-        message: `  Monitoring ${this.liveMonitorPending.length} pending + ${activatedSignals.length} active signals across ${this.liveMonitorTickers.length} tickers`,
+        message: `  Monitoring ${this.liveMonitorPending.length} pending + ${activatedCount} active signals across ${this.liveMonitorTickers.length} tickers`,
         type: "info",
       });
     }
@@ -994,7 +1002,7 @@ export class SimTickerStepper {
     if (await this.preOpenScan()) return this.earlyReturn();
     this.emitDayUpdatePublic();
 
-    const noSignals = await this.liveMonitorInit();
+    const noSignals = this.liveMonitorStart();
     
     if (!noSignals) {
       for (let min = SIM_RTH_START_CT; min < SIM_RTH_END_CT; min++) {
