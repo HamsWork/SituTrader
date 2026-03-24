@@ -254,6 +254,7 @@ export async function processTickerAfterClose(
     if (opts.fetchAndPersistBars) {
         const { from200, from15, today, timeframe } = opts.fetchAndPersistBars;
         const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
+        console.log("dailyPolygon", dailyPolygon);
         for (const bar of dailyPolygon) {
             const date = formatDate(new Date(bar.t));
             await storage.upsertDailyBar({
@@ -262,17 +263,9 @@ export async function processTickerAfterClose(
             });
         }
 
+        dailyBars = await storage.getDailyBars(ticker, from200, today);
+        console.log("today", today);
 
-        const intradayPolygon = await fetchIntradayBarsCached(ticker, from15, today, timeframe);
-        for (const bar of intradayPolygon) {
-            const ts = new Date(bar.t).toISOString();
-            await storage.upsertIntradayBar({
-                ticker, ts, open: bar.o, high: bar.h, low: bar.l, close: bar.c,
-                volume: bar.v, timeframe, source: "polygon",
-            });
-        }
-
-        dailyBars = await storage.getDailyBars(ticker);
     } else if (opts.dailyBars) {
         dailyBars = opts.dailyBars;
     } else {
