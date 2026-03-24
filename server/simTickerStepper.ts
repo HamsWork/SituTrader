@@ -9,22 +9,10 @@ import {
   formatDate,
   getTradingDaysBack,
 } from "./lib/calendar";
-import { detectAllSetups } from "./lib/rules";
 import { validateMagnetTouch, computeMAEMFE } from "./lib/validate";
 import { checkEntryTrigger } from "./lib/activation";
-import {
-  computeConfidence,
-  computeATR,
-  computeAvgVolume,
-} from "./lib/confidence";
-import {
-  computeQualityScore,
-  qualityScoreToTier,
-  computeAvgDollarVolume,
-} from "./lib/quality";
-import { generateTradePlan } from "./lib/tradeplan";
 import { storage } from "./storage";
-import type { DailyBar, SetupType } from "@shared/schema";
+import type { DailyBar } from "@shared/schema";
 
 import type {
   SimSignal,
@@ -39,7 +27,7 @@ import type {
 } from "./simulation";
 import { initializeBtodForDay } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
-import { checkInvalidation, computeRNow, computeProgressToTarget, shouldApplyBE, shouldApplyTimeStop } from "./lib/signalHelper";
+import { checkInvalidation, computeRNow, computeProgressToTarget, shouldApplyBE, shouldApplyTimeStop, scanTickerSetups, type ScanTickerConfig } from "./lib/signalHelper";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -726,6 +714,17 @@ export class SimTickerStepper {
       ),
     );
 
+    const scanConfig: ScanTickerConfig = {
+      setups: this.config.setups,
+      gapThreshold: this.config.gapThreshold,
+      timePriorityMode: this.timePriorityMode,
+      entryMode: this.config.entryMode,
+      stopMode: this.config.stopMode,
+      atrMultiplier: this.config.atrMultiplier,
+      alertGateEnabled: false,
+      liquidityFloor: 0,
+    };
+
     for (const ticker of this.config.tickers) {
       if (this.isAborted()) break;
       if (await this.checkPause()) break;
@@ -733,107 +732,28 @@ export class SimTickerStepper {
         const dailyBars = this.preloadedDaily.get(ticker);
         if (!dailyBars || dailyBars.length < 5) continue;
 
-        const recentBars = dailyBars.slice(-30);
-        const setups = detectAllSetups(
-          recentBars,
-          this.config.setups,
-          this.config.gapThreshold,
-        );
-
-        const relevantSetups = setups.filter((s) => s.targetDate > this.today);
-        if (relevantSetups.length === 0) continue;
-
-        const atr = computeATR(dailyBars);
-        const avgVol = computeAvgVolume(dailyBars);
-        const avgDollarVol = computeAvgDollarVolume(dailyBars);
-        const lastBar = dailyBars[dailyBars.length - 1];
-        const avgRange20d = dailyBars.slice(-20).length > 0
-          ? dailyBars.slice(-20).reduce((s, b) => s + (b.high - b.low), 0) / dailyBars.slice(-20).length
-          : 0;
-        const avgRange = recentBars.length > 0
-          ? recentBars.reduce((s, b) => s + (b.high - b.low), 0) / recentBars.length
-          : 0;
-
         const isOnWatchlist = this.watchlistSet.has(ticker);
+        const scoredSetups = await scanTickerSetups(ticker, dailyBars, scanConfig, isOnWatchlist);
 
-        for (const setup of relevantSetups) {
-          const key = `${ticker}|${setup.setupType}|${setup.asofDate}|${setup.targetDate}`;
+        for (const scored of scoredSetups) {
+          if (scored.targetDate <= this.today) continue;
+
+          const key = `${ticker}|${scored.setupType}|${scored.asofDate}|${scored.targetDate}`;
           if (afterCloseExistingSignalKeys.has(key)) continue;
           afterCloseExistingSignalKeys.add(key);
-
-          const triggerDayBar = recentBars.find(
-            (b) => b.date === setup.asofDate,
-          );
-          const triggerDayVolume = triggerDayBar?.volume ?? 0;
-          const triggerDayRange = triggerDayBar
-            ? triggerDayBar.high - triggerDayBar.low
-            : 0;
-
-          const confidence = computeConfidence(
-            lastBar.close,
-            setup.magnetPrice,
-            setup.triggerMargin,
-            triggerDayVolume,
-            avgVol,
-            triggerDayRange,
-            avgRange,
-            atr,
-          );
-
-          const historicalHitRate = await storage.getHitRateForTickerSetup(
-            ticker,
-            setup.setupType,
-          );
-          const tthStats = await storage.getTimeToHitStats(
-            ticker,
-            setup.setupType,
-          );
-
-          const qualityResult = computeQualityScore({
-            setupType: setup.setupType as SetupType,
-            triggerMargin: setup.triggerMargin,
-            lastClose: lastBar.close,
-            magnetPrice: setup.magnetPrice,
-            atr14: atr,
-            avgDollarVolume20d: avgDollarVol,
-            todayTrueRange: triggerDayRange,
-            avgTrueRange20d: avgRange20d,
-            todayVolume: triggerDayVolume,
-            avgVolume20d: avgVol,
-            historicalHitRate,
-            p60: tthStats?.p60 ?? null,
-            p390: tthStats?.p390 ?? null,
-            timePriorityMode: this.timePriorityMode,
-          });
-
-          const sigP60 = tthStats?.p60 ?? null;
-          const sigP120 = tthStats?.p120 ?? null;
-
-          let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
-          if (isOnWatchlist && tier === "B") tier = "A";
-          else if (isOnWatchlist && tier === "C") tier = "B";
-
-          const tradePlan = generateTradePlan(
-            lastBar.close,
-            setup.magnetPrice,
-            dailyBars,
-            this.config.entryMode,
-            this.config.stopMode,
-            this.config.atrMultiplier,
-          );
 
           const simSig: SimSignal = {
             id: this.nextSimSignalId++,
             ticker,
-            setupType: setup.setupType,
-            asofDate: setup.asofDate,
-            targetDate: setup.targetDate,
-            magnetPrice: setup.magnetPrice,
-            direction: setup.direction,
-            confidence: confidence.total,
-            qualityScore: Math.round(qualityResult.total),
-            tier,
-            tradePlan,
+            setupType: scored.setupType,
+            asofDate: scored.asofDate,
+            targetDate: scored.targetDate,
+            magnetPrice: scored.magnetPrice,
+            direction: scored.direction,
+            confidence: scored.confidence,
+            qualityScore: scored.qualityScore,
+            tier: scored.tier,
+            tradePlan: scored.tradePlan,
             status: "pending",
             activationStatus: "NOT_ACTIVE",
             hitTs: null,
@@ -841,11 +761,7 @@ export class SimTickerStepper {
             missReason: null,
             activatedTs: null,
             entryPrice: null,
-            stopPrice: tradePlan.stopDistance
-              ? tradePlan.bias === "SELL"
-                ? lastBar.close + tradePlan.stopDistance
-                : lastBar.close - tradePlan.stopDistance
-              : null,
+            stopPrice: scored.stopPrice,
             stopStage: "INITIAL",
             mae: null,
             mfe: null,

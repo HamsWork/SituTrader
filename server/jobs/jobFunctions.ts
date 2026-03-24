@@ -1,17 +1,13 @@
 import { storage } from "../storage";
 import { fetchDailyBarsCached, fetchIntradayBarsCached, fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
-import { detectAllSetups } from "../lib/rules";
 import { validateMagnetTouch } from "../lib/validate";
-import { computeConfidence, computeATR, computeAvgVolume } from "../lib/confidence";
-import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "../lib/quality";
-import { generateTradePlan } from "../lib/tradeplan";
 import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions } from "../lib/options";
+import { scanTickerSetups, type ScanTickerConfig } from "../lib/signalHelper";
 import { log } from "../index";
-import type { SetupType } from "@shared/schema";
 
 export interface ScanSummary {
   tickersScanned: number;
@@ -64,6 +60,17 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
 
     log(`AfterClose: Scanning ${tickersToScan.length} tickers...`, "scheduler");
 
+    const scanConfig: ScanTickerConfig = {
+      setups: ["A", "B", "C", "D", "E", "F"],
+      gapThreshold,
+      timePriorityMode: (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND",
+      entryMode: settings.entryMode || "conservative",
+      stopMode: settings.stopMode || "atr",
+      atrMultiplier: parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25,
+      alertGateEnabled,
+      liquidityFloor,
+    };
+
     for (const ticker of tickersToScan) {
       try {
         const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
@@ -85,118 +92,62 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
         }
 
         const allDailyBars = await storage.getDailyBars(ticker);
-        if (allDailyBars.length < 5) continue;
-
-        const recentBars = allDailyBars.slice(-30);
-        const setups = detectAllSetups(recentBars, ["A", "B", "C", "D", "E", "F"], gapThreshold);
-
-        const atr = computeATR(allDailyBars);
-        const avgVol = computeAvgVolume(allDailyBars);
-        const avgDollarVol = computeAvgDollarVolume(allDailyBars);
-        const lastBar = allDailyBars[allDailyBars.length - 1];
-        const avgRange20d = allDailyBars.slice(-20).length > 0
-          ? allDailyBars.slice(-20).reduce((s, b) => s + (b.high - b.low), 0) / allDailyBars.slice(-20).length
-          : 0;
-
         const isOnWatchlist = watchlistSet.has(ticker);
+        const scoredSetups = await scanTickerSetups(ticker, allDailyBars, scanConfig, isOnWatchlist);
 
-        for (const setup of setups) {
-          if (setup.targetDate < from15) continue;
-
-          const triggerDayBar = recentBars.find(b => b.date === setup.asofDate);
-          const triggerDayVolume = triggerDayBar?.volume ?? 0;
-          const triggerDayRange = triggerDayBar ? triggerDayBar.high - triggerDayBar.low : 0;
-          const avgRange = recentBars.length > 0
-            ? recentBars.reduce((s, b) => s + (b.high - b.low), 0) / recentBars.length : 0;
-
-          const confidence = computeConfidence(lastBar.close, setup.magnetPrice, setup.triggerMargin,
-            triggerDayVolume, avgVol, triggerDayRange, avgRange, atr);
-
-          const historicalHitRate = await storage.getHitRateForTickerSetup(ticker, setup.setupType);
-          const tthStats = await storage.getTimeToHitStats(ticker, setup.setupType);
-          const timePriorityMode = (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND";
-
-          const qualityResult = computeQualityScore({
-            setupType: setup.setupType as SetupType,
-            triggerMargin: setup.triggerMargin,
-            lastClose: lastBar.close, magnetPrice: setup.magnetPrice,
-            atr14: atr, avgDollarVolume20d: avgDollarVol,
-            todayTrueRange: triggerDayRange, avgTrueRange20d: avgRange20d,
-            todayVolume: triggerDayVolume, avgVolume20d: avgVol,
-            historicalHitRate,
-            p60: tthStats?.p60 ?? null, p390: tthStats?.p390 ?? null,
-            timePriorityMode,
-          });
-
-          const sigP60 = tthStats?.p60 ?? null;
-          const sigP120 = tthStats?.p120 ?? null;
-          const sigP390 = tthStats?.p390 ?? null;
-
-          let universePass = true;
-          if (alertGateEnabled) {
-            universePass = isOnWatchlist || avgDollarVol >= liquidityFloor;
-          }
-
-          let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
-          if (isOnWatchlist && tier === "B") tier = "A";
-          else if (isOnWatchlist && tier === "C") tier = "B";
-
-          const atrMult = parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25;
-          const tradePlan = generateTradePlan(lastBar.close, setup.magnetPrice, allDailyBars,
-            settings.entryMode || "conservative", settings.stopMode || "atr", atrMult);
+        for (const scored of scoredSetups) {
+          if (scored.targetDate < from15) continue;
 
           let status = "pending";
           let hitTs: string | null = null;
           let missReason: string | null = null;
 
-          const intradayBarsData = await storage.getIntradayBars(ticker, setup.targetDate, timeframe);
+          const intradayBarsData = await storage.getIntradayBars(ticker, scored.targetDate, timeframe);
           if (intradayBarsData.length > 0) {
             const result = validateMagnetTouch(
               intradayBarsData.map(b => ({ ts: b.ts, high: b.high, low: b.low })),
-              setup.magnetPrice, setup.direction);
+              scored.magnetPrice, scored.direction);
             if (result.hit) { status = "hit"; hitTs = result.hitTs ?? null; }
-            else if (setup.targetDate < today) { status = "miss"; missReason = "Magnet not touched during RTH"; }
-          } else if (setup.targetDate < today) {
+            else if (scored.targetDate < today) { status = "miss"; missReason = "Magnet not touched during RTH"; }
+          } else if (scored.targetDate < today) {
             status = "miss"; missReason = "No intraday data available for validation";
           }
 
           await storage.upsertSignal({
-            ticker, 
-            setupType: setup.setupType, 
-            asofDate: setup.asofDate,
-            targetDate: setup.targetDate, 
-            targetDate2: null, 
+            ticker,
+            setupType: scored.setupType,
+            asofDate: scored.asofDate,
+            targetDate: scored.targetDate,
+            targetDate2: null,
             targetDate3: null,
-            magnetPrice: setup.magnetPrice, 
-            magnetPrice2: setup.magnetPrice2 ?? null,
-            direction: setup.direction, 
-            confidence: confidence.total,
-            status, 
-            hitTs, 
-            timeToHitMin: null, 
+            magnetPrice: scored.magnetPrice,
+            magnetPrice2: scored.magnetPrice2,
+            direction: scored.direction,
+            confidence: scored.confidence,
+            status,
+            hitTs,
+            timeToHitMin: null,
             missReason,
-            tradePlanJson: tradePlan as any, 
-            confidenceBreakdown: confidence as any,
-            qualityScore: Math.round(qualityResult.total), 
-            tier,
-            alertState: "new", 
+            tradePlanJson: scored.tradePlan as any,
+            confidenceBreakdown: scored.confidenceBreakdown,
+            qualityScore: scored.qualityScore,
+            tier: scored.tier,
+            alertState: "new",
             nextAlertEligibleAt: null,
-            qualityBreakdown: qualityResult as any,
-            pHit60: sigP60, 
-            pHit120: sigP120, 
-            pHit390: sigP390,
-            timeScore: qualityResult.timeScore ?? null, 
-            universePass,
-            activationStatus: "NOT_ACTIVE", 
+            qualityBreakdown: scored.qualityBreakdown,
+            pHit60: scored.sigP60,
+            pHit120: scored.sigP120,
+            pHit390: scored.sigP390,
+            timeScore: scored.timeScore,
+            universePass: scored.universePass,
+            activationStatus: "NOT_ACTIVE",
             activatedTs: null,
             entryPriceAtActivation: null,
-            stopPrice: tradePlan.stopDistance
-              ? (tradePlan.bias === "SELL" ? lastBar.close + tradePlan.stopDistance : lastBar.close - tradePlan.stopDistance)
-              : null,
-            entryTriggerPrice: null, 
+            stopPrice: scored.stopPrice,
+            entryTriggerPrice: null,
             invalidationTs: null,
-            stopStage: "INITIAL", 
-            stopMovedToBeTs: null, 
+            stopStage: "INITIAL",
+            stopMovedToBeTs: null,
             timeStopTriggeredTs: null,
             optionsJson: null,
             optionContractTicker: null,
@@ -208,8 +159,8 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
           });
 
           summary.signalsGenerated++;
-          summary.byTier[tier] = (summary.byTier[tier] || 0) + 1;
-          summary.bySetup[setup.setupType] = (summary.bySetup[setup.setupType] || 0) + 1;
+          summary.byTier[scored.tier] = (summary.byTier[scored.tier] || 0) + 1;
+          summary.bySetup[scored.setupType] = (summary.bySetup[scored.setupType] || 0) + 1;
         }
       } catch (err: any) {
         summary.errors++;

@@ -1,5 +1,9 @@
-import type { Signal, TradePlan } from "@shared/schema";
+import type { Signal, TradePlan, DailyBar, SetupType } from "@shared/schema";
 import { storage } from "../storage";
+import { detectAllSetups, type SetupResult } from "./rules";
+import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
+import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
+import { generateTradePlan } from "./tradeplan";
 
 interface OnDeckFilterable {
     status: string;
@@ -70,6 +74,147 @@ export function shouldApplyBE(stopMode: string): boolean {
 
 export function shouldApplyTimeStop(stopMode: string): boolean {
     return stopMode === "VOLATILITY_TIME" || stopMode === "FULL";
+}
+
+export interface ScanTickerConfig {
+    setups: string[];
+    gapThreshold: number;
+    timePriorityMode: "EARLY" | "SAME_DAY" | "BLEND";
+    entryMode: string;
+    stopMode: string;
+    atrMultiplier: number;
+    alertGateEnabled: boolean;
+    liquidityFloor: number;
+}
+
+export interface ScoredSetup {
+    ticker: string;
+    setupType: string;
+    asofDate: string;
+    targetDate: string;
+    magnetPrice: number;
+    magnetPrice2: number | null;
+    direction: string;
+    confidence: number;
+    confidenceBreakdown: any;
+    qualityScore: number;
+    qualityBreakdown: any;
+    tier: string;
+    tradePlan: TradePlan;
+    sigP60: number | null;
+    sigP120: number | null;
+    sigP390: number | null;
+    timeScore: number | null;
+    universePass: boolean;
+    stopPrice: number | null;
+    lastClose: number;
+}
+
+export async function scanTickerSetups(
+    ticker: string,
+    dailyBars: DailyBar[],
+    config: ScanTickerConfig,
+    isOnWatchlist: boolean,
+): Promise<ScoredSetup[]> {
+    if (dailyBars.length < 5) return [];
+
+    const recentBars = dailyBars.slice(-30);
+    const setups = detectAllSetups(recentBars, config.setups, config.gapThreshold);
+    if (setups.length === 0) return [];
+
+    const atr = computeATR(dailyBars);
+    const avgVol = computeAvgVolume(dailyBars);
+    const avgDollarVol = computeAvgDollarVolume(dailyBars);
+    const lastBar = dailyBars[dailyBars.length - 1];
+    const slice20 = dailyBars.slice(-20);
+    const avgRange20d = slice20.length > 0
+        ? slice20.reduce((s, b) => s + (b.high - b.low), 0) / slice20.length
+        : 0;
+    const avgRange = recentBars.length > 0
+        ? recentBars.reduce((s, b) => s + (b.high - b.low), 0) / recentBars.length
+        : 0;
+
+    const results: ScoredSetup[] = [];
+
+    for (const setup of setups) {
+        const triggerDayBar = recentBars.find((b) => b.date === setup.asofDate);
+        const triggerDayVolume = triggerDayBar?.volume ?? 0;
+        const triggerDayRange = triggerDayBar ? triggerDayBar.high - triggerDayBar.low : 0;
+
+        const confidence = computeConfidence(
+            lastBar.close, setup.magnetPrice, setup.triggerMargin,
+            triggerDayVolume, avgVol, triggerDayRange, avgRange, atr,
+        );
+
+        const historicalHitRate = await storage.getHitRateForTickerSetup(ticker, setup.setupType);
+        const tthStats = await storage.getTimeToHitStats(ticker, setup.setupType);
+
+        const qualityResult = computeQualityScore({
+            setupType: setup.setupType as SetupType,
+            triggerMargin: setup.triggerMargin,
+            lastClose: lastBar.close,
+            magnetPrice: setup.magnetPrice,
+            atr14: atr,
+            avgDollarVolume20d: avgDollarVol,
+            todayTrueRange: triggerDayRange,
+            avgTrueRange20d: avgRange20d,
+            todayVolume: triggerDayVolume,
+            avgVolume20d: avgVol,
+            historicalHitRate,
+            p60: tthStats?.p60 ?? null,
+            p390: tthStats?.p390 ?? null,
+            timePriorityMode: config.timePriorityMode,
+        });
+
+        const sigP60 = tthStats?.p60 ?? null;
+        const sigP120 = tthStats?.p120 ?? null;
+        const sigP390 = tthStats?.p390 ?? null;
+
+        let universePass = true;
+        if (config.alertGateEnabled) {
+            universePass = isOnWatchlist || avgDollarVol >= config.liquidityFloor;
+        }
+
+        let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
+        if (isOnWatchlist && tier === "B") tier = "A";
+        else if (isOnWatchlist && tier === "C") tier = "B";
+
+        const tradePlan = generateTradePlan(
+            lastBar.close, setup.magnetPrice, dailyBars,
+            config.entryMode, config.stopMode, config.atrMultiplier,
+        );
+
+        const stopPrice = tradePlan.stopDistance
+            ? (tradePlan.bias === "SELL"
+                ? lastBar.close + tradePlan.stopDistance
+                : lastBar.close - tradePlan.stopDistance)
+            : null;
+
+        results.push({
+            ticker,
+            setupType: setup.setupType,
+            asofDate: setup.asofDate,
+            targetDate: setup.targetDate,
+            magnetPrice: setup.magnetPrice,
+            magnetPrice2: setup.magnetPrice2 ?? null,
+            direction: setup.direction,
+            confidence: confidence.total,
+            confidenceBreakdown: confidence,
+            qualityScore: Math.round(qualityResult.total),
+            qualityBreakdown: qualityResult,
+            tier,
+            tradePlan,
+            sigP60,
+            sigP120,
+            sigP390,
+            timeScore: qualityResult.timeScore ?? null,
+            universePass,
+            stopPrice,
+            lastClose: lastBar.close,
+        });
+    }
+
+    return results;
 }
 
 export function checkInvalidation(
