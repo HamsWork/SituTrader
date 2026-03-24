@@ -27,7 +27,7 @@ import type {
 } from "./simulation";
 import { initializeBtodForDay } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
-import { checkInvalidation, computeRNow, computeProgressToTarget, shouldApplyBE, shouldApplyTimeStop, scanTickerSetups, type ScanTickerConfig } from "./lib/signalHelper";
+import { checkInvalidation, computeRNow, computeProgressToTarget, shouldApplyBE, shouldApplyTimeStop, processTickerAfterClose, type ScanTickerConfig } from "./lib/signalHelper";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -725,6 +725,9 @@ export class SimTickerStepper {
       liquidityFloor: 0,
     };
 
+    const tomorrow = this.today;
+    const minTarget = tomorrow + "\x01";
+
     for (const ticker of this.config.tickers) {
       if (this.isAborted()) break;
       if (await this.checkPause()) break;
@@ -732,12 +735,15 @@ export class SimTickerStepper {
         const dailyBars = this.preloadedDaily.get(ticker);
         if (!dailyBars || dailyBars.length < 5) continue;
 
-        const isOnWatchlist = this.watchlistSet.has(ticker);
-        const scoredSetups = await scanTickerSetups(ticker, dailyBars, scanConfig, isOnWatchlist);
+        const processed = await processTickerAfterClose({
+          ticker,
+          config: scanConfig,
+          isOnWatchlist: this.watchlistSet.has(ticker),
+          minTargetDate: minTarget,
+          dailyBars,
+        });
 
-        for (const scored of scoredSetups) {
-          if (scored.targetDate <= this.today) continue;
-
+        for (const scored of processed) {
           const key = `${ticker}|${scored.setupType}|${scored.asofDate}|${scored.targetDate}`;
           if (afterCloseExistingSignalKeys.has(key)) continue;
           afterCloseExistingSignalKeys.add(key);

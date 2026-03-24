@@ -1,12 +1,11 @@
 import { storage } from "../storage";
-import { fetchDailyBarsCached, fetchIntradayBarsCached, fetchSnapshot } from "../lib/polygon";
+import { fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
-import { validateMagnetTouch } from "../lib/validate";
 import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions } from "../lib/options";
-import { scanTickerSetups, type ScanTickerConfig } from "../lib/signalHelper";
+import { processTickerAfterClose, type ScanTickerConfig } from "../lib/signalHelper";
 import { log } from "../index";
 
 export interface ScanSummary {
@@ -73,46 +72,16 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
 
     for (const ticker of tickersToScan) {
       try {
-        const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
-        for (const bar of dailyPolygon) {
-          const date = formatDate(new Date(bar.t));
-          await storage.upsertDailyBar({
-            ticker, date, open: bar.o, high: bar.h, low: bar.l, close: bar.c,
-            volume: bar.v, vwap: bar.vw ?? null, source: "polygon",
-          });
-        }
+        const processed = await processTickerAfterClose({
+          ticker,
+          config: scanConfig,
+          isOnWatchlist: watchlistSet.has(ticker),
+          minTargetDate: from15,
+          fetchAndPersistBars: { from200, from15, today, timeframe },
+          validateTouch: { today, timeframe },
+        });
 
-        const intradayPolygon = await fetchIntradayBarsCached(ticker, from15, today, timeframe);
-        for (const bar of intradayPolygon) {
-          const ts = new Date(bar.t).toISOString();
-          await storage.upsertIntradayBar({
-            ticker, ts, open: bar.o, high: bar.h, low: bar.l, close: bar.c,
-            volume: bar.v, timeframe, source: "polygon",
-          });
-        }
-
-        const allDailyBars = await storage.getDailyBars(ticker);
-        const isOnWatchlist = watchlistSet.has(ticker);
-        const scoredSetups = await scanTickerSetups(ticker, allDailyBars, scanConfig, isOnWatchlist);
-
-        for (const scored of scoredSetups) {
-          if (scored.targetDate < from15) continue;
-
-          let status = "pending";
-          let hitTs: string | null = null;
-          let missReason: string | null = null;
-
-          const intradayBarsData = await storage.getIntradayBars(ticker, scored.targetDate, timeframe);
-          if (intradayBarsData.length > 0) {
-            const result = validateMagnetTouch(
-              intradayBarsData.map(b => ({ ts: b.ts, high: b.high, low: b.low })),
-              scored.magnetPrice, scored.direction);
-            if (result.hit) { status = "hit"; hitTs = result.hitTs ?? null; }
-            else if (scored.targetDate < today) { status = "miss"; missReason = "Magnet not touched during RTH"; }
-          } else if (scored.targetDate < today) {
-            status = "miss"; missReason = "No intraday data available for validation";
-          }
-
+        for (const scored of processed) {
           await storage.upsertSignal({
             ticker,
             setupType: scored.setupType,
@@ -124,10 +93,10 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
             magnetPrice2: scored.magnetPrice2,
             direction: scored.direction,
             confidence: scored.confidence,
-            status,
-            hitTs,
+            status: scored.status,
+            hitTs: scored.hitTs,
             timeToHitMin: null,
-            missReason,
+            missReason: scored.missReason,
             tradePlanJson: scored.tradePlan as any,
             confidenceBreakdown: scored.confidenceBreakdown,
             qualityScore: scored.qualityScore,
