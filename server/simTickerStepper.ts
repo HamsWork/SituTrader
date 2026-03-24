@@ -23,7 +23,6 @@ import {
   computeAvgDollarVolume,
 } from "./lib/quality";
 import { generateTradePlan } from "./lib/tradeplan";
-import { getBtodRankedQueueAndTop3Ids } from "./lib/btod";
 import { storage } from "./storage";
 import type { DailyBar, SetupType } from "@shared/schema";
 
@@ -328,20 +327,27 @@ export class SimTickerStepper {
       type: "processing",
     });
 
+    const btodSetups = new Set(this.config.btodSetupTypes || ["A", "B", "C"]);
     const pendingForBtod = Array.from(this.allSignals.values()).filter(
       (s) =>
         s.status === "pending" &&
         s.activationStatus === "NOT_ACTIVE" &&
-        s.targetDate === this.today,
+        btodSetups.has(s.setupType) &&
+        (s.qualityScore ?? 0) >= 62,
     );
 
-    const { rankedQueue } = getBtodRankedQueueAndTop3Ids(pendingForBtod);
-    this.top3 = rankedQueue.slice(0, 3).map((r) => ({
-      signalId: r.signalId,
-      ticker: r.ticker,
-      setupType: r.setupType,
-      qualityScore: r.qualityScore,
-      rank: r.rank,
+    pendingForBtod.sort((a, b) => {
+      const qsDiff = (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
+      if (qsDiff !== 0) return qsDiff;
+      return a.ticker.localeCompare(b.ticker);
+    });
+
+    this.top3 = pendingForBtod.slice(0, 3).map((s, i) => ({
+      signalId: s.id,
+      ticker: s.ticker,
+      setupType: s.setupType,
+      qualityScore: s.qualityScore ?? 0,
+      rank: i + 1,
     }));
     this.dayResult.btodTop3 = this.top3;
     this.btodSignalIds = new Set(this.top3.map((r) => r.signalId));

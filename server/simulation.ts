@@ -163,6 +163,7 @@ export interface SimConfig {
   atrMultiplier: number;
   gapThreshold: number;
   phaseDelayMs: number;
+  btodSetupTypes: string[];
 }
 
 export type SimEventCallback = (

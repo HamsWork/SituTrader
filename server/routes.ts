@@ -805,12 +805,13 @@ export async function registerRoutes(
   });
 
   app.post("/api/backtest/simulate-start", async (req, res) => {
-    const { tickers, setups, startDate, endDate, phaseDelayMs } = req.body;
+    const { tickers, setups, startDate, endDate, phaseDelayMs, btodSetupTypes } = req.body;
     if (!tickers?.length || !setups?.length || !startDate || !endDate) {
       return res.status(400).json({ message: "tickers, setups, startDate, endDate required" });
     }
     const delay = typeof phaseDelayMs === "number" && Number.isFinite(phaseDelayMs) ? Math.max(0, Math.min(phaseDelayMs, 30000)) : 4000;
-    const result = await startSimulation(tickers, setups, startDate, endDate, delay);
+    const btodSetups = Array.isArray(btodSetupTypes) && btodSetupTypes.length > 0 ? btodSetupTypes : ["A", "B", "C"];
+    const result = await startSimulation(tickers, setups, startDate, endDate, delay, btodSetups);
     res.json(result);
   });
 

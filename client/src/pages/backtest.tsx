@@ -104,6 +104,7 @@ export default function BacktestPage() {
   const [tickerSearch, setTickerSearch] = useState("");
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [selectedSetups, setSelectedSetups] = useState<string[]>(["A", "B", "C", "D", "E", "F"]);
+  const [btodSetupTypes, setBtodSetupTypes] = useState<string[]>(["A", "B", "C"]);
   const [durationPreset, setDurationPreset] = useState("12");
   const [startDate, setStartDate] = useState(getDateFromMonthsAgo(12));
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
@@ -438,7 +439,7 @@ export default function BacktestPage() {
     fetch("/api/backtest/simulate-start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate, phaseDelayMs: simPhaseDelayMs }),
+      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate, phaseDelayMs: simPhaseDelayMs, btodSetupTypes }),
     }).then((res) => {
       if (!res.ok) {
         toast({ title: "Simulation failed", description: "Failed to start", variant: "destructive" });
@@ -448,7 +449,7 @@ export default function BacktestPage() {
     }).catch((err) => {
       toast({ title: "Simulation failed", description: err.message, variant: "destructive" });
     });
-  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, toast, connectSSE]);
+  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, btodSetupTypes, toast, connectSSE]);
 
   const btRunLogCountRef = useRef(0);
   const btRunWasRunningRef = useRef(false);
@@ -763,6 +764,31 @@ export default function BacktestPage() {
                       />
                       <label htmlFor={`sim-setup-${setup}`} className="text-xs cursor-pointer">
                         {setup}: {SETUP_LABELS[setup as SetupType]}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">BTOD Setup Types</Label>
+                <div className="flex flex-wrap gap-3">
+                  {SETUP_TYPES.map((setup) => (
+                    <div key={setup} className="flex items-center gap-1.5">
+                      <Checkbox
+                        id={`sim-btod-setup-${setup}`}
+                        checked={btodSetupTypes.includes(setup)}
+                        onCheckedChange={() => {
+                          setBtodSetupTypes((prev) =>
+                            prev.includes(setup)
+                              ? prev.filter((s) => s !== setup)
+                              : [...prev, setup]
+                          );
+                        }}
+                        data-testid={`checkbox-sim-btod-setup-${setup}`}
+                      />
+                      <label htmlFor={`sim-btod-setup-${setup}`} className="text-xs cursor-pointer">
+                        {setup}
                       </label>
                     </div>
                   ))}
