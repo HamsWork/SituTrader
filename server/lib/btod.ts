@@ -4,7 +4,6 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import type {BtodState } from "@shared/schema";
-import type { SimDayContext } from "../simulation";
 import { getOnDeckSignals } from "./signalHelper";
 
 dayjs.extend(utc);
@@ -92,21 +91,19 @@ export function getBtodRankedQueueAndTop3Ids(signals: RankableSignalLike[]): {
 }
 
 
-export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodState> {
-  const tradeDate = ctx?.today || todayET();
+export async function initializeBtodForDay(): Promise<BtodState> {
+  const tradeDate = todayET();
 
-  if (!ctx) {
-    const existing = await storage.getBtodState(tradeDate);
-    if (existing && (existing.rankedQueue as any[]).length > 0) {
-      log(
-        `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
-        "btod",
-      );
-      return existing;
-    }
+  const existing = await storage.getBtodState(tradeDate);
+  if (existing && (existing.rankedQueue as any[]).length > 0) {
+    log(
+      `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
+      "btod",
+    );
+    return existing;
   }
 
-  const onDeck = await getOnDeckSignals(ctx);
+  const onDeck = await getOnDeckSignals();
 
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
     onDeck as unknown as RankableSignalLike[],
