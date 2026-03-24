@@ -103,8 +103,7 @@ export async function initializeBtodForDay(date?: string): Promise<BtodState> {
   const eligibleForBtod = allSignals.filter(
     (s) =>
       s.status === "pending" &&
-      s.activationStatus === "NOT_ACTIVE" &&
-      s.targetDate === tradeDate,
+      s.activationStatus === "NOT_ACTIVE",
   );
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
     eligibleForBtod as unknown as RankableSignalLike[],
