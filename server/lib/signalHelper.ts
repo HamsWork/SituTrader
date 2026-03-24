@@ -7,6 +7,7 @@ import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch } from "./validate";
 import { fetchDailyBarsCached, fetchIntradayBarsCached } from "./polygon";
 import { formatDate, getTradingDaysBack } from "./calendar";
+import { SimDayContext } from "server/simulation";
 
 interface OnDeckFilterable {
     status: string;

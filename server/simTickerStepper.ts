@@ -696,24 +696,6 @@ export class SimTickerStepper {
       type: "processing",
     });
 
-    for (const sig of Array.from(this.allSignals.values())) {
-      if (sig.status !== "pending") continue;
-      if (sig.targetDate !== this.today) continue;
-      sig.status = "miss";
-      sig.missReason = "Magnet not touched during RTH";
-      this.dayResult.misses.push({
-        signalId: sig.id,
-        ticker: sig.ticker,
-        reason: sig.missReason,
-      });
-    }
-
-    const afterCloseExistingSignalKeys = new Set<string>(
-      Array.from(this.allSignals.values()).map(
-        (s) => `${s.ticker}|${s.setupType}|${s.asofDate}|${s.targetDate}`,
-      ),
-    );
-
     const scanConfig: ScanTickerConfig = {
       setups: this.config.setups,
       gapThreshold: this.config.gapThreshold,
@@ -725,28 +707,33 @@ export class SimTickerStepper {
       liquidityFloor: 0,
     };
 
-    const tomorrow = this.today;
-    const minTarget = tomorrow + "\x01";
+    const timeframe = "5"; //TODO: get from config
+    const today = formatDate(new Date(this.today));
+    const from200 = getTradingDaysBack(today, 200);
+    const from15 = getTradingDaysBack(today, 15);
 
     for (const ticker of this.config.tickers) {
       if (this.isAborted()) break;
       if (await this.checkPause()) break;
       try {
-        const dailyBars = this.preloadedDaily.get(ticker);
-        if (!dailyBars || dailyBars.length < 5) continue;
-
         const processed = await processTickerAfterClose({
           ticker,
           config: scanConfig,
           isOnWatchlist: this.watchlistSet.has(ticker),
-          minTargetDate: minTarget,
-          dailyBars,
+          minTargetDate: from15,
+          fetchAndPersistBars: {
+            from200,
+            from15,
+            today,
+            timeframe,
+          },
+          validateTouch: {
+            today,
+            timeframe,
+          },
         });
 
         for (const scored of processed) {
-          const key = `${ticker}|${scored.setupType}|${scored.asofDate}|${scored.targetDate}`;
-          if (afterCloseExistingSignalKeys.has(key)) continue;
-          afterCloseExistingSignalKeys.add(key);
 
           const simSig: SimSignal = {
             id: this.nextSimSignalId++,
