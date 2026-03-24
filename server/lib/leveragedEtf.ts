@@ -363,7 +363,7 @@ export async function selectBestLeveragedEtf(
 
     return {
       ticker: best.ticker,
-      leverage: best.direction === "BULL" ? best.leverage :  - best.leverage,
+      leverage: best.direction === "BULL" ? best.leverage :  -best.leverage as -3 | -2 | -1 | 1 | 2 | 3,
       direction: best.direction,
       liquidityScore: Math.round(best.score * 10) / 10,
       reason: `Best ${best.leverage}x ${best.direction} ETF (spread ${best.spreadPct != null ? (best.spreadPct * 100).toFixed(2) + "%" : "n/a"})`,
