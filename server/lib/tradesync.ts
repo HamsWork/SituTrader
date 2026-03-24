@@ -351,8 +351,7 @@ export function buildTradeSyncPayloadFromSignal(
     stop_loss:
       targets.stop != null ? parseFloat(targets.stop.toFixed(2)) : undefined,
     auto_track: true,
-    underlying_price_based:
-      instrumentType === "LEVERAGED_ETF" || instrumentType === "LETF_OPTIONS",
+    underlying_price_based: false,
     trade_type: "Swing",
     targets: Object.keys(targetMap).length > 0 ? targetMap : undefined,
   };

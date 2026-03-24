@@ -403,7 +403,7 @@ export type TradeInstrumentType = "OPTION" | "SHARES" | "LEVERAGED_ETF";
 
 export interface LeveragedEtfSuggestion {
   ticker: string;
-  leverage: 1 | 2 | 3;
+  leverage: -3 | -2 | -1 | 1 | 2 | 3;
   direction: "BULL" | "BEAR";
   liquidityScore: number;
   reason: string;

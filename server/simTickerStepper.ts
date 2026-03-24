@@ -366,9 +366,7 @@ export class SimTickerStepper {
         type: "info",
       });
     }
-
-
-
+    
     return await this.phaseTransition("Pre-Open Scan");
   }
 
