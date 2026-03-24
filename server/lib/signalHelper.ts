@@ -1,4 +1,4 @@
-import type { Signal } from "@shared/schema";
+import type { Signal, TradePlan } from "@shared/schema";
 import { storage } from "../storage";
 
 interface OnDeckFilterable {
@@ -28,4 +28,24 @@ export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals?: 
     return all.filter(
         (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
     );
+}
+
+export function checkInvalidation(
+    currentPrice: number,
+    tradePlan: TradePlan,
+    entryPrice: number,
+    stopPrice: number | null,
+): boolean {
+    if (stopPrice == null) {
+        const stopDistance = tradePlan.stopDistance;
+        if (!stopDistance || stopDistance <= 0) return false;
+        if (tradePlan.bias === "SELL") {
+            return currentPrice > entryPrice + stopDistance * 1.5;
+        }
+        return currentPrice < entryPrice - stopDistance * 1.5;
+    }
+    if (tradePlan.bias === "SELL") {
+        return currentPrice > stopPrice;
+    }
+    return currentPrice < stopPrice;
 }

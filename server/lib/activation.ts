@@ -3,6 +3,7 @@ import { filterRTHBars, timestampToET } from "./validate";
 import { fetchSnapshot, fetchIntradayBars } from "./polygon";
 import { log } from "../index";
 import { enrichOptionData } from "./options";
+import { checkInvalidation } from "./signalHelper";
 import type { Signal, TradePlan, OptionsData } from "@shared/schema";
 
 export interface ActivationEvent {
@@ -129,28 +130,6 @@ export function checkEntryTrigger(
   return { triggered: false };
 }
 
-function checkInvalidation(
-  currentPrice: number,
-  tradePlan: TradePlan,
-  entryPrice: number,
-  stopPrice: number | null,
-): boolean {
-  const effectiveStop = stopPrice;
-  if (effectiveStop == null) {
-    const stopDistance = tradePlan.stopDistance;
-    if (!stopDistance || stopDistance <= 0) return false;
-    if (tradePlan.bias === "SELL") {
-      return currentPrice > entryPrice + stopDistance * 1.5;
-    } else {
-      return currentPrice < entryPrice - stopDistance * 1.5;
-    }
-  }
-  if (tradePlan.bias === "SELL") {
-    return currentPrice > effectiveStop;
-  } else {
-    return currentPrice < effectiveStop;
-  }
-}
 
 function computeRNow(
   currentPrice: number,

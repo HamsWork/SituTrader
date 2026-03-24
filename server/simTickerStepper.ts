@@ -39,6 +39,7 @@ import type {
 } from "./simulation";
 import { initializeBtodForDay } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
+import { checkInvalidation } from "./lib/signalHelper";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -435,20 +436,6 @@ export class SimTickerStepper {
     return false;
   }
 
-  private checkInvalidation(currentPrice: number, sig: SimSignal): boolean {
-    const tp = sig.tradePlan;
-    const entryPrice = sig.entryPrice ?? 0;
-    const effectiveStop = sig.stopPrice;
-    if (effectiveStop == null) {
-      const stopDistance = tp.stopDistance;
-      if (!stopDistance || stopDistance <= 0) return false;
-      if (tp.bias === "SELL") return currentPrice > entryPrice + stopDistance * 1.5;
-      return currentPrice < entryPrice - stopDistance * 1.5;
-    }
-    if (tp.bias === "SELL") return currentPrice > effectiveStop;
-    return currentPrice < effectiveStop;
-  }
-
   private computeRNow(currentPrice: number, entryPrice: number, stopPrice: number, isSell: boolean): number {
     const stopDist = Math.abs(entryPrice - stopPrice);
     if (stopDist === 0) return 0;
@@ -497,7 +484,7 @@ export class SimTickerStepper {
         const entryPrice = sig.entryPrice ?? 0;
         const isSell = sig.tradePlan.bias === "SELL";
 
-        if (this.checkInvalidation(currentPrice, sig)) {
+        if (checkInvalidation(currentPrice, sig.tradePlan, sig.entryPrice ?? 0, sig.stopPrice)) {
           sig.activationStatus = "INVALIDATED";
           sig.status = "miss";
           sig.missReason = `Stopped out at $${currentPrice.toFixed(2)}`;
