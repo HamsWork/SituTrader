@@ -37,6 +37,8 @@ import type {
   SimDayContext,
   SimDayOutput,
 } from "./simulation";
+import { initializeBtodForDay } from "./lib/btod";
+import type { RankedSignalEntry } from "./lib/btod";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -329,38 +331,27 @@ export class SimTickerStepper {
       type: "processing",
     });
 
-    const btodSetups = new Set(this.config.btodSetupTypes || ["A", "B", "C"]);
-    const pendingForBtod = Array.from(this.allSignals.values()).filter(
-      (s) =>
-        s.status === "pending" &&
-        s.activationStatus === "NOT_ACTIVE" &&
-        btodSetups.has(s.setupType) &&
-        (s.qualityScore ?? 0) >= 62,
-    );
+    const btodState = await initializeBtodForDay(this.ctx);
+    const ranked = (btodState.rankedQueue as RankedSignalEntry[]) || [];
+    const top3Ranked = ranked.slice(0, 3);
 
-    pendingForBtod.sort((a, b) => {
-      const qsDiff = (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
-      if (qsDiff !== 0) return qsDiff;
-      return a.ticker.localeCompare(b.ticker);
-    });
-
-    this.top3 = pendingForBtod.slice(0, 3).map((s, i) => ({
-      signalId: s.id,
-      ticker: s.ticker,
-      setupType: s.setupType,
-      qualityScore: s.qualityScore ?? 0,
-      rank: i + 1,
+    this.top3 = top3Ranked.map((r) => ({
+      signalId: r.signalId,
+      ticker: r.ticker,
+      setupType: r.setupType,
+      qualityScore: r.qualityScore,
+      rank: r.rank,
     }));
     this.dayResult.btodTop3 = this.top3;
     this.btodSignalIds = new Set(this.top3.map((r) => r.signalId));
 
     this.dayResult.btodStatus = {
-      phase: this.top3.length > 0 ? "SELECTIVE" : "CLOSED",
-      gateOpen: this.top3.length > 0,
+      phase: btodState.phase as "SELECTIVE" | "CLOSED",
+      gateOpen: btodState.gateOpen,
       executedSignalId: null,
       executedTicker: null,
-      top3Ids: this.top3.map((r) => r.signalId),
-      eligibleCount: pendingForBtod.length,
+      top3Ids: (btodState.top3Ids as number[]) || [],
+      eligibleCount: ranked.length,
     };
 
     if (this.top3.length > 0) {
@@ -369,8 +360,9 @@ export class SimTickerStepper {
         type: "success",
       });
     } else {
+      const setupLabel = (this.config.btodSetupTypes || ["A", "B", "C"]).join("/");
       this.emit("log", {
-        message: `  BTOD: No eligible signals (need A/B/C with QS≥62)`,
+        message: `  BTOD: No eligible signals (need ${setupLabel} with QS≥62)`,
         type: "info",
       });
     }

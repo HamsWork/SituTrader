@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import type {BtodState } from "@shared/schema";
+import type { SimDayContext } from "../simulation";
 import { getOnDeckSignals } from "./signalHelper";
 
 dayjs.extend(utc);
@@ -53,19 +54,23 @@ const SELECTIVE_END_MINUTES = 11 * 60;
 
 export function rankOnDeckSignals(
   signals: RankableSignalLike[],
+  allowedSetups: string[] = ["A", "B", "C"],
 ): RankedSignalEntry[] {
+  const setupSet = new Set(allowedSetups);
   const eligible = signals.filter(
     (s) =>
       s.status === "pending" &&
       s.activationStatus === "NOT_ACTIVE" &&
-      (s.setupType === "A" || s.setupType === "B" || s.setupType === "C") &&
+      setupSet.has(s.setupType) &&
       (s.qualityScore ?? 0) >= 62,
   );
+
+  const setupOrder: Record<string, number> = {};
+  allowedSetups.forEach((t, i) => (setupOrder[t] = i));
 
   eligible.sort((a, b) => {
     const qsDiff = (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
     if (qsDiff !== 0) return qsDiff;
-    const setupOrder: Record<string, number> = { A: 0, B: 1, C: 2 };
     const setupDiff =
       (setupOrder[a.setupType] ?? 99) - (setupOrder[b.setupType] ?? 99);
     if (setupDiff !== 0) return setupDiff;
@@ -81,11 +86,14 @@ export function rankOnDeckSignals(
   }));
 }
 
-export function getBtodRankedQueueAndTop3Ids(signals: RankableSignalLike[]): {
+export function getBtodRankedQueueAndTop3Ids(
+  signals: RankableSignalLike[],
+  allowedSetups?: string[],
+): {
   rankedQueue: RankedSignalEntry[];
   top3Ids: number[];
 } {
-  const rankedQueue = rankOnDeckSignals(signals);
+  const rankedQueue = rankOnDeckSignals(signals, allowedSetups);
   const top3Ids = rankedQueue.slice(0, 3).map((r) => r.signalId);
   return { rankedQueue, top3Ids };
 }
@@ -93,6 +101,7 @@ export function getBtodRankedQueueAndTop3Ids(signals: RankableSignalLike[]): {
 
 export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodState> {
   const tradeDate = ctx?.today || todayET();
+  const allowedSetups = ctx?.config?.btodSetupTypes;
 
   if (!ctx) {
     const existing = await storage.getBtodState(tradeDate);
@@ -109,6 +118,7 @@ export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodSta
 
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
     onDeck as unknown as RankableSignalLike[],
+    allowedSetups,
   );
 
   if (!ctx) {
