@@ -18,8 +18,14 @@ export async function getAllSignals<T extends OnDeckFilterable>(simSignals?: Map
 export async function getOnDeckSignals(): Promise<Signal[]>;
 export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals: Map<number, T>): Promise<T[]>;
 export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals?: Map<number, T>): Promise<(Signal | T)[]> {
-    const allSignals = await getAllSignals(simSignals as any);
-    return allSignals.filter(
+    if (!simSignals) {
+        const all = await storage.getSignals(undefined, 5000);
+        return all.filter(
+            (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
+        );
+    }
+    const all = Array.from(simSignals.values());
+    return all.filter(
         (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
     );
 }
