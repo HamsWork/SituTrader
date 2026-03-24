@@ -3,19 +3,16 @@ import { log } from "../index";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
-import type { Signal, BtodState } from "@shared/schema";
+import type {BtodState } from "@shared/schema";
+import type { SimDayContext } from "../simulation";
+import { getOnDeckSignals } from "./signalHelper";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const ET = "America/New_York";
 
-export async function getOnDeckSignals(): Promise<Signal[]> {
-  const allSignals = await storage.getSignals(undefined, 5000);
-  return allSignals.filter(
-    (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
-  );
-}
+
 
 export interface RankedSignalEntry {
   signalId: number;
@@ -94,19 +91,23 @@ export function getBtodRankedQueueAndTop3Ids(signals: RankableSignalLike[]): {
   return { rankedQueue, top3Ids };
 }
 
-export async function initializeBtodForDay(date?: string): Promise<BtodState> {
-  const tradeDate = date || todayET();
 
-  const existing = await storage.getBtodState(tradeDate);
-  if (existing && (existing.rankedQueue as any[]).length > 0) {
-    log(
-      `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
-      "btod",
-    );
-    return existing;
+export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodState> {
+  const tradeDate = ctx?.today || todayET();
+
+  if (!ctx) {
+    const existing = await storage.getBtodState(tradeDate);
+    if (existing && (existing.rankedQueue as any[]).length > 0) {
+      log(
+        `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
+        "btod",
+      );
+      return existing;
+    }
   }
 
-  const onDeck = await getOnDeckSignals();
+  const onDeck = await getOnDeckSignals(ctx);
+
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
     onDeck as unknown as RankableSignalLike[],
   );
@@ -132,7 +133,9 @@ export async function initializeBtodForDay(date?: string): Promise<BtodState> {
   );
 
   return state;
+
 }
+
 
 export async function shouldExecuteActivation(
   signalId: number,

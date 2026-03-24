@@ -292,7 +292,7 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
   const summary: LiveSummary = { activeTickers: 0, activeSignals: 0, activationEvents: 0, alertEvents: 0, durationMs: 0 };
 
   try {
-    const { getOnDeckSignals } = await import("../lib/btod");
+    const { getOnDeckSignals } = await import("../lib/signalHelper");
     const activeSignals = await storage.getActiveSignals();
     const pendingSignals = await getOnDeckSignals();
 
