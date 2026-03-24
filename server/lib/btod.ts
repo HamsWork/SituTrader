@@ -91,46 +91,58 @@ export function getBtodRankedQueueAndTop3Ids(signals: RankableSignalLike[]): {
 }
 
 
-export async function initializeBtodForDay(): Promise<BtodState> {
-  const tradeDate = todayET();
+export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodState> {
+  const tradeDate = ctx?.today || todayET();
 
-  const existing = await storage.getBtodState(tradeDate);
-  if (existing && (existing.rankedQueue as any[]).length > 0) {
-    log(
-      `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
-      "btod",
-    );
-    return existing;
+  if (!ctx) {
+    const existing = await storage.getBtodState(tradeDate);
+    if (existing && (existing.rankedQueue as any[]).length > 0) {
+      log(
+        `BTOD: Already initialized for ${tradeDate} with ${(existing.rankedQueue as any[]).length} signals`,
+        "btod",
+      );
+      return existing;
+    }
   }
 
-  const onDeck = await getOnDeckSignals();
+  const onDeck = await getOnDeckSignals(ctx?.allSignals);
 
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
     onDeck as unknown as RankableSignalLike[],
   );
 
-  const state = await storage.upsertBtodState({
-    tradeDate,
-    phase: "SELECTIVE",
-    rankedQueue: ranked as any,
-    top3Ids: top3Ids as any,
-    selectedSignalId: null,
-    secondSignalId: null,
-    gateOpen: true,
-    tradesExecuted: 0,
-    phaseChangedAt: null,
-  });
-
-  log(
-    `BTOD: Initialized for ${tradeDate} — ${ranked.length} eligible signals, top 3: [${ranked
-      .slice(0, 3)
-      .map((r) => `${r.ticker}(QS=${r.qualityScore})`)
-      .join(", ")}]`,
-    "btod",
-  );
-
-  return state;
-
+  if (!ctx) {
+    const state = await storage.upsertBtodState({
+      tradeDate,
+      phase: "SELECTIVE",
+      rankedQueue: ranked as any,
+      top3Ids: top3Ids as any,
+      selectedSignalId: null,
+      secondSignalId: null,
+      gateOpen: true,
+      tradesExecuted: 0,
+      phaseChangedAt: null,
+    });
+    log(
+      `BTOD: Initialized for ${tradeDate} — ${ranked.length} eligible signals, top 3: [${ranked
+        .slice(0, 3)
+        .map((r) => `${r.ticker}(QS=${r.qualityScore})`)
+        .join(", ")}]`,
+      "btod",
+    );
+    return state;
+  } else {
+    return {
+      phase: top3Ids.length > 0 ? "SELECTIVE" : "CLOSED",
+      rankedQueue: ranked as any,
+      top3Ids: top3Ids as any,
+      selectedSignalId: null,
+      secondSignalId: null,
+      gateOpen: top3Ids.length > 0,
+      tradesExecuted: 0,
+      phaseChangedAt: null,
+    } as BtodState;
+  }
 }
 
 
