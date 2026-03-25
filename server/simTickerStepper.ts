@@ -237,6 +237,11 @@ export class SimTickerStepper {
     });
 
     // detect setup C
+    if (this.config.setups.includes("C")) {
+      for (const ticker of this.config.tickers) {
+        // const bars = await fetchIntradayBars(ticker, this.today, "1d");
+      }
+    }
 
 
     // initialize btod for day

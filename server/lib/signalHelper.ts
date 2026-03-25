@@ -235,6 +235,13 @@ export interface ProcessTickerOptions {
     from200: string;
 }
 
+export async function processDetectSetupC(
+    ticker: string,
+): Promise<SetupResult[]> {
+    // const dailyBars = await fetchDailyBarsPolygon(ticker, from200, today);
+    return [];
+}
+
 export async function processTickerAfterClose(
     opts: ProcessTickerOptions,
 ): Promise<ProcessedSetup[]> {
