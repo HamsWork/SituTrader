@@ -155,6 +155,19 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
     const signals = await storage.getSignals(undefined, 200);
     const todayStr = formatDate(new Date());
 
+    const staleSignals = signals.filter(s =>
+      s.status === "pending" &&
+      s.activationStatus === "NOT_ACTIVE" &&
+      s.targetDate < todayStr
+    );
+    if (staleSignals.length > 0) {
+      log(`PreOpen: Expiring ${staleSignals.length} stale signal(s) with past target dates`, "scheduler");
+      for (const sig of staleSignals) {
+        await storage.updateSignalStatus(sig.id, "miss", undefined, "TARGET_DATE_EXPIRED");
+        log(`PreOpen: Expired signal #${sig.id} ${sig.ticker} ${sig.setupType} (target ${sig.targetDate})`, "scheduler");
+      }
+    }
+
     const pendingSignals = signals.filter(s => s.status === "pending" && s.targetDate >= todayStr);
     const tickerList = Array.from(new Set(pendingSignals.map(s => s.ticker)));
     summary.tickersScanned = tickerList.length;
