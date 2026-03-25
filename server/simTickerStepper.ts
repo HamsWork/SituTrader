@@ -546,6 +546,7 @@ export class SimTickerStepper {
     const prevActivations = this.dayResult.activations.length;
     const prevMisses = this.dayResult.misses.length;
 
+    let hadEvents = false;
     const monitorSignals = Array.from(this.ctx.onDeckSignals.values()).concat(Array.from(this.ctx.activeSignals.values()));
     const tickerArr = Array.from(new Set(monitorSignals.map(s => s.ticker)));
     if (tickerArr.length === 0) {
@@ -556,6 +557,9 @@ export class SimTickerStepper {
     for (const ticker of tickerArr) {
       const pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
+      const tickerHadEvents = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
+      hadEvents = hadEvents || tickerHadEvents;
+    }
       const { mutations } = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
 
       for (const mut of mutations) {
