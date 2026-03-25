@@ -76,9 +76,8 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
           ticker,
           config: scanConfig,
           isOnWatchlist: watchlistSet.has(ticker),
-          minTargetDate: from15,
-          fetchAndPersistBars: { from200, from15, today, timeframe },
-          validateTouch: { today, timeframe },
+          today,
+          from200,
         });
 
         for (const scored of processed) {

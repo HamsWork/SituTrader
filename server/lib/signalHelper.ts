@@ -5,7 +5,7 @@ import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
 import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
-import { fetchDailyBarsCached, fetchIntradayBarsCached } from "./polygon";
+import { fetchDailyBarsCached, fetchDailyBarsPolygon, fetchIntradayBarsCached } from "./polygon";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 
@@ -231,74 +231,34 @@ export interface ProcessTickerOptions {
     ticker: string;
     config: ScanTickerConfig;
     isOnWatchlist: boolean;
-    minTargetDate: string;
-    dailyBars?: DailyBar[];
-    fetchAndPersistBars?: {
-        from200: string;
-        from15: string;
-        today: string;
-        timeframe: string;
-    };
-    validateTouch?: {
-        today: string;
-        timeframe: string;
-    };
+    today: string;
+    from200: string;
 }
 
 export async function processTickerAfterClose(
     opts: ProcessTickerOptions,
 ): Promise<ProcessedSetup[]> {
-    const { ticker, config, isOnWatchlist, minTargetDate } = opts;
+    const { ticker, config, isOnWatchlist, today, from200 } = opts;
 
-    let dailyBars: DailyBar[];
-    if (opts.fetchAndPersistBars) {
-        const { from200, from15, today, timeframe } = opts.fetchAndPersistBars;
-        const dailyPolygon = await fetchDailyBarsCached(ticker, from200, today);
-        console.log("dailyPolygon", dailyPolygon);
-        for (const bar of dailyPolygon) {
-            const date = formatDate(new Date(bar.t));
-            await storage.upsertDailyBar({
-                ticker, date, open: bar.o, high: bar.h, low: bar.l, close: bar.c,
-                volume: bar.v, vwap: bar.vw ?? null, source: "polygon",
-            });
-        }
+    const dailyPolygon = await fetchDailyBarsPolygon(ticker, from200, today);
+    
 
-        dailyBars = await storage.getDailyBars(ticker, from200, today);
-        console.log("today", today);
+    const dailyBars: DailyBar[] = dailyPolygon.map(bar => ({
+        id: 0,
+        ticker, date: formatDate(new Date(bar.t)), open: bar.o, high: bar.h, low: bar.l, close: bar.c,
+        volume: bar.v, vwap: bar.vw ?? null, source: "polygon",
+    } as DailyBar));
 
-    } else if (opts.dailyBars) {
-        dailyBars = opts.dailyBars;
-    } else {
-        return [];
-    }
-
-    console.log("dailyBars", dailyBars);
 
     const scoredSetups = await scanTickerSetups(ticker, dailyBars, config, isOnWatchlist);
-    console.log("scoredSetups", scoredSetups);
     const results: ProcessedSetup[] = [];
 
     for (const scored of scoredSetups) {
-        if (scored.targetDate < minTargetDate) continue;
+        if (scored.targetDate < today) continue;
 
         let status = "pending";
         let hitTs: string | null = null;
         let missReason: string | null = null;
-
-        if (opts.validateTouch) {
-            const { today, timeframe } = opts.validateTouch;
-            const intradayBarsData = await storage.getIntradayBars(ticker, scored.targetDate, timeframe);
-            if (intradayBarsData.length > 0) {
-                const result = validateMagnetTouch(
-                    intradayBarsData.map(b => ({ ts: b.ts, high: b.high, low: b.low })),
-                    scored.magnetPrice, scored.direction,
-                );
-                if (result.hit) { status = "hit"; hitTs = result.hitTs ?? null; }
-                else if (scored.targetDate < today) { status = "miss"; missReason = "Magnet not touched during RTH"; }
-            } else if (scored.targetDate < today) {
-                status = "miss"; missReason = "No intraday data available for validation";
-            }
-        }
 
         results.push({
             ...scored,

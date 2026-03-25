@@ -33,6 +33,7 @@ import {
   type ActivationSignal,
   type ActivationScanConfig,
   type ActivationMutation,
+  getOnDeckSignals,
 } from "./lib/signalHelper";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
@@ -718,6 +719,36 @@ export class SimTickerStepper {
       type: "processing",
     });
 
+    const timeframe = "5"; //TODO: get from config
+
+    // validate hit or miss
+    const onDeckSignals = await getOnDeckSignals(this.allSignals);
+    for (const sig of onDeckSignals) {
+      const intradayBars = await storage.getIntradayBars(sig.ticker, sig.targetDate, timeframe); //TODO: we should fetch from polygon
+      const validateResult = validateMagnetTouch(
+        intradayBars.map((b) => ({ ts: b.ts, high: b.high, low: b.low })),
+        sig.magnetPrice,
+        sig.direction,
+      );
+      if (validateResult.hit) {
+        sig.status = "hit";
+        this.dayResult.hits.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          hitTs: sig.targetDate,
+          timeToHitMin: 0,
+        });
+      } else {
+        sig.status = "miss";
+        sig.missReason = "Magnet not touched during RTH";
+        this.dayResult.misses.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          reason: "Magnet not touched during RTH",
+        });
+      }
+    }
+
     const scanConfig: ScanTickerConfig = {
       setups: this.config.setups,
       gapThreshold: this.config.gapThreshold,
@@ -729,38 +760,26 @@ export class SimTickerStepper {
       liquidityFloor: 0,
     };
 
-    const timeframe = "5"; //TODO: get from config
     const today = formatDate(new Date(this.today));
     const from200 = getTradingDaysBack(today, 200);
     const from15 = getTradingDaysBack(today, 15);
 
-    console.log("tickers", this.config.tickers);
 
     for (const ticker of this.config.tickers) {
       if (this.isAborted()) break;
       if (await this.checkPause()) break;
       try {
-        console.log("processing ticker", ticker);
         const processed = await processTickerAfterClose({
           ticker,
           config: scanConfig,
           isOnWatchlist: this.watchlistSet.has(ticker),
-          minTargetDate: from15,
-          fetchAndPersistBars: {
-            from200,
-            from15,
-            today,
-            timeframe,
-          },
-          validateTouch: {
-            today,
-            timeframe,
-          },
+          today,
+          from200,
         });
 
-        console.log("processed", processed);
 
         for (const scored of processed) {
+          if (scored.status !== "pending") continue;
 
           const simSig: SimSignal = {
             id: this.nextSimSignalId++,

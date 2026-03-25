@@ -506,6 +506,16 @@ function barToPolygonBar(b: Bar): PolygonBar {
   };
 }
 
+export async function fetchDailyBarsPolygon(
+  ticker: string,
+  from: string,
+  to: string,
+): Promise<PolygonBar[]> {
+  const fromDate = new Date(from).toISOString().slice(0, 10);
+  const toDate = new Date(to).toISOString().slice(0, 10);
+  return await fetchDailyBars(ticker, fromDate, toDate);
+}
+
 export async function fetchDailyBarsCached(
   ticker: string,
   from: string,
