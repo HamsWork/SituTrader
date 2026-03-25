@@ -64,13 +64,9 @@ function formatSimTime(minutesCT: number): string {
 export class SimTickerStepper {
   private ctx: SimDayContext;
   private dayResult: SimDayResult;
-  private preloadedIntraday = new Map<string, IBar[]>();
-  private preloadedDaily = new Map<string, DailyBar[]>();
-  private preloadedOptions = new Map<string, Awaited<ReturnType<typeof fetchOptionsChain>>>();
+  
   private btodSignalIds = new Set<number>();
   private top3: RankedSimEntry[] = [];
-  private nextSimSignalId: number;
-  private btodExecutedToday: boolean;
   private simTimeCT: number = SIM_PRE_OPEN_CT;
 
   private get config() { return this.ctx.config; }
@@ -84,10 +80,13 @@ export class SimTickerStepper {
   private get totalDays() { return this.ctx.totalDays; }
   private get CT() { return "America/Chicago"; }
 
+  private get nextSimSignalId() { return this.ctx.nextSimSignalId; }
+  private set nextSimSignalId(value: number) { this.ctx.nextSimSignalId = value; }
+  private get btodExecutedToday() { return this.ctx.btodExecutedToday; }
+  private set btodExecutedToday(value: boolean) { this.ctx.btodExecutedToday = value; }
+
   constructor(ctx: SimDayContext) {
     this.ctx = ctx;
-    this.nextSimSignalId = ctx.nextSimSignalId;
-    this.btodExecutedToday = false;
 
     this.dayResult = {
       date: this.today,
@@ -109,37 +108,9 @@ export class SimTickerStepper {
       summary: { totalPending: 0, totalActive: 0, totalHit: 0, totalMiss: 0 },
       phases: [],
     };
-
-    this.initLiveMonitorSignals();
   }
 
-  private initLiveMonitorSignals(): void {
-    const rthStartMs = dayjs.tz(`${this.today} 08:30:00`, this.CT).valueOf();
-
-    this.liveMonitorPending = Array.from(this.allSignals.values()).filter(
-      (s) =>
-        s.status === "pending" &&
-        s.targetDate === this.today &&
-        s.activationStatus !== "INVALIDATED",
-    );
-
-    const activatedSignals = Array.from(this.allSignals.values()).filter(
-      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
-    );
-
-    const allMonitorSignals = [...this.liveMonitorPending, ...activatedSignals.filter(
-      (s) => !this.liveMonitorPending.some((p) => p.id === s.id),
-    )];
-
-    this.liveMonitorTickers = Array.from(new Set(allMonitorSignals.map((s) => s.ticker)));
-
-    this.liveMonitorRthBars = new Map();
-    for (const ticker of this.liveMonitorTickers) {
-      const allBars = this.preloadedIntraday.get(ticker) ?? [];
-      const rthBars = allBars.filter((b) => Date.parse(b.ts) >= rthStartMs);
-      if (rthBars.length > 0) this.liveMonitorRthBars.set(ticker, rthBars);
-    }
-  }
+  
 
   private getPhaseDelay(): number {
     return this.abortSignal?.phaseDelayMs ?? 4000;
@@ -252,101 +223,6 @@ export class SimTickerStepper {
     return this.isAborted();
   }
 
-  //TODO should remove or update
-  async preloadData(): Promise<boolean> {
-    this.emit("progress", {
-      completed: this.dayIdx,
-      total: this.totalDays,
-      day: this.today,
-      phase: "preload",
-    });
-    this.emit("log", {
-      message: `  Preloading data for ${this.today}...`,
-      type: "processing",
-    });
-
-    // load intraday bars
-    const pendingForToday = Array.from(this.allSignals.values()).filter(
-      (s) => s.status === "pending" && s.targetDate === this.today && s.activationStatus !== "INVALIDATED",
-    );
-    const activatedFromPriorDays = Array.from(this.allSignals.values()).filter(
-      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
-    );
-    const intradayTickers = Array.from(new Set([
-      ...pendingForToday.map((s) => s.ticker),
-      ...activatedFromPriorDays.map((s) => s.ticker),
-    ]));
-
-    for (const ticker of intradayTickers) {
-      if (this.isAborted()) break;
-      if (await this.checkPause()) break;
-      try {
-        const raw = await fetchIntradayBarsCached(ticker, this.today, this.today, this.config.timeframe);
-        this.preloadedIntraday.set(ticker, raw.map((b: any) => ({
-          ts: new Date(b.t).toISOString(), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
-        })));
-      } catch (err: any) {
-        this.emit("log", { message: `  Preload intraday error ${ticker}: ${err.message}`, type: "error" });
-      }
-    }
-
-    // load options chains
-    const preOpenForPreload = pendingForToday.filter((s) => s.activationStatus === "NOT_ACTIVE");
-    if (preOpenForPreload.length > 0) {
-      const minExpDate = dayjs.tz(this.today, this.CT).add(4, "day").format("YYYY-MM-DD");
-      const maxExpDate = dayjs.tz(this.today, this.CT).add(45, "day").format("YYYY-MM-DD");
-      const getRight = (bias: "BUY" | "SELL") => (bias === "BUY" ? "call" : "put") as "call" | "put";
-      const seenKeys = new Set<string>();
-
-      for (const sig of preOpenForPreload) {
-        if (this.isAborted()) break;
-        if (await this.checkPause()) break;
-        const sigTp = sig.tradePlanJson as TradePlan;
-        if (!sigTp) continue;
-        const key = `${sig.ticker}|${getRight(sigTp.bias)}`;
-        if (seenKeys.has(key)) continue;
-        seenKeys.add(key);
-        try {
-          const chain = await fetchOptionsChain(sig.ticker, getRight(sigTp.bias), minExpDate, maxExpDate, 250);
-          this.preloadedOptions.set(key, chain);
-        } catch (err: any) {
-          this.emit("log", { message: `  Preload options error ${sig.ticker}: ${err.message}`, type: "error" });
-        }
-      }
-    }
-
-    // load daily bars
-    for (let i = 0; i < this.config.tickers.length; i++) {
-      const ticker = this.config.tickers[i];
-      if (this.isAborted()) break;
-      if (await this.checkPause()) break;
-      try {
-        const from200 = getTradingDaysBack(this.today, 200);
-        const polygon = await fetchDailyBarsCached(ticker, from200, this.today);
-        const dailyBars: DailyBar[] = polygon.map((b: any) => ({
-          id: 0, ticker, date: formatDate(new Date(b.t)),
-          open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
-          vwap: b.vw ?? null, source: "polygon",
-        }));
-        dailyBars.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        this.preloadedDaily.set(ticker, dailyBars);
-      } catch (err: any) {
-        this.emit("log", { message: `  Preload daily error ${ticker}: ${err.message}`, type: "error" });
-      }
-      if ((i + 1) % 50 === 0) {
-        this.emit("log", { message: `  Preload: ${i + 1}/${this.config.tickers.length} tickers loaded`, type: "info" });
-      }
-    }
-
-    this.emit("log", {
-      message: `  Data loaded: ${this.preloadedIntraday.size} intraday, ${this.preloadedOptions.size} option chains, ${this.preloadedDaily.size} daily`,
-      type: "success",
-    });
-
-    if (this.isAborted()) return true;
-    if (await this.checkPause()) return true;
-    return false;
-  }
 
   async preOpenScan(): Promise<boolean> {
     this.emit("progress", {
@@ -360,6 +236,10 @@ export class SimTickerStepper {
       type: "processing",
     });
 
+    // detect setup C
+
+
+    // initialize btod for day
     const btodState = await initializeBtodForDay(this.ctx);
     const ranked = (btodState.rankedQueue as RankedSignalEntry[]) || [];
     const top3Ranked = ranked.slice(0, 3);
@@ -934,7 +814,6 @@ export class SimTickerStepper {
       type: "info",
     });
 
-    // if (await this.preloadData()) return this.earlyReturn();
 
     this.simTimeCT = SIM_PRE_OPEN_CT;
     this.emit("log", { message: `  ⏰ ${formatSimTime(this.simTimeCT)} — Day starts`, type: "info" });

@@ -178,14 +178,20 @@ export interface SimDayContext {
   config: SimConfig;
   emit: SimEventCallback;
   abortSignal?: SimControlSignal;
-  allSignals: Map<number, Signal>;
   watchlistSet: Set<string>;
   timePriorityMode: "EARLY" | "SAME_DAY" | "BLEND";
   nextSimSignalId: number;
-  btodExecutedToday: boolean;
+  
+  // signals
+  allSignals: Map<number, Signal>;
+  onDeckSignals: Array<Signal>;
+  doneSignals: Array<Signal>;
+  // current day info
   today: string;
   dayIdx: number;
   totalDays: number;
+  btodExecutedToday: boolean;
+
 }
 
 export interface SimDayOutput {
@@ -237,7 +243,21 @@ export async function runSimulation(
   // In simulation, treat the simulated "today" as the only available "current time".
   // So each day we fetch daily bars up to `today`, not up to config.endDate.
 
-  let btodExecutedToday = false;
+  const currentDayCtx: SimDayContext = {
+    config,
+    emit,
+    abortSignal,
+    watchlistSet,
+    timePriorityMode,
+    nextSimSignalId,
+    allSignals,
+    onDeckSignals: [],
+    doneSignals: [],
+    btodExecutedToday: false,
+    today: tradingDays[0],
+    dayIdx: 0,
+    totalDays: tradingDays.length,
+  };
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     if (abortSignal?.aborted) {
@@ -251,17 +271,16 @@ export async function runSimulation(
       emit("log", { message: "Simulation resumed", type: "info" });
     }
 
-    const dayOutput = await simulateDay({
-      config, emit, abortSignal, allSignals, watchlistSet,
-      timePriorityMode, nextSimSignalId, btodExecutedToday,
-      today: tradingDays[dayIdx],
-      dayIdx,
-      totalDays: tradingDays.length,
-    });
+    currentDayCtx.today = tradingDays[dayIdx];
+    currentDayCtx.dayIdx = dayIdx;
+    currentDayCtx.totalDays = tradingDays.length;
+    currentDayCtx.btodExecutedToday = false;
 
-    nextSimSignalId = dayOutput.nextSimSignalId;
-    btodExecutedToday = dayOutput.btodExecutedToday;
+    console.log("current Day Ctx before simulateDay", currentDayCtx);
+    const dayOutput = await simulateDay(currentDayCtx);
+
     results.push(dayOutput.result);
+    console.log("current Day Ctx after simulateDay", currentDayCtx);
 
     if (dayOutput.shouldBreak) break;
   }
