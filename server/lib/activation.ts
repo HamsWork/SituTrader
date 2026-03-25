@@ -304,7 +304,11 @@ export async function runActivationScanForTicker(
   const allSignals = [...pendingSignals, ...activeSignals];
 
   const freshBarsRaw = await fetchIntradayBars(ticker, today, today, timeframe);
-  const freshBars: IntradayBar[] = freshBarsRaw.map((b, i) => ({
+  const nowMs = now.getTime();
+  const filteredBars = ctx
+    ? freshBarsRaw.filter((b) => b.t <= nowMs)
+    : freshBarsRaw;
+  const freshBars: IntradayBar[] = filteredBars.map((b, i) => ({
     id: i,
     ticker,
     ts: new Date(b.t).toISOString(),
