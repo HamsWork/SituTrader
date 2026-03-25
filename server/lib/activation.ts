@@ -229,9 +229,9 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     const key = `${sig.ticker}:${sig.targetDate}`;
     if (intradayBarCache.has(key)) continue;
     try {
-      const dbBars = await storage.getIntradayBars(sig.ticker, sig.targetDate, timeframe);
-      intradayBarCache.set(key, dbBars.map((b) => ({
-        ts: b.ts, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
+      const polygonBars = await fetchIntradayBars(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
+      intradayBarCache.set(key, polygonBars.map((b) => ({
+        ts: new Date(b.t).toISOString(), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
       })));
     } catch {}
   }
