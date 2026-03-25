@@ -1,12 +1,13 @@
 import { storage } from "../storage";
-import { fetchSnapshot } from "../lib/polygon";
+import { fetchIntradayBars, fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
 import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions } from "../lib/options";
-import { processTickerAfterClose, type ScanTickerConfig } from "../lib/signalHelper";
+import { getOnDeckSignals, processTickerAfterClose, type ScanTickerConfig } from "../lib/signalHelper";
 import { log } from "../index";
+import { validateMagnetTouch } from "../lib/validate";
 
 export interface ScanSummary {
   tickersScanned: number;
@@ -58,6 +59,24 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
     const watchlistSet = new Set(watchlist.map(s => s.ticker));
 
     log(`AfterClose: Scanning ${tickersToScan.length} tickers...`, "scheduler");
+
+    // validate hit or miss
+    const onDeckSignals = await getOnDeckSignals();
+    for (const sig of onDeckSignals) {
+      const intradayBars = await fetchIntradayBars(sig.ticker, sig.targetDate, timeframe);
+      const validateResult = validateMagnetTouch(
+        intradayBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l })),
+        sig.magnetPrice,
+        sig.direction,
+      );
+      let status = "pending";
+      if (validateResult.hit) {
+        sig.status = "hit";
+      } else {
+        sig.status = "miss";
+      }
+      await storage.updateSignalStatus(sig.id, status, undefined, validateResult.hit ? "MAGNET_TOUCHED" : "MAGNET_NOT_TOUCHED");
+    }
 
     const scanConfig: ScanTickerConfig = {
       setups: ["A", "B", "C", "D", "E", "F"],
