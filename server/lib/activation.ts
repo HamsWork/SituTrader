@@ -10,7 +10,7 @@ import {
   type ActivationMutation,
   checkActivationForTicker,
 } from "./signalHelper";
-import type { Signal, TradePlan } from "@shared/schema";
+import type { Signal, TradePlan, IntradayBar } from "@shared/schema";
 
 export type { ActivationEvent };
 export { checkEntryTrigger };
@@ -197,7 +197,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
 
   const validSignals = activeSignals.filter((sig) => sig.tradePlanJson != null);
 
-  const intradayBarCache = new Map<string, Array<{ ts: string; open: number; high: number; low: number; close: number; volume: number }>>();
+  const intradayBarCache = new Map<string, IntradayBar[]>();
   for (const sig of validSignals) {
     if (sig.activationStatus === "ACTIVE" || sig.activationStatus === "INVALIDATED") continue;
     if (sig.status !== "pending") continue;
@@ -205,8 +205,17 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     if (intradayBarCache.has(key)) continue;
     try {
       const polygonBars = await fetchIntradayBars(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
-      intradayBarCache.set(key, polygonBars.map((b) => ({
-        ts: new Date(b.t).toISOString(), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
+      intradayBarCache.set(key, polygonBars.map((b, i) => ({
+        id: i,
+        ticker: sig.ticker,
+        ts: new Date(b.t).toISOString(),
+        open: b.o,
+        high: b.h,
+        low: b.l,
+        close: b.c,
+        volume: b.v,
+        timeframe,
+        source: "polygon",
       })));
     } catch {}
   }

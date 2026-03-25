@@ -1,4 +1,4 @@
-import type { Signal, TradePlan, DailyBar, SetupType } from "@shared/schema";
+import type { Signal, TradePlan, DailyBar, SetupType, IntradayBar } from "@shared/schema";
 import { storage } from "../storage";
 import { detectAllSetups, type SetupResult } from "./rules";
 import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
@@ -429,8 +429,6 @@ export interface ActivationScanConfig {
     today: string;
 }
 
-type ActivationBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
-
 export interface ActivationMutation {
     signalId: number;
     ticker: string;
@@ -449,7 +447,7 @@ export interface ActivationMutation {
 export function runActivationCheck(
     signals: Signal[],
     getCurrentPrice: (ticker: string) => number | null,
-    getIntradayBars: (ticker: string, targetDate: string) => ActivationBar[],
+    getIntradayBars: (ticker: string, targetDate: string) => IntradayBar[],
     config: ActivationScanConfig,
 ): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
     const events: ActivationEvent[] = [];
@@ -588,7 +586,7 @@ export function runActivationCheck(
 
 
 export function monitorActivatedSignalsForTicker(
-ticker: string, pendingSignals: Signal[], currentPrice: number | null, freshBars: PolygonBar[], activationScanConfig: ActivationScanConfig, currentPrice: number, freshBars: ActivationBar[], config: ActivationScanConfig,
+    ticker: string, pendingSignals: Signal[], currentPrice: number, freshBars: IntradayBar[], config: ActivationScanConfig,
 ): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
     const events: ActivationEvent[] = [];
     const mutations: ActivationMutation[] = [];
@@ -621,7 +619,7 @@ export function checkActivationForTicker(
     ticker: string,
     pendingSignals: Signal[],
     currentPrice: number | null,
-    freshBars: ActivationBar[],
+    freshBars: IntradayBar[],
     config: ActivationScanConfig,
 ): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
     const events: ActivationEvent[] = [];
