@@ -4,7 +4,7 @@ import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "..
 import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
-import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions } from "../lib/options";
+import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions, enrichOptionsJsonForTicker } from "../lib/options";
 import { getOnDeckSignals, processDetectSetups, type ScanTickerConfig } from "../lib/signalHelper";
 import { log } from "../index";
 import { validateMagnetTouch } from "../lib/validate";
@@ -301,25 +301,13 @@ export async function runLiveMonitorTickForTicker(
   ticker: string, 
   pendingSignals: Signal[], 
   activeSignals: Signal[],
-  ctx?: SimDayContext, 
+  ctx: SimDayContext, 
 ): Promise<void> {
-  const start = Date.now();
-  const summary: LiveSummary = { activeTickers: 0, activeSignals: 0, activationEvents: 0, alertEvents: 0, durationMs: 0 };
-
-  // enrich options and letf
-  if (!ctx){
-    try {
-    
-    } catch (err: any) {
-      log(`Live monitor: Fatal error: ${err.message}`, "scheduler");
-    }
-  }
-
-  // activation scan
   try {
-    const activationEvents = await 
+    await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
+  } catch (err: any) {
+    log(`Live monitor ticker ${ticker}: options enrichment error: ${err.message}`, "scheduler");
   }
-  
 }
 
 

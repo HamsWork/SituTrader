@@ -34,7 +34,6 @@ import {
   runActivationCheck,
   processDetectSetups,
   type ScanTickerConfig,
-  type ActivationSignal,
   type ActivationScanConfig,
   type ActivationMutation,
   getOnDeckSignals,
@@ -381,24 +380,6 @@ export class SimTickerStepper {
     return false;
   }
 
-  private simSignalToActivationSignal(sig: Signal): ActivationSignal {
-    return {
-      id: sig.id,
-      ticker: sig.ticker,
-      setupType: sig.setupType,
-      targetDate: sig.targetDate,
-      activationStatus: sig.activationStatus,
-      status: sig.status,
-      entryPrice: sig.entryPriceAtActivation ?? null,
-      stopPrice: sig.stopPrice ?? null,
-      stopStage: sig.stopStage ?? "INITIAL",
-      activatedTs: sig.activatedTs ?? null,
-      tier: sig.tier,
-      qualityScore: sig.qualityScore,
-      tradePlan: sig.tradePlanJson as TradePlan,
-    };
-  }
-
   private applyActivationMutation(mut: ActivationMutation, min: number): void {
     const sig = this.allSignals.get(mut.signalId);
     if (!sig) return;
@@ -598,67 +579,6 @@ export class SimTickerStepper {
     //   return { allResolved: true, hadEvents: false };
     // }
 
-    // const barsToNowMap = new Map<string, IBar[]>();
-    // for (const [ticker, rthBars] of this.liveMonitorRthBars) {
-    //   const barsToNow = rthBars.filter((b) => Date.parse(b.ts) <= cutoffMs);
-    //   if (barsToNow.length > 0) barsToNowMap.set(ticker, barsToNow);
-    // }
-
-    // const allMonitorSignals: ActivationSignal[] = [];
-    // for (const sig of this.allSignals.values()) {
-    //   if (sig.activationStatus === "ACTIVE" && sig.status === "pending") {
-    //     allMonitorSignals.push(this.simSignalToActivationSignal(sig));
-    //   }
-    // }
-    // for (const sig of this.liveMonitorPending) {
-    //   if (sig.status === "pending" && sig.activationStatus !== "INVALIDATED" && sig.activationStatus !== "ACTIVE") {
-    //     allMonitorSignals.push(this.simSignalToActivationSignal(sig));
-    //   }
-    // }
-
-    // const simNow = new Date(
-    //   dayjs.tz(
-    //     `${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:00`,
-    //     this.CT,
-    //   ).valueOf(),
-    // );
-
-    // const scanConfig: ActivationScanConfig = {
-    //   entryMode: this.config.entryMode,
-    //   stopMode: this.config.stopMode,
-    //   beProgressThreshold: 0.25,
-    //   beRThreshold: 0.5,
-    //   timeStopMinutes: 120,
-    //   timeStopProgressThreshold: 0.15,
-    //   timeStopTightenFactor: 0.5,
-    //   now: simNow,
-    //   today: this.today,
-    // };
-
-    // const { mutations } = runActivationCheck(
-    //   allMonitorSignals,
-    //   (ticker) => {
-    //     const bars = barsToNowMap.get(ticker);
-    //     if (!bars || bars.length === 0) return null;
-    //     return bars[bars.length - 1].close;
-    //   },
-    //   (ticker, _targetDate) => barsToNowMap.get(ticker) ?? [],
-    //   scanConfig,
-    // );
-
-    // for (const mut of mutations) {
-    //   this.applyActivationMutation(mut, min);
-    // }
-
-    // this.checkMagnetTouchAndMAEMFE(min, this.liveMonitorRthBars, cutoffMs);
-
-    // const hadEvents =
-    //   this.dayResult.activations.length > prevActivations ||
-    //   this.dayResult.hits.length > prevHits ||
-    //   this.dayResult.misses.length > prevMisses ||
-    //   this.dayResult.tradeSyncCalls.length > prevTradeSyncCalls;
-
-    // return { allResolved: false, hadEvents };
     return { allResolved: false, hadEvents };
   }
 

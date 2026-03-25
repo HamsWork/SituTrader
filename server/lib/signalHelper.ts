@@ -417,23 +417,6 @@ export function checkEntryTrigger(
     return { triggered: false };
 }
 
-export interface ActivationSignal {
-    id: number;
-    ticker: string;
-    setupType: string;
-    targetDate: string;
-    activationStatus: string;
-    status: string;
-    entryPrice: number | null;
-    stopPrice: number | null;
-    stopStage: string;
-    activatedTs: string | null;
-    tier: string;
-    qualityScore: number;
-    tradePlan: TradePlan;
-    timeStopTriggeredTs?: string | null;
-}
-
 export interface ActivationScanConfig {
     entryMode: string;
     stopMode: string;
@@ -464,7 +447,7 @@ export interface ActivationMutation {
 }
 
 export function runActivationCheck(
-    signals: ActivationSignal[],
+    signals: Signal[],
     getCurrentPrice: (ticker: string) => number | null,
     getIntradayBars: (ticker: string, targetDate: string) => ActivationBar[],
     config: ActivationScanConfig,
@@ -473,7 +456,7 @@ export function runActivationCheck(
     const mutations: ActivationMutation[] = [];
     const nowIso = config.now.toISOString();
 
-    const tickerGroups = new Map<string, ActivationSignal[]>();
+    const tickerGroups = new Map<string, Signal[]>();
     for (const sig of signals) {
         if (!tickerGroups.has(sig.ticker)) tickerGroups.set(sig.ticker, []);
         tickerGroups.get(sig.ticker)!.push(sig);
@@ -486,10 +469,12 @@ export function runActivationCheck(
             if (sig.activationStatus !== "ACTIVE") continue;
             if (sig.status !== "pending") continue;
 
-            const entryPrice = sig.entryPrice ?? 0;
-            const isSell = sig.tradePlan.bias === "SELL";
+            const tp = sig.tradePlanJson as TradePlan;
+            if (!tp) continue;
+            const entryPrice = sig.entryPriceAtActivation ?? 0;
+            const isSell = tp.bias === "SELL";
 
-            if (currentPrice && checkInvalidation(currentPrice, sig.tradePlan, entryPrice, sig.stopPrice)) {
+            if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
                 const msg = `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice.toFixed(2)}`;
                 events.push({
                     signalId: sig.id, ticker, type: "invalidated", tier: sig.tier,
@@ -504,7 +489,7 @@ export function runActivationCheck(
 
             if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
                 const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
-                const progress = computeProgressToTarget(currentPrice, entryPrice, sig.tradePlan.t1, isSell);
+                const progress = computeProgressToTarget(currentPrice, entryPrice, tp.t1, isSell);
                 const timingAnchor = sig.activatedTs ? new Date(sig.activatedTs).getTime() : 0;
                 const activeMinutes = timingAnchor > 0
                     ? Math.floor((config.now.getTime() - timingAnchor) / 60000)
@@ -560,20 +545,23 @@ export function runActivationCheck(
             if (sig.activationStatus === "INVALIDATED") continue;
             if (sig.status !== "pending") continue;
 
+            const sigTp = sig.tradePlanJson as TradePlan;
+            if (!sigTp) continue;
+
             const bars = getIntradayBars(ticker, sig.targetDate);
             if (bars.length === 0) continue;
 
-            const result = checkEntryTrigger(bars, sig.tradePlan, config.entryMode);
+            const result = checkEntryTrigger(bars, sigTp, config.entryMode);
 
             if (result.triggered && result.entryPrice) {
                 let stopPrice: number | undefined;
-                if (sig.tradePlan.stopDistance && sig.tradePlan.stopDistance > 0) {
-                    stopPrice = sig.tradePlan.bias === "SELL"
-                        ? result.entryPrice + sig.tradePlan.stopDistance
-                        : result.entryPrice - sig.tradePlan.stopDistance;
+                if (sigTp.stopDistance && sigTp.stopDistance > 0) {
+                    stopPrice = sigTp.bias === "SELL"
+                        ? result.entryPrice + sigTp.stopDistance
+                        : result.entryPrice - sigTp.stopDistance;
                 }
 
-                const msg = `ACTIVATED (${sig.tradePlan.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${sig.tradePlan.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`;
+                const msg = `ACTIVATED (${sigTp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${sigTp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`;
                 events.push({
                     signalId: sig.id, ticker, type: "activated", tier: sig.tier,
                     qualityScore: sig.qualityScore, entryPrice: result.entryPrice,

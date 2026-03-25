@@ -299,11 +299,121 @@ export async function enrichOptionsJsonForTicker(
         const optionsData: OptionsData = {
           mode: "AUTO",
           tradable: false,
+          checks: {
+            oiOk: false,
+            spreadOk: false,
+            openInterest: null,
+            spread: null,
+            bid: null,
+            ask: null,
+            checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
+            reasonIfFail: "NO_CONTRACTS",
+          },
         };
+        if (ctx) {
+          signal.optionsJson = optionsData;
+          ctx.allSignals.set(signal.id, signal);
+          ctx.onDeckSignals.set(signal.id, signal);
+        } else {
+          await storage.updateSignalOptions(signal.id, optionsData);
+        }
+        continue;
+      }
 
+      const nearATM = [...chain]
+        .filter(c => Math.abs(c.strike_price - currentTickerPrice!) / currentTickerPrice! < 0.03)
+        .sort((a, b) => {
+          const distA = Math.abs(a.strike_price - currentTickerPrice!);
+          const distB = Math.abs(b.strike_price - currentTickerPrice!);
+          if (distA !== distB) return distA - distB;
+          return a.expiration_date.localeCompare(b.expiration_date);
+        });
+
+      if (nearATM.length === 0) {
+        nearATM.push(...[...chain].sort((a, b) => {
+          const distA = Math.abs(a.strike_price - currentTickerPrice!);
+          const distB = Math.abs(b.strike_price - currentTickerPrice!);
+          return distA - distB;
+        }).slice(0, 1));
+      }
+
+      if (nearATM.length === 0) {
+        const optionsData: OptionsData = {
+          mode: "AUTO",
+          tradable: false,
+          checks: {
+            oiOk: false,
+            spreadOk: false,
+            openInterest: null,
+            spread: null,
+            bid: null,
+            ask: null,
+            checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
+            reasonIfFail: "NO_ATM_CONTRACT",
+          },
+        };
+        if (ctx) {
+          signal.optionsJson = optionsData;
+          ctx.allSignals.set(signal.id, signal);
+          ctx.onDeckSignals.set(signal.id, signal);
+        } else {
+          await storage.updateSignalOptions(signal.id, optionsData);
+        }
+        continue;
+      }
+
+      const best = nearATM[0];
+      const oi = best.open_interest ?? 0;
+      const bid = best.bid ?? 0;
+      const ask = best.ask ?? 0;
+      const spread = ask > 0 ? (ask - bid) / ask : 1;
+      const oiOk = oi >= minOI;
+      const spreadOk = spread <= maxSpread;
+      const tradable = oiOk && spreadOk;
+
+      const optionsData: OptionsData = {
+        mode: "AUTO",
+        tradable,
+        contract: {
+          ticker: best.ticker,
+          strike: best.strike_price,
+          expiration: best.expiration_date,
+          right,
+          bid,
+          ask,
+          mark: (bid + ask) / 2,
+          openInterest: oi,
+          impliedVol: best.implied_volatility ?? null,
+          delta: best.delta ?? null,
+          gamma: best.gamma ?? null,
+          theta: best.theta ?? null,
+          vega: best.vega ?? null,
+        },
+        checks: {
+          oiOk,
+          spreadOk,
+          openInterest: oi,
+          spread,
+          bid,
+          ask,
+          checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
+          reasonIfFail: !oiOk ? "LOW_OI" : !spreadOk ? "WIDE_SPREAD" : null,
+        },
+      };
+
+      if (ctx) {
+        signal.optionsJson = optionsData;
+        signal.optionContractTicker = best.ticker;
+        signal.optionEntryMark = (bid + ask) / 2;
+        ctx.allSignals.set(signal.id, signal);
+        ctx.onDeckSignals.set(signal.id, signal);
+      } else {
+        await storage.updateSignalOptions(signal.id, optionsData);
+      }
+    } catch (err: any) {
+      log(`enrichOptionsJsonForTicker error for ${signal.ticker}/${signal.id}: ${err.message}`, "options");
     }
   }
-
 }
 
 export async function enrichPendingSignalsWithOptions(params: EnrichParams = {}): Promise<EnrichResult> {

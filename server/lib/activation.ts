@@ -6,7 +6,6 @@ import {
   checkEntryTrigger,
   runActivationCheck,
   type ActivationEvent,
-  type ActivationSignal,
   type ActivationScanConfig,
   type ActivationMutation,
 } from "./signalHelper";
@@ -34,27 +33,6 @@ function getStopConfig(settings: Record<string, string>): StopConfig {
       settings.timeStopProgressThreshold || "0.15",
     ),
     timeStopTightenFactor: parseFloat(settings.timeStopTightenFactor || "0.5"),
-  };
-}
-
-function signalToActivationSignal(sig: Signal): ActivationSignal | null {
-  const tp = sig.tradePlanJson as TradePlan | null;
-  if (!tp) return null;
-  return {
-    id: sig.id,
-    ticker: sig.ticker,
-    setupType: sig.setupType,
-    targetDate: sig.targetDate,
-    activationStatus: sig.activationStatus,
-    status: sig.status,
-    entryPrice: sig.entryPriceAtActivation ?? null,
-    stopPrice: sig.stopPrice ?? null,
-    stopStage: sig.stopStage ?? "INITIAL",
-    activatedTs: sig.activatedTs ?? null,
-    tier: sig.tier,
-    qualityScore: sig.qualityScore,
-    tradePlan: tp,
-    timeStopTriggeredTs: sig.timeStopTriggeredTs ?? null,
   };
 }
 
@@ -216,14 +194,10 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     }
   }
 
-  const activationSignals: ActivationSignal[] = [];
-  for (const sig of activeSignals) {
-    const mapped = signalToActivationSignal(sig);
-    if (mapped) activationSignals.push(mapped);
-  }
+  const validSignals = activeSignals.filter((sig) => sig.tradePlanJson != null);
 
   const intradayBarCache = new Map<string, Array<{ ts: string; open: number; high: number; low: number; close: number; volume: number }>>();
-  for (const sig of activationSignals) {
+  for (const sig of validSignals) {
     if (sig.activationStatus === "ACTIVE" || sig.activationStatus === "INVALIDATED") continue;
     if (sig.status !== "pending") continue;
     const key = `${sig.ticker}:${sig.targetDate}`;
@@ -244,7 +218,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   };
 
   const { events, mutations } = runActivationCheck(
-    activationSignals,
+    validSignals,
     (ticker) => currentPriceByTicker.get(ticker) ?? null,
     (ticker, targetDate) => intradayBarCache.get(`${ticker}:${targetDate}`) ?? [],
     scanConfig,
