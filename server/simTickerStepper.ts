@@ -724,9 +724,10 @@ export class SimTickerStepper {
     // validate hit or miss
     const onDeckSignals = await getOnDeckSignals(this.allSignals);
     for (const sig of onDeckSignals) {
-      const intradayBars = await storage.getIntradayBars(sig.ticker, sig.targetDate, timeframe); //TODO: we should fetch from polygon
+      const rawBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
+      const intradayBars = rawBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l }));
       const validateResult = validateMagnetTouch(
-        intradayBars.map((b) => ({ ts: b.ts, high: b.high, low: b.low })),
+        intradayBars,
         sig.magnetPrice,
         sig.direction,
       );
