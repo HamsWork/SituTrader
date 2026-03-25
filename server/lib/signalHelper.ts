@@ -5,7 +5,7 @@ import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
 import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
-import { fetchDailyBarsCached, fetchDailyBarsPolygon, fetchIntradayBarsCached } from "./polygon";
+import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBarsCached } from "./polygon";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 
@@ -36,6 +36,15 @@ export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals?: 
     return all.filter(
         (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
     );
+}
+
+
+export function inferBias(signal: Signal): "BUY" | "SELL" {
+  const tp = signal.tradePlanJson as TradePlan | null;
+  if (tp?.bias) return tp.bias;
+  const dir = signal.direction.toLowerCase();
+  if (dir.includes("down") || dir === "sell") return "SELL";
+  return "BUY";
 }
 
 export function computeRNow(
@@ -119,11 +128,19 @@ export async function scanTickerSetups(
     dailyBars: DailyBar[],
     config: ScanTickerConfig,
     isOnWatchlist: boolean,
+    today: string,
+    isPreOpen: boolean = false,
 ): Promise<ScoredSetup[]> {
     if (dailyBars.length < 5) return [];
 
     const recentBars = dailyBars.slice(-30);
-    const setups = detectAllSetups(recentBars, config.setups, config.gapThreshold);
+    const setups = detectAllSetups(recentBars, config.setups, config.gapThreshold)
+        .filter(setup => isPreOpen ? setup.targetDate >= today : setup.targetDate > today);
+
+    console.log("today", today);
+    console.log("isPreOpen", isPreOpen);
+    console.log("detected setups", setups);
+
     if (setups.length === 0) return [];
 
     const atr = computeATR(dailyBars);
@@ -235,29 +252,17 @@ export interface ProcessTickerOptions {
     from200: string;
 }
 
-export async function processDetectSetupC(
-    ticker: string,
-): Promise<SetupResult[]> {
-    // const dailyBars = await fetchDailyBarsPolygon(ticker, from200, today);
-    return [];
-}
 
-export async function processTickerAfterClose(
+export async function processDetectSetups(
     opts: ProcessTickerOptions,
+    isPreOpen: boolean = false,
 ): Promise<ProcessedSetup[]> {
     const { ticker, config, isOnWatchlist, today, from200 } = opts;
 
-    const dailyPolygon = await fetchDailyBarsPolygon(ticker, from200, today);
-    
-
-    const dailyBars: DailyBar[] = dailyPolygon.map(bar => ({
-        id: 0,
-        ticker, date: formatDate(new Date(bar.t)), open: bar.o, high: bar.h, low: bar.l, close: bar.c,
-        volume: bar.v, vwap: bar.vw ?? null, source: "polygon",
-    } as DailyBar));
+    const dailyBars = await fetchDailyBarsFromPolygon(ticker, from200, today);
 
 
-    const scoredSetups = await scanTickerSetups(ticker, dailyBars, config, isOnWatchlist);
+    const scoredSetups = await scanTickerSetups(ticker, dailyBars, config, isOnWatchlist, today, isPreOpen);
     const results: ProcessedSetup[] = [];
 
     for (const scored of scoredSetups) {

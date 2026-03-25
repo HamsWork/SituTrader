@@ -5,9 +5,11 @@ import { runActivationScan } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions } from "../lib/options";
-import { getOnDeckSignals, processTickerAfterClose, type ScanTickerConfig } from "../lib/signalHelper";
+import { getOnDeckSignals, processDetectSetups, type ScanTickerConfig } from "../lib/signalHelper";
 import { log } from "../index";
 import { validateMagnetTouch } from "../lib/validate";
+import { SimDayContext } from "server/simulation";
+import { Signal } from "@shared/schema";
 
 export interface ScanSummary {
   tickersScanned: number;
@@ -91,7 +93,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
 
     for (const ticker of tickersToScan) {
       try {
-        const processed = await processTickerAfterClose({
+        const processed = await processDetectSetups({
           ticker,
           config: scanConfig,
           isOnWatchlist: watchlistSet.has(ticker),
@@ -294,3 +296,30 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
   summary.durationMs = Date.now() - start;
   return summary;
 }
+
+export async function runLiveMonitorTickForTicker(
+  ticker: string, 
+  pendingSignals: Signal[], 
+  activeSignals: Signal[],
+  ctx?: SimDayContext, 
+): Promise<void> {
+  const start = Date.now();
+  const summary: LiveSummary = { activeTickers: 0, activeSignals: 0, activationEvents: 0, alertEvents: 0, durationMs: 0 };
+
+  // enrich options and letf
+  if (!ctx){
+    try {
+    
+    } catch (err: any) {
+      log(`Live monitor: Fatal error: ${err.message}`, "scheduler");
+    }
+  }
+
+  // activation scan
+  try {
+    const activationEvents = await 
+  }
+  
+}
+
+

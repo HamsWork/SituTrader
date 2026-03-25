@@ -6,6 +6,7 @@ import {
   fetchOptionMark,
   fetchOptionMarkAtTime,
   fetchStockPriceAtTime,
+  fetchStockPrice,
 } from "./polygon";
 import {
   selectBestLeveragedEtf,
@@ -14,6 +15,8 @@ import {
 } from "./leveragedEtf";
 import { log } from "../index";
 import type { Signal, TradePlan, OptionsData, OptionsCandidate, OptionsChecks } from "@shared/schema";
+import { SimDayContext } from "server/simulation";
+import { inferBias } from "./signalHelper";
 
 interface EnrichParams {
   minOI?: number;
@@ -27,13 +30,7 @@ interface EnrichResult {
   errors: number;
 }
 
-function inferBias(signal: Signal): "BUY" | "SELL" {
-  const tp = signal.tradePlanJson as TradePlan | null;
-  if (tp?.bias) return tp.bias;
-  const dir = signal.direction.toLowerCase();
-  if (dir.includes("down") || dir === "sell") return "SELL";
-  return "BUY";
-}
+
 
 function buildContractSymbol(ticker: string, expDate: string, right: "C" | "P", strike: number): string {
   const yymmdd = expDate.replace(/-/g, "").slice(2);
@@ -46,6 +43,7 @@ function computeDTE(expDate: string): number {
   const exp = new Date(expDate + "T16:00:00");
   return Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
+
 
 function isOptionContractExpired(contractTicker: string): boolean {
   const m = contractTicker.match(/(\d{6})[PC]/);
@@ -239,6 +237,74 @@ export async function reEnrichExpiredOptions(): Promise<{ checked: number; reEnr
 }
 
 export { isOptionContractExpired };
+
+export async function enrichOptionsJsonForTicker(
+  params: EnrichParams, 
+  ticker: string, 
+  pendingSignals: Signal[], 
+  ctx: SimDayContext
+): Promise<void> {
+
+  const minOI = params.minOI ?? 500;
+  const maxSpread = params.maxSpread ?? 0.05;
+  const force = params.force ?? false;
+
+  const now = ctx ? new Date(Date.parse(ctx.today) + ctx.currentMin * 60 * 1000) : new Date();
+
+  const currentTickerPrice = ctx
+    ? await fetchStockPriceAtTime(ticker, now.valueOf())
+    : await fetchStockPrice(ticker);
+
+
+  for (const signal of pendingSignals) {
+    if (signal.ticker !== ticker) continue;
+    try {
+      const oldOptionJson = signal.optionsJson as OptionsData | null;
+      if (oldOptionJson?.mode === "AUTO" && !force) {
+        continue;
+      }
+
+      const bias = inferBias(signal);
+      const right: "C" | "P" = bias === "BUY" ? "C" : "P";
+
+      if (currentTickerPrice == null) {
+        const optionsData: OptionsData = {
+          mode: "AUTO",
+          tradable: false,
+          checks: {
+            oiOk: false,
+            spreadOk: false,
+            openInterest: null,
+            spread: null,
+            bid: null,
+            ask: null,
+            checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
+            reasonIfFail: "NO_PRICE",
+          },
+        };
+        if (ctx){
+          signal.optionsJson = optionsData
+          ctx.allSignals.set(signal.id, signal);
+          ctx.onDeckSignals.set(signal.id, signal);
+        } else {
+          await storage.updateSignalOptions(signal.id, optionsData);
+        }
+        continue;
+      }
+      
+      const minExpDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const maxExpDate = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const chain = await fetchOptionsChain(ticker, right === "C" ? "call" : "put", minExpDate, maxExpDate, 250);
+      if (!chain || chain.length === 0) {
+        const optionsData: OptionsData = {
+          mode: "AUTO",
+          tradable: false,
+        };
+
+    }
+  }
+
+}
 
 export async function enrichPendingSignalsWithOptions(params: EnrichParams = {}): Promise<EnrichResult> {
   const minOI = params.minOI ?? 500;

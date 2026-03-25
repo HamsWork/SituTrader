@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { fetchSnapshot, fetchIntradayBars } from "./polygon";
+import { fetchSnapshot, fetchIntradayBars, fetchStockPriceAtTime, fetchStockPrice } from "./polygon";
 import { log } from "../index";
 import { enrichOptionData } from "./options";
 import {
@@ -270,6 +270,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
 }
 
 import { hasLeveragedEtfMapping, selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
+import { SimDayContext } from "server/simulation";
 
 export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null> {
   const letfData = signal.leveragedEtfJson as any;
@@ -296,4 +297,28 @@ export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null
     log(`ensureLetfForSignal error for signal ${signal.id}: ${err.message}`, "activation");
     return null;
   }
+}
+
+export async function runActivationScanForTicker(
+  ticker: string, 
+  pendingSignals: Signal[], 
+  activeSignals: Signal[], 
+  ctx?: SimDayContext
+): Promise<ActivationEvent[]> {
+  const now = ctx ? new Date(Date.parse(ctx.today) + ctx.currentMin * 60 * 1000) : new Date();
+  const today = ctx ? ctx.today : now.toISOString().slice(0, 10);
+
+  const settings = await storage.getAllSettings();
+  const entryMode = settings.entryMode || "conservative";
+  const timeframe = settings.intradayTimeframe || "5";
+  const stopCfg = getStopConfig(settings);
+
+  const currentPrice = ctx ? 
+    await fetchStockPriceAtTime(ticker, now.valueOf())
+    : await fetchStockPrice(ticker);
+  
+  const freshBars = ctx 
+    ? await fetchIntradayBars(ticker, today, now.toISOString(), timeframe)
+    : await fetchIntradayBars(ticker, today, today, timeframe);
+  return [];
 }

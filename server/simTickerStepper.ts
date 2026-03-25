@@ -13,27 +13,33 @@ import { validateMagnetTouch, computeMAEMFE } from "./lib/validate";
 import { storage } from "./storage";
 import type { DailyBar, Signal, TradePlan } from "@shared/schema";
 
-import type {
-  RankedSimEntry,
-  SimDayResult,
-  SimPhaseSnapshot,
-  SimConfig,
-  SimEventCallback,
-  SimControlSignal,
-  SimDayContext,
-  SimDayOutput,
+import {
+  type RankedSimEntry,
+  type SimDayResult,
+  type SimPhaseSnapshot,
+  type SimConfig,
+  type SimEventCallback,
+  type SimControlSignal,
+  type SimDayContext,
+  type SimDayOutput,
+  SIM_BEFORE_PRE_OPEN_CT,
+  SIM_PRE_OPEN_CT,
+  SIM_RTH_START_CT,
+  SIM_RTH_END_CT,
+  SIM_AFTER_CLOSE_CT,
 } from "./simulation";
 import { initializeBtodForDay } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
 import {
   runActivationCheck,
-  processTickerAfterClose,
+  processDetectSetups,
   type ScanTickerConfig,
   type ActivationSignal,
   type ActivationScanConfig,
   type ActivationMutation,
   getOnDeckSignals,
 } from "./lib/signalHelper";
+import { runLiveMonitorTickForTicker } from "./jobs/jobFunctions";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -48,10 +54,7 @@ async function waitWhilePaused(ctrl: SimControlSignal, emit?: SimEventCallback):
   }
 }
 
-const SIM_PRE_OPEN_CT = 8 * 60 + 15;
-const SIM_RTH_START_CT = 8 * 60 + 30;
-const SIM_RTH_END_CT = 15 * 60;
-const SIM_AFTER_CLOSE_CT = 15 * 60 + 10;
+
 
 function formatSimTime(minutesCT: number): string {
   const h = Math.floor(minutesCT / 60);
@@ -236,10 +239,81 @@ export class SimTickerStepper {
       type: "processing",
     });
 
+    
     // detect setup C
     if (this.config.setups.includes("C")) {
+      const scanConfig: ScanTickerConfig = {
+        setups: ["C"],
+        gapThreshold: this.config.gapThreshold,
+        timePriorityMode: this.ctx.timePriorityMode,
+        entryMode: this.config.entryMode,
+        stopMode: this.config.stopMode,
+        atrMultiplier: this.config.atrMultiplier,
+        alertGateEnabled: false,
+        liquidityFloor: 0,
+      };
       for (const ticker of this.config.tickers) {
-        // const bars = await fetchIntradayBars(ticker, this.today, "1d");
+         const processed = await processDetectSetups({
+          ticker,
+          config: scanConfig,
+          isOnWatchlist: this.watchlistSet.has(ticker),
+          today: this.today,
+          from200: getTradingDaysBack(this.today, 200),
+         }, true);
+         for (const scored of processed) {
+          if (scored.status !== "pending") continue;
+          const signalId = this.ctx.nextSimSignalId++;
+          const simSig: Signal = {
+            id: signalId,
+            ticker,
+            setupType: scored.setupType,
+            asofDate: scored.asofDate,
+            targetDate: scored.targetDate,
+            targetDate2: null,
+            targetDate3: null,
+            magnetPrice: scored.magnetPrice,
+            magnetPrice2: null,
+            direction: scored.direction,
+            confidence: scored.confidence,
+            qualityScore: scored.qualityScore,
+            tier: scored.tier,
+            tradePlanJson: scored.tradePlan,
+            confidenceBreakdown: scored.confidenceBreakdown,
+            qualityBreakdown: scored.qualityBreakdown,
+            status: "pending",
+            activationStatus: "NOT_ACTIVE",
+            hitTs: null,
+            timeToHitMin: null,
+            missReason: null,
+            activatedTs: null,
+            entryPriceAtActivation: null,
+            stopPrice: scored.stopPrice,
+            entryTriggerPrice: null,
+            invalidationTs: null,
+            stopStage: "INITIAL",
+            stopMovedToBeTs: null,
+            timeStopTriggeredTs: null,
+            alertState: "new",
+            nextAlertEligibleAt: null,
+            pHit60: scored.sigP60,
+            pHit120: scored.sigP120,
+            pHit390: scored.sigP390,
+            timeScore: scored.timeScore,
+            universePass: scored.universePass,
+            optionsJson: null,
+            optionContractTicker: null,
+            optionEntryMark: null,
+            instrumentType: "OPTION",
+            instrumentTicker: null,
+            instrumentEntryPrice: null,
+            leveragedEtfJson: null,
+            createdAt: null,
+          };
+          this.ctx.allSignals.set(signalId, simSig);
+          this.ctx.onDeckSignals.set(signalId, simSig);
+          this.dayResult.signalsGenerated.push(simSig);
+          this.dayResult.summary.totalPending++;
+         }
       }
     }
 
@@ -284,9 +358,6 @@ export class SimTickerStepper {
     return await this.phaseTransition("Pre-Open Scan");
   }
 
-  private liveMonitorPending: Signal[] = [];
-  private liveMonitorTickers: string[] = [];
-  private liveMonitorRthBars = new Map<string, IBar[]>();
 
   liveMonitorStart(): boolean {
     this.emit("progress", {
@@ -300,21 +371,12 @@ export class SimTickerStepper {
       type: "processing",
     });
 
-    if (this.liveMonitorPending.length === 0 && this.liveMonitorTickers.length === 0) {
+    if (this.ctx.onDeckSignals.size === 0 && this.ctx.activeSignals.size === 0) {
       this.emit("log", { message: `  No signals targeting ${this.today}`, type: "info" });
       return true;
     }
 
-    const activatedCount = Array.from(this.allSignals.values()).filter(
-      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
-    ).length;
-
-    if (activatedCount > 0) {
-      this.emit("log", {
-        message: `  Monitoring ${this.liveMonitorPending.length} pending + ${activatedCount} active signals across ${this.liveMonitorTickers.length} tickers`,
-        type: "info",
-      });
-    }
+    this.emit("log", { message: `  Monitoring ${this.ctx.onDeckSignals.size} on-deck + ${this.ctx.activeSignals.size} active signals`, type: "info" });
 
     return false;
   }
@@ -498,88 +560,105 @@ export class SimTickerStepper {
     }
   }
 
-  liveMonitorTick(min: number): { allResolved: boolean; hadEvents: boolean } {
-    this.simTimeCT = min;
-    const prevActivations = this.dayResult.activations.length;
-    const prevHits = this.dayResult.hits.length;
-    const prevMisses = this.dayResult.misses.length;
-    const prevTradeSyncCalls = this.dayResult.tradeSyncCalls.length;
 
-    const cutoffMs = dayjs
-      .tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:59`, this.CT)
-      .valueOf();
+  async liveMonitorTick(): Promise<{ allResolved: boolean; hadEvents: boolean }> {
 
-    const pendingCount = this.liveMonitorPending.filter(
-      (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
-    ).length;
-    const activeCount = Array.from(this.allSignals.values()).filter(
-      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
-    ).length;
-    if (pendingCount === 0 && activeCount === 0) {
-      this.emit("log", { message: `  All signals resolved by ${formatSimTime(min)}`, type: "info" });
-      return { allResolved: true, hadEvents: false };
+    const hadEvents = false;
+    const monitorSignals = Array.from(this.ctx.onDeckSignals.values()).concat(Array.from(this.ctx.activeSignals.values()));
+    const tickerArr = Array.from(new Set(monitorSignals.map(s => s.ticker)));
+    if (tickerArr.length === 0) {
+      this.emit("log", { message: `  All signals resolved by ${formatSimTime(this.ctx.currentMin)}`, type: "info" });
+      return { allResolved: true, hadEvents };
     }
 
-    const barsToNowMap = new Map<string, IBar[]>();
-    for (const [ticker, rthBars] of this.liveMonitorRthBars) {
-      const barsToNow = rthBars.filter((b) => Date.parse(b.ts) <= cutoffMs);
-      if (barsToNow.length > 0) barsToNowMap.set(ticker, barsToNow);
+    for (const ticker of tickerArr) {
+      const pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
+      const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
+      await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
     }
 
-    const allMonitorSignals: ActivationSignal[] = [];
-    for (const sig of this.allSignals.values()) {
-      if (sig.activationStatus === "ACTIVE" && sig.status === "pending") {
-        allMonitorSignals.push(this.simSignalToActivationSignal(sig));
-      }
-    }
-    for (const sig of this.liveMonitorPending) {
-      if (sig.status === "pending" && sig.activationStatus !== "INVALIDATED" && sig.activationStatus !== "ACTIVE") {
-        allMonitorSignals.push(this.simSignalToActivationSignal(sig));
-      }
-    }
 
-    const simNow = new Date(
-      dayjs.tz(
-        `${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:00`,
-        this.CT,
-      ).valueOf(),
-    );
+    // const prevActivations = this.dayResult.activations.length;
+    // const prevHits = this.dayResult.hits.length;
+    // const prevMisses = this.dayResult.misses.length;
+    // const prevTradeSyncCalls = this.dayResult.tradeSyncCalls.length;
 
-    const scanConfig: ActivationScanConfig = {
-      entryMode: this.config.entryMode,
-      stopMode: this.config.stopMode,
-      beProgressThreshold: 0.25,
-      beRThreshold: 0.5,
-      timeStopMinutes: 120,
-      timeStopProgressThreshold: 0.15,
-      timeStopTightenFactor: 0.5,
-      now: simNow,
-      today: this.today,
-    };
+    // const cutoffMs = dayjs
+    //   .tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:59`, this.CT)
+    //   .valueOf();
 
-    const { mutations } = runActivationCheck(
-      allMonitorSignals,
-      (ticker) => {
-        const bars = barsToNowMap.get(ticker);
-        if (!bars || bars.length === 0) return null;
-        return bars[bars.length - 1].close;
-      },
-      (ticker, _targetDate) => barsToNowMap.get(ticker) ?? [],
-      scanConfig,
-    );
+    // const pendingCount = this.liveMonitorPending.filter(
+    //   (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
+    // ).length;
+    // const activeCount = Array.from(this.allSignals.values()).filter(
+    //   (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    // ).length;
+    // if (pendingCount === 0 && activeCount === 0) {
+    //   this.emit("log", { message: `  All signals resolved by ${formatSimTime(min)}`, type: "info" });
+    //   return { allResolved: true, hadEvents: false };
+    // }
 
-    for (const mut of mutations) {
-      this.applyActivationMutation(mut, min);
-    }
+    // const barsToNowMap = new Map<string, IBar[]>();
+    // for (const [ticker, rthBars] of this.liveMonitorRthBars) {
+    //   const barsToNow = rthBars.filter((b) => Date.parse(b.ts) <= cutoffMs);
+    //   if (barsToNow.length > 0) barsToNowMap.set(ticker, barsToNow);
+    // }
 
-    this.checkMagnetTouchAndMAEMFE(min, this.liveMonitorRthBars, cutoffMs);
+    // const allMonitorSignals: ActivationSignal[] = [];
+    // for (const sig of this.allSignals.values()) {
+    //   if (sig.activationStatus === "ACTIVE" && sig.status === "pending") {
+    //     allMonitorSignals.push(this.simSignalToActivationSignal(sig));
+    //   }
+    // }
+    // for (const sig of this.liveMonitorPending) {
+    //   if (sig.status === "pending" && sig.activationStatus !== "INVALIDATED" && sig.activationStatus !== "ACTIVE") {
+    //     allMonitorSignals.push(this.simSignalToActivationSignal(sig));
+    //   }
+    // }
 
-    const hadEvents =
-      this.dayResult.activations.length > prevActivations ||
-      this.dayResult.hits.length > prevHits ||
-      this.dayResult.misses.length > prevMisses ||
-      this.dayResult.tradeSyncCalls.length > prevTradeSyncCalls;
+    // const simNow = new Date(
+    //   dayjs.tz(
+    //     `${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:00`,
+    //     this.CT,
+    //   ).valueOf(),
+    // );
 
+    // const scanConfig: ActivationScanConfig = {
+    //   entryMode: this.config.entryMode,
+    //   stopMode: this.config.stopMode,
+    //   beProgressThreshold: 0.25,
+    //   beRThreshold: 0.5,
+    //   timeStopMinutes: 120,
+    //   timeStopProgressThreshold: 0.15,
+    //   timeStopTightenFactor: 0.5,
+    //   now: simNow,
+    //   today: this.today,
+    // };
+
+    // const { mutations } = runActivationCheck(
+    //   allMonitorSignals,
+    //   (ticker) => {
+    //     const bars = barsToNowMap.get(ticker);
+    //     if (!bars || bars.length === 0) return null;
+    //     return bars[bars.length - 1].close;
+    //   },
+    //   (ticker, _targetDate) => barsToNowMap.get(ticker) ?? [],
+    //   scanConfig,
+    // );
+
+    // for (const mut of mutations) {
+    //   this.applyActivationMutation(mut, min);
+    // }
+
+    // this.checkMagnetTouchAndMAEMFE(min, this.liveMonitorRthBars, cutoffMs);
+
+    // const hadEvents =
+    //   this.dayResult.activations.length > prevActivations ||
+    //   this.dayResult.hits.length > prevHits ||
+    //   this.dayResult.misses.length > prevMisses ||
+    //   this.dayResult.tradeSyncCalls.length > prevTradeSyncCalls;
+
+    // return { allResolved: false, hadEvents };
     return { allResolved: false, hadEvents };
   }
 
@@ -655,7 +734,7 @@ export class SimTickerStepper {
       if (this.isAborted()) break;
       if (await this.checkPause()) break;
       try {
-        const processed = await processTickerAfterClose({
+        const processed = await processDetectSetups({
           ticker,
           config: scanConfig,
           isOnWatchlist: this.watchlistSet.has(ticker),
@@ -667,8 +746,9 @@ export class SimTickerStepper {
         for (const scored of processed) {
           if (scored.status !== "pending") continue;
 
+          const signalId = this.ctx.nextSimSignalId++;
           const simSig: Signal = {
-            id: this.nextSimSignalId++,
+            id: signalId,
             ticker,
             setupType: scored.setupType,
             asofDate: scored.asofDate,
@@ -714,8 +794,10 @@ export class SimTickerStepper {
             createdAt: null,
           };
 
-          this.allSignals.set(simSig.id, simSig);
+          this.ctx.allSignals.set(signalId, simSig);
+          this.ctx.onDeckSignals.push(simSig);
           this.dayResult.signalsGenerated.push(simSig);
+          this.dayResult.summary.totalPending++;
         }
       } catch (err: any) {
         this.emit("log", {
@@ -820,33 +902,34 @@ export class SimTickerStepper {
     });
 
 
-    this.simTimeCT = SIM_PRE_OPEN_CT;
-    this.emit("log", { message: `  ⏰ ${formatSimTime(this.simTimeCT)} — Day starts`, type: "info" });
+    this.ctx.currentMin = SIM_BEFORE_PRE_OPEN_CT;
+    this.emit("log", { message: `  ⏰ ${formatSimTime(this.ctx.currentMin)} — Day starts`, type: "info" });
     this.emitDayUpdatePublic();
 
-    this.simTimeCT = SIM_PRE_OPEN_CT + 5;
+    this.ctx.currentMin = SIM_PRE_OPEN_CT;
     if (await this.preOpenScan()) return this.earlyReturn();
     this.emitDayUpdatePublic();
 
     const noSignals = this.liveMonitorStart();
     
     if (!noSignals) {
-      for (let min = SIM_RTH_START_CT; min < SIM_RTH_END_CT; min++) {
+      this.ctx.currentMin = SIM_RTH_START_CT;
+      while (this.ctx.currentMin <= SIM_RTH_END_CT) {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
-
-        const { allResolved, hadEvents } = this.liveMonitorTick(min);
+        const { allResolved, hadEvents } = this.liveMonitorTick();
         if (hadEvents || allResolved) this.emitDayUpdatePublic();
         if (allResolved) break;
+        this.ctx.currentMin++;
       }
     }
     if (await this.liveMonitorFinalize()) return this.earlyReturn();
 
-    this.simTimeCT = SIM_AFTER_CLOSE_CT;
+    this.ctx.currentMin = SIM_AFTER_CLOSE_CT;
     if (await this.afterCloseScan()) return this.earlyReturn();
     this.emitDayUpdatePublic();
 
-    this.simTimeCT = SIM_AFTER_CLOSE_CT + 5;
+    this.ctx.currentMin = SIM_AFTER_CLOSE_CT + 5;
     return await this.endOfDay();
   }
 }

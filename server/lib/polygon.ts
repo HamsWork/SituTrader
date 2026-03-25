@@ -1,6 +1,8 @@
+import { DailyBar } from "@shared/schema";
 import { log } from "../index";
 import { getBars } from "./barCache";
 import type { Bar } from "./barCache";
+import { formatDate } from "./calendar";
 
 const POLYGON_BASE = "https://api.polygon.io";
 const API_KEY = process.env.POLYGON_API_KEY;
@@ -154,6 +156,8 @@ export interface OptionsQuote {
   ask: number | null;
 }
 
+
+
 export async function fetchOptionsChain(
   ticker: string,
   contractType: "call" | "put",
@@ -237,6 +241,20 @@ export async function fetchOptionSnapshot(underlyingTicker: string, contractSymb
     };
   } catch (err: any) {
     log(`Error fetching option snapshot for ${contractSymbol}: ${err.message}`, "polygon");
+    return null;
+  }
+}
+
+
+
+export async function fetchStockPrice(ticker: string): Promise<number | null> {
+  try {
+    const data = await polygonGet(`/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`);
+    const t = data.ticker;
+    if (!t) return null;
+    return t.lastTrade?.p ?? t.day?.c ?? 0;
+  } catch (err: any) {
+    log(`Error fetching stock price for ${ticker}: ${err.message}`, "polygon");
     return null;
   }
 }
@@ -506,15 +524,29 @@ function barToPolygonBar(b: Bar): PolygonBar {
   };
 }
 
-export async function fetchDailyBarsPolygon(
-  ticker: string,
+export async function fetchDailyBarsFromPolygon(
+  ticker: string, 
   from: string,
   to: string,
-): Promise<PolygonBar[]> {
+): Promise<DailyBar[]> {
   const fromDate = new Date(from).toISOString().slice(0, 10);
   const toDate = new Date(to).toISOString().slice(0, 10);
-  return await fetchDailyBars(ticker, fromDate, toDate);
+  const raw = await fetchDailyBars(ticker, fromDate, toDate);
+  return raw.map(bar => ({
+    id: 0,
+    ticker,
+    date: formatDate(new Date(bar.t)),
+    open: bar.o,
+    high: bar.h,
+    low: bar.l,
+    close: bar.c,
+    volume: bar.v,
+    vwap: bar.vw ?? null,
+    source: "polygon",
+  } as DailyBar));
 }
+
+
 
 export async function fetchDailyBarsCached(
   ticker: string,

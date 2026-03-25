@@ -6,6 +6,12 @@ import { storage } from "./storage";
 import { SimTickerStepper } from "./simTickerStepper";
 import type { Signal } from "@shared/schema";
 
+export const SIM_BEFORE_PRE_OPEN_CT = 8 * 60 + 15;
+export const SIM_PRE_OPEN_CT = 8 * 60 + 20;
+export const SIM_RTH_START_CT = 8 * 60 + 30;
+export const SIM_RTH_END_CT = 15 * 60;
+export const SIM_AFTER_CLOSE_CT = 15 * 60 + 10;
+
 export interface RankedSimEntry {
   signalId: number;
   ticker: string;
@@ -182,10 +188,12 @@ export interface SimDayContext {
   timePriorityMode: "EARLY" | "SAME_DAY" | "BLEND";
   nextSimSignalId: number;
   
+  currentMin: number;
   // signals
   allSignals: Map<number, Signal>;
-  onDeckSignals: Array<Signal>;
-  doneSignals: Array<Signal>;
+  onDeckSignals: Map<number, Signal>;
+  doneSignals: Map<number, Signal>;
+  activeSignals: Map<number, Signal>;
   // current day info
   today: string;
   dayIdx: number;
@@ -251,8 +259,10 @@ export async function runSimulation(
     timePriorityMode,
     nextSimSignalId,
     allSignals,
-    onDeckSignals: [],
-    doneSignals: [],
+    onDeckSignals: new Map(),
+    doneSignals: new Map(),
+    activeSignals: new Map(),
+    currentMin: SIM_BEFORE_PRE_OPEN_CT,
     btodExecutedToday: false,
     today: tradingDays[0],
     dayIdx: 0,
@@ -276,11 +286,11 @@ export async function runSimulation(
     currentDayCtx.totalDays = tradingDays.length;
     currentDayCtx.btodExecutedToday = false;
 
-    console.log("current Day Ctx before simulateDay", currentDayCtx);
+    currentDayCtx.currentMin = SIM_BEFORE_PRE_OPEN_CT;
+
     const dayOutput = await simulateDay(currentDayCtx);
 
     results.push(dayOutput.result);
-    console.log("current Day Ctx after simulateDay", currentDayCtx);
 
     if (dayOutput.shouldBreak) break;
   }

@@ -74,7 +74,7 @@ export function detectSetupC(
     results.push({
       setupType: "C",
       asofDate: today.date,
-      targetDate: nextTradingDay(today.date),
+      targetDate: today.date,
       magnetPrice: prev.close,
       direction,
       triggerMargin: Math.abs(today.open - prev.close),
