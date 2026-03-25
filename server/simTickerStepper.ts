@@ -11,10 +11,9 @@ import {
 } from "./lib/calendar";
 import { validateMagnetTouch, computeMAEMFE } from "./lib/validate";
 import { storage } from "./storage";
-import type { DailyBar } from "@shared/schema";
+import type { DailyBar, Signal, TradePlan } from "@shared/schema";
 
 import type {
-  SimSignal,
   RankedSimEntry,
   SimDayResult,
   SimPhaseSnapshot,
@@ -177,7 +176,7 @@ export class SimTickerStepper {
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
-        entryPrice: s.entryPrice, activatedTs: s.activatedTs,
+        entryPrice: s.entryPriceAtActivation, activatedTs: s.activatedTs,
       }));
     let p = 0, a = 0, h = 0, m = 0;
     for (const sig of Array.from(this.allSignals.values())) {
@@ -302,11 +301,13 @@ export class SimTickerStepper {
       for (const sig of preOpenForPreload) {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
-        const key = `${sig.ticker}|${getRight(sig.tradePlan.bias)}`;
+        const sigTp = sig.tradePlanJson as TradePlan;
+        if (!sigTp) continue;
+        const key = `${sig.ticker}|${getRight(sigTp.bias)}`;
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
         try {
-          const chain = await fetchOptionsChain(sig.ticker, getRight(sig.tradePlan.bias), minExpDate, maxExpDate, 250);
+          const chain = await fetchOptionsChain(sig.ticker, getRight(sigTp.bias), minExpDate, maxExpDate, 250);
           this.preloadedOptions.set(key, chain);
         } catch (err: any) {
           this.emit("log", { message: `  Preload options error ${sig.ticker}: ${err.message}`, type: "error" });
@@ -398,7 +399,7 @@ export class SimTickerStepper {
     return await this.phaseTransition("Pre-Open Scan");
   }
 
-  private liveMonitorPending: SimSignal[] = [];
+  private liveMonitorPending: Signal[] = [];
   private liveMonitorTickers: string[] = [];
   private liveMonitorRthBars = new Map<string, IBar[]>();
 
@@ -433,7 +434,7 @@ export class SimTickerStepper {
     return false;
   }
 
-  private simSignalToActivationSignal(sig: SimSignal): ActivationSignal {
+  private simSignalToActivationSignal(sig: Signal): ActivationSignal {
     return {
       id: sig.id,
       ticker: sig.ticker,
@@ -441,13 +442,13 @@ export class SimTickerStepper {
       targetDate: sig.targetDate,
       activationStatus: sig.activationStatus,
       status: sig.status,
-      entryPrice: sig.entryPrice,
-      stopPrice: sig.stopPrice,
-      stopStage: sig.stopStage,
-      activatedTs: sig.activatedTs,
+      entryPrice: sig.entryPriceAtActivation ?? null,
+      stopPrice: sig.stopPrice ?? null,
+      stopStage: sig.stopStage ?? "INITIAL",
+      activatedTs: sig.activatedTs ?? null,
       tier: sig.tier,
       qualityScore: sig.qualityScore,
-      tradePlan: sig.tradePlan,
+      tradePlan: sig.tradePlanJson as TradePlan,
     };
   }
 
@@ -466,14 +467,14 @@ export class SimTickerStepper {
           reason: mut.message,
         });
         this.emit("log", {
-          message: `  ✗ INVALIDATED [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} (entry $${(sig.entryPrice ?? 0).toFixed(2)})`,
+          message: `  ✗ INVALIDATED [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} (entry $${(sig.entryPriceAtActivation ?? 0).toFixed(2)})`,
           type: "error",
         });
         break;
 
       case "stop_to_be":
         sig.stopStage = "BE";
-        sig.stopPrice = mut.stopPrice ?? sig.entryPrice ?? 0;
+        sig.stopPrice = mut.stopPrice ?? sig.entryPriceAtActivation ?? 0;
         this.emit("log", {
           message: `  ⟳ ${mut.message.replace(/^STOP→BE: /, `STOP→BE [${formatSimTime(min)}]: `)}`,
           type: "info",
@@ -492,7 +493,7 @@ export class SimTickerStepper {
       case "activated": {
         sig.activationStatus = "ACTIVE";
         sig.activatedTs = mut.activatedTs ?? null;
-        sig.entryPrice = mut.entryPrice ?? null;
+        sig.entryPriceAtActivation = mut.entryPrice ?? null;
         sig.stopPrice = mut.stopPrice ?? null;
         sig.stopStage = "INITIAL";
 
@@ -515,8 +516,9 @@ export class SimTickerStepper {
           this.dayResult.btodStatus.executedSignalId = sig.id;
           this.dayResult.btodStatus.executedTicker = sig.ticker;
 
+          const tp = sig.tradePlanJson as TradePlan;
           const instruments: string[] = ["Shares"];
-          if (sig.tradePlan.stopDistance) instruments.push("Options");
+          if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
 
           this.dayResult.tradeSyncCalls.push({
@@ -604,11 +606,9 @@ export class SimTickerStepper {
         });
       }
 
-      if (sig.entryPrice) {
+      if (sig.entryPriceAtActivation) {
         const allRthBars = barsMap.get(sig.ticker) ?? [];
-        const maeMfe = computeMAEMFE(allRthBars as any, sig.entryPrice, sig.direction);
-        sig.mae = maeMfe.mae;
-        sig.mfe = maeMfe.mfe;
+        computeMAEMFE(allRthBars as any, sig.entryPriceAtActivation, sig.direction);
       }
     }
   }
@@ -782,29 +782,51 @@ export class SimTickerStepper {
         for (const scored of processed) {
           if (scored.status !== "pending") continue;
 
-          const simSig: SimSignal = {
+          const simSig: Signal = {
             id: this.nextSimSignalId++,
             ticker,
             setupType: scored.setupType,
             asofDate: scored.asofDate,
             targetDate: scored.targetDate,
+            targetDate2: null,
+            targetDate3: null,
             magnetPrice: scored.magnetPrice,
+            magnetPrice2: null,
             direction: scored.direction,
             confidence: scored.confidence,
             qualityScore: scored.qualityScore,
             tier: scored.tier,
-            tradePlan: scored.tradePlan,
+            tradePlanJson: scored.tradePlan,
+            confidenceBreakdown: scored.confidenceBreakdown,
+            qualityBreakdown: scored.qualityBreakdown,
             status: "pending",
             activationStatus: "NOT_ACTIVE",
             hitTs: null,
             timeToHitMin: null,
             missReason: null,
             activatedTs: null,
-            entryPrice: null,
+            entryPriceAtActivation: null,
             stopPrice: scored.stopPrice,
+            entryTriggerPrice: null,
+            invalidationTs: null,
             stopStage: "INITIAL",
-            mae: null,
-            mfe: null,
+            stopMovedToBeTs: null,
+            timeStopTriggeredTs: null,
+            alertState: "new",
+            nextAlertEligibleAt: null,
+            pHit60: scored.sigP60,
+            pHit120: scored.sigP120,
+            pHit390: scored.sigP390,
+            timeScore: scored.timeScore,
+            universePass: scored.universePass,
+            optionsJson: null,
+            optionContractTicker: null,
+            optionEntryMark: null,
+            instrumentType: "OPTION",
+            instrumentTicker: null,
+            instrumentEntryPrice: null,
+            leveragedEtfJson: null,
+            createdAt: null,
           };
 
           this.allSignals.set(simSig.id, simSig);
@@ -870,7 +892,7 @@ export class SimTickerStepper {
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
-        entryPrice: s.entryPrice, activatedTs: s.activatedTs,
+        entryPrice: s.entryPriceAtActivation, activatedTs: s.activatedTs,
       }));
 
     this.emit("day", {

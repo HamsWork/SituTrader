@@ -4,34 +4,7 @@ import {
 } from "./lib/calendar";
 import { storage } from "./storage";
 import { SimTickerStepper } from "./simTickerStepper";
-import type { TradePlan } from "@shared/schema";
-
-export interface SimSignal {
-  id: number;
-  ticker: string;
-  setupType: string;
-  asofDate: string;
-  targetDate: string;
-  magnetPrice: number;
-  direction: string;
-  confidence: number;
-  qualityScore: number;
-  tier: string;
-  tradePlan: TradePlan;
-  status: "pending" | "hit" | "miss" | "activated" | "invalidated";
-  activationStatus: "NOT_ACTIVE" | "ACTIVE" | "INVALIDATED";
-  hitTs: string | null;
-  timeToHitMin: number | null;
-  missReason: string | null;
-  activatedTs: string | null;
-  entryPrice: number | null;
-  stopPrice: number | null;
-  stopStage: "INITIAL" | "BE" | "TIME_TIGHTENED";
-  mae: number | null;
-  mfe: number | null;
-  optionContractTicker?: string | null;
-  optionEntryMark?: number | null;
-}
+import type { Signal } from "@shared/schema";
 
 export interface RankedSimEntry {
   signalId: number;
@@ -93,7 +66,7 @@ export interface SimPhaseSnapshot {
     totalHit: number;
     totalMiss: number;
   };
-  signalsGenerated: SimSignal[];
+  signalsGenerated: Signal[];
   onDeckSignals: Array<{
     id: number;
     ticker: string;
@@ -120,7 +93,7 @@ export interface SimPhaseSnapshot {
 export interface SimDayResult {
   date: string;
   phase: string;
-  signalsGenerated: SimSignal[];
+  signalsGenerated: Signal[];
   btodTop3: RankedSimEntry[];
   btodStatus: SimBtodStatus;
   tradeSyncCalls: SimTradeSyncCall[];
@@ -205,7 +178,7 @@ export interface SimDayContext {
   config: SimConfig;
   emit: SimEventCallback;
   abortSignal?: SimControlSignal;
-  allSignals: Map<number, SimSignal>;
+  allSignals: Map<number, Signal>;
   watchlistSet: Set<string>;
   timePriorityMode: "EARLY" | "SAME_DAY" | "BLEND";
   nextSimSignalId: number;
@@ -233,7 +206,7 @@ export async function runSimulation(
   abortSignal?: SimControlSignal,
 ): Promise<SimDayResult[]> {
   let nextSimSignalId = 1;
-  const allSignals: Map<number, SimSignal> = new Map();
+  const allSignals: Map<number, Signal> = new Map();
   const results: SimDayResult[] = [];
 
   const tradingDays = iterateTradingDays(config.startDate, config.endDate);
