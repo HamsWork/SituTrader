@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { fetchIntradayBars, fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
-import { runActivationScan } from "../lib/activation";
+import { runActivationScan, runActivationScanForTicker } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions, enrichOptionsJsonForTicker } from "../lib/options";
@@ -301,13 +301,27 @@ export async function runLiveMonitorTickForTicker(
   ticker: string, 
   pendingSignals: Signal[], 
   activeSignals: Signal[],
-  ctx: SimDayContext, 
-): Promise<void> {
-  try {
-    await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
-  } catch (err: any) {
-    log(`Live monitor ticker ${ticker}: options enrichment error: ${err.message}`, "scheduler");
+  ctx?: SimDayContext, 
+): Promise<{ allResolved: boolean; hadEvents: boolean }> {
+
+  // enrich options
+  if(!ctx){
+    try {
+      // await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
+    } catch (err: any) {
+      log(`Live monitor ticker ${ticker}: options enrichment error: ${err.message}`, "scheduler");
+    }
   }
+
+  // activation scan
+  try {
+    const activationEvents = await runActivationScanForTicker(ticker, pendingSignals, activeSignals, ctx);
+    return { allResolved: activationEvents.length === 0, hadEvents: activationEvents.length > 0 };
+  } catch (err: any) {
+    log(`Live monitor ticker ${ticker}: activation scan error: ${err.message}`, "scheduler");
+  }
+
+  return { allResolved: false, hadEvents: false };
 }
 
 

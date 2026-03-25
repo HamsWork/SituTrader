@@ -5,7 +5,7 @@ import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
 import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
-import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBarsCached } from "./polygon";
+import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBarsCached, PolygonBar } from "./polygon";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 
@@ -583,5 +583,91 @@ export function runActivationCheck(
         }
     }
 
+    return { events, mutations };
+}
+
+
+export function monitorActivatedSignalsForTicker(
+ticker: string, pendingSignals: Signal[], currentPrice: number | null, freshBars: PolygonBar[], activationScanConfig: ActivationScanConfig, currentPrice: number, freshBars: ActivationBar[], config: ActivationScanConfig,
+): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
+    const events: ActivationEvent[] = [];
+    const mutations: ActivationMutation[] = [];
+
+    // for (const sig of pendingSignals) {
+    //     if (sig.activationStatus !== "ACTIVE") continue;
+    //     if (sig.status !== "pending") continue;
+
+    //     const tp = sig.tradePlanJson as TradePlan;
+    //     if (!tp) continue;
+    //     const entryPrice = sig.entryPriceAtActivation ?? 0;
+    //     const isSell = tp.bias === "SELL";
+        
+    //     if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
+    //         const msg = `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice.toFixed(2)}`;
+    //         events.push({
+    //             signalId: sig.id, ticker, type: "invalidated", tier: sig.tier,
+    //             qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+    //         });
+    //         mutations.push({
+    //             signalId: sig.id, ticker, setupType: sig.setupType,
+    //             type: "invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+    //         });
+    //     }
+    // }
+    return { events, mutations };
+}
+
+export function checkActivationForTicker(
+    ticker: string,
+    pendingSignals: Signal[],
+    currentPrice: number | null,
+    freshBars: ActivationBar[],
+    config: ActivationScanConfig,
+): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
+    const events: ActivationEvent[] = [];
+    const mutations: ActivationMutation[] = [];
+    const nowIso = config.now.toISOString();
+
+    if (freshBars.length === 0) return { events, mutations };
+
+    for (const sig of pendingSignals) {
+        if (sig.activationStatus === "ACTIVE") continue;
+        if (sig.activationStatus === "INVALIDATED") continue;
+        if (sig.status !== "pending") continue;
+
+        const tp = sig.tradePlanJson as TradePlan;
+        if (!tp) continue;
+
+        const triggerResult = checkEntryTrigger(freshBars, tp, config.entryMode);
+
+        if (triggerResult.triggered && triggerResult.entryPrice) {
+            let stopPrice: number | undefined;
+            if (tp.stopDistance && tp.stopDistance > 0) {
+                stopPrice = tp.bias === "SELL"
+                    ? triggerResult.entryPrice + tp.stopDistance
+                    : triggerResult.entryPrice - tp.stopDistance;
+            }
+
+            const msg = `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${triggerResult.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`;
+            events.push({
+                signalId: sig.id, ticker: sig.ticker, type: "activated", tier: sig.tier,
+                qualityScore: sig.qualityScore, entryPrice: triggerResult.entryPrice,
+                message: msg, timestamp: nowIso,
+            });
+            mutations.push({
+                signalId: sig.id, ticker: sig.ticker, setupType: sig.setupType, type: "activated",
+                activatedTs: triggerResult.triggerTs ?? undefined, entryPrice: triggerResult.entryPrice,
+                entryTriggerPrice: triggerResult.entryTriggerPrice, stopPrice, stopStage: "INITIAL",
+                tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+            });
+        } else if (triggerResult.invalidated) {
+            const msg = `Entry trigger invalidated for ${sig.ticker} ${sig.setupType}`;
+            mutations.push({
+                signalId: sig.id, ticker: sig.ticker, setupType: sig.setupType,
+                type: "entry_invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+            });
+        }  
+    }
+    
     return { events, mutations };
 }

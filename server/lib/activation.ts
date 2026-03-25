@@ -8,6 +8,7 @@ import {
   type ActivationEvent,
   type ActivationScanConfig,
   type ActivationMutation,
+  checkActivationForTicker,
 } from "./signalHelper";
 import type { Signal, TradePlan } from "@shared/schema";
 
@@ -294,5 +295,35 @@ export async function runActivationScanForTicker(
   const freshBars = ctx 
     ? await fetchIntradayBars(ticker, today, now.toISOString(), timeframe)
     : await fetchIntradayBars(ticker, today, today, timeframe);
-  return [];
+
+  const activationScanConfig: ActivationScanConfig = {
+    entryMode,
+    ...stopCfg,
+    now,
+    today,
+  };
+
+  const { events, mutations } = checkActivationForTicker(
+    ticker,
+    pendingSignals,
+    currentPrice,
+    freshBars,
+    activationScanConfig,
+  );
+
+  await applyMutationsToDb(mutations);
+
+  for (const mut of mutations) {
+    if (mut.type === "activated") {
+      const sig = signalById.get(mut.signalId);
+      if (sig) {
+        const tp = sig.tradePlanJson as TradePlan | null;
+        if (tp) {
+          await handlePostActivation(sig, tp, mut);
+        }
+      }
+    }
+  }
+
+  return events;
 }
