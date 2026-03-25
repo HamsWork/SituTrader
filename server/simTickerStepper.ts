@@ -189,7 +189,7 @@ export class SimTickerStepper {
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
-        entryPrice: s.entryPrice, activatedTs: s.activatedTs,
+        entryPrice: s.entryPriceAtActivation, activatedTs: s.activatedTs,
       }));
     this.emit("day", {
       date: this.today,
@@ -559,12 +559,9 @@ export class SimTickerStepper {
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
       const tickerHadEvents = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
       hadEvents = hadEvents || tickerHadEvents;
-    }
-      const { mutations } = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
-
-      for (const mut of mutations) {
-        this.applyActivationMutation(mut, this.ctx.currentMin);
-      }
+    
+      // const tickerHadEvents = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
+      // hadEvents = hadEvents || tickerHadEvents;
     }
 
     const pendingCount = Array.from(this.ctx.onDeckSignals.values()).filter(
@@ -574,7 +571,7 @@ export class SimTickerStepper {
       (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
     ).length;
 
-    const hadEvents = this.dayResult.activations.length > prevActivations ||
+    hadEvents = this.dayResult.activations.length > prevActivations ||
       this.dayResult.misses.length > prevMisses;
 
     if (pendingCount === 0 && activeCount === 0) {
@@ -718,7 +715,7 @@ export class SimTickerStepper {
           };
 
           this.ctx.allSignals.set(signalId, simSig);
-          this.ctx.onDeckSignals.push(simSig);
+          this.ctx.onDeckSignals.set(signalId, simSig);
           this.dayResult.signalsGenerated.push(simSig);
           this.dayResult.summary.totalPending++;
         }
@@ -840,9 +837,8 @@ export class SimTickerStepper {
       while (this.ctx.currentMin <= SIM_RTH_END_CT) {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
-        const { allResolved, hadEvents } = this.liveMonitorTick();
-        if (hadEvents || allResolved) this.emitDayUpdatePublic();
-        if (allResolved) break;
+        const hadEvents = await this.liveMonitorTick();
+        if (hadEvents) this.emitDayUpdatePublic();
         this.ctx.currentMin++;
       }
     }

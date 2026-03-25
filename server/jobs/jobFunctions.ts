@@ -302,7 +302,7 @@ export async function runLiveMonitorTickForTicker(
   pendingSignals: Signal[], 
   activeSignals: Signal[],
   ctx: SimDayContext, 
-): Promise<{ events: ActivationEvent[]; mutations: ActivationMutation[] }> {
+): Promise<boolean> {
   try {
     await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
   } catch (err: any) {
@@ -310,12 +310,13 @@ export async function runLiveMonitorTickForTicker(
   }
 
   try {
-    return await runActivationScanForTicker(ticker, pendingSignals, activeSignals, ctx);
+    const { events, mutations } = await runActivationScanForTicker(ticker, pendingSignals, activeSignals, ctx);
+    return events.length > 0 || mutations.length > 0;
   } catch (err: any) {
     log(`Live monitor ticker ${ticker}: activation scan error: ${err.message}`, "scheduler");
   }
 
-  return { events: [], mutations: [] };
+  return false;
 }
 
 
