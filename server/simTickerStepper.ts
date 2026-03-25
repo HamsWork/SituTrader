@@ -543,6 +543,14 @@ export class SimTickerStepper {
 
 
   async liveMonitorTick(): Promise<{ allResolved: boolean; hadEvents: boolean }> {
+    this.emit("progress", {
+      completed: this.dayIdx,
+      total: this.totalDays,
+      day: this.today,
+      phase: "live-monitor",
+      simTimeCT: this.ctx.currentMin,
+    });
+
     const prevActivations = this.dayResult.activations.length;
     const prevMisses = this.dayResult.misses.length;
 

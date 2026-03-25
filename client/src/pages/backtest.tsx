@@ -230,7 +230,7 @@ export default function BacktestPage() {
   }
 
   const [simLogs, setSimLogs] = useState<{ message: string; type: string; ts: number }[]>([]);
-  const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string } | null>(null);
+  const [simProgress, setSimProgress] = useState<{ completed: number; total: number; day: string; phase: string; simTimeCT?: number } | null>(null);
   const [simDayResults, setSimDayResults] = useState<SimDayDetail[]>([]);
   const [simSelectedDayIdx, setSimSelectedDayIdx] = useState<number>(-1);
   const [simFinalStats, setSimFinalStats] = useState<any | null>(null);
@@ -982,6 +982,17 @@ export default function BacktestPage() {
                              simProgress.phase === "end-of-day" ? "End of Day" :
                              simProgress.phase}
                           </span>
+                          {simProgress.phase === "live-monitor" && simProgress.simTimeCT != null && (
+                            <span className="font-mono text-[11px] text-emerald-400" data-testid="text-sim-live-time">
+                              {(() => {
+                                const h = Math.floor(simProgress.simTimeCT / 60);
+                                const m = simProgress.simTimeCT % 60;
+                                const suffix = h >= 12 ? "PM" : "AM";
+                                const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                                return `${h12}:${m.toString().padStart(2, "0")} ${suffix} CT`;
+                              })()}
+                            </span>
+                          )}
                         </div>
                         <span className="text-muted-foreground">{simProgress.completed}/{simProgress.total} days</span>
                       </div>
