@@ -543,41 +543,40 @@ export class SimTickerStepper {
 
 
   async liveMonitorTick(): Promise<{ allResolved: boolean; hadEvents: boolean }> {
+    const prevActivations = this.dayResult.activations.length;
+    const prevMisses = this.dayResult.misses.length;
 
-    const hadEvents = false;
     const monitorSignals = Array.from(this.ctx.onDeckSignals.values()).concat(Array.from(this.ctx.activeSignals.values()));
     const tickerArr = Array.from(new Set(monitorSignals.map(s => s.ticker)));
     if (tickerArr.length === 0) {
       this.emit("log", { message: `  All signals resolved by ${formatSimTime(this.ctx.currentMin)}`, type: "info" });
-      return { allResolved: true, hadEvents };
+      return { allResolved: true, hadEvents: false };
     }
 
     for (const ticker of tickerArr) {
       const pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
-      await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
+      const { mutations } = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
+
+      for (const mut of mutations) {
+        this.applyActivationMutation(mut, this.ctx.currentMin);
+      }
     }
 
+    const pendingCount = Array.from(this.ctx.onDeckSignals.values()).filter(
+      (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
+    ).length;
+    const activeCount = Array.from(this.ctx.activeSignals.values()).filter(
+      (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
+    ).length;
 
-    // const prevActivations = this.dayResult.activations.length;
-    // const prevHits = this.dayResult.hits.length;
-    // const prevMisses = this.dayResult.misses.length;
-    // const prevTradeSyncCalls = this.dayResult.tradeSyncCalls.length;
+    const hadEvents = this.dayResult.activations.length > prevActivations ||
+      this.dayResult.misses.length > prevMisses;
 
-    // const cutoffMs = dayjs
-    //   .tz(`${this.today} ${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}:59`, this.CT)
-    //   .valueOf();
-
-    // const pendingCount = this.liveMonitorPending.filter(
-    //   (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
-    // ).length;
-    // const activeCount = Array.from(this.allSignals.values()).filter(
-    //   (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
-    // ).length;
-    // if (pendingCount === 0 && activeCount === 0) {
-    //   this.emit("log", { message: `  All signals resolved by ${formatSimTime(min)}`, type: "info" });
-    //   return { allResolved: true, hadEvents: false };
-    // }
+    if (pendingCount === 0 && activeCount === 0) {
+      this.emit("log", { message: `  All signals resolved by ${formatSimTime(this.ctx.currentMin)}`, type: "info" });
+      return { allResolved: true, hadEvents };
+    }
 
     return { allResolved: false, hadEvents };
   }

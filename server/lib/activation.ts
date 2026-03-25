@@ -288,7 +288,7 @@ export async function runActivationScanForTicker(
   pendingSignals: Signal[], 
   activeSignals: Signal[], 
   ctx?: SimDayContext
-): Promise<ActivationEvent[]> {
+): Promise<{ events: ActivationEvent[]; mutations: ActivationMutation[] }> {
   const now = ctx ? new Date(Date.parse(ctx.today) + ctx.currentMin * 60 * 1000) : new Date();
   const today = ctx ? ctx.today : now.toISOString().slice(0, 10);
 
@@ -300,10 +300,22 @@ export async function runActivationScanForTicker(
   const currentPrice = ctx ? 
     await fetchStockPriceAtTime(ticker, now.valueOf())
     : await fetchStockPrice(ticker);
-  
-  const freshBars = ctx 
-    ? await fetchIntradayBars(ticker, today, now.toISOString(), timeframe)
-    : await fetchIntradayBars(ticker, today, today, timeframe);
+
+  const allSignals = [...pendingSignals, ...activeSignals];
+
+  const freshBarsRaw = await fetchIntradayBars(ticker, today, ctx ? now.toISOString() : today, timeframe);
+  const freshBars: IntradayBar[] = freshBarsRaw.map((b, i) => ({
+    id: i,
+    ticker,
+    ts: new Date(b.t).toISOString(),
+    open: b.o,
+    high: b.h,
+    low: b.l,
+    close: b.c,
+    volume: b.v,
+    timeframe,
+    source: "polygon",
+  }));
 
   const activationScanConfig: ActivationScanConfig = {
     entryMode,
@@ -314,25 +326,76 @@ export async function runActivationScanForTicker(
 
   const { events, mutations } = checkActivationForTicker(
     ticker,
-    pendingSignals,
+    allSignals,
     currentPrice,
     freshBars,
     activationScanConfig,
   );
 
-  await applyMutationsToDb(mutations);
+  if (ctx) {
+    for (const mut of mutations) {
+      const sig = ctx.onDeckSignals.get(mut.signalId) ?? ctx.activeSignals.get(mut.signalId);
+      if (!sig) continue;
 
-  for (const mut of mutations) {
-    if (mut.type === "activated") {
-      const sig = signalById.get(mut.signalId);
-      if (sig) {
-        const tp = sig.tradePlanJson as TradePlan | null;
-        if (tp) {
-          await handlePostActivation(sig, tp, mut);
+      switch (mut.type) {
+        case "activated":
+          sig.activationStatus = "ACTIVE";
+          sig.activatedTs = mut.activatedTs ?? null;
+          sig.entryPriceAtActivation = mut.entryPrice ?? null;
+          sig.stopPrice = mut.stopPrice ?? null;
+          sig.stopStage = "INITIAL";
+          ctx.onDeckSignals.delete(sig.id);
+          ctx.activeSignals.set(sig.id, sig);
+          ctx.allSignals.set(sig.id, sig);
+          break;
+        case "invalidated":
+          sig.activationStatus = "INVALIDATED";
+          sig.status = "miss";
+          sig.missReason = mut.message;
+          sig.invalidationTs = now.toISOString();
+          ctx.onDeckSignals.delete(sig.id);
+          ctx.activeSignals.delete(sig.id);
+          ctx.allSignals.set(sig.id, sig);
+          break;
+        case "stop_to_be":
+          sig.stopStage = "BE";
+          sig.stopPrice = mut.stopPrice ?? sig.entryPriceAtActivation ?? 0;
+          sig.stopMovedToBeTs = now.toISOString();
+          ctx.activeSignals.set(sig.id, sig);
+          ctx.allSignals.set(sig.id, sig);
+          break;
+        case "time_stop":
+          sig.stopStage = "TIME_TIGHTENED";
+          sig.stopPrice = mut.stopPrice ?? sig.stopPrice;
+          sig.timeStopTriggeredTs = now.toISOString();
+          ctx.activeSignals.set(sig.id, sig);
+          ctx.allSignals.set(sig.id, sig);
+          break;
+        case "entry_invalidated":
+          sig.activationStatus = "INVALIDATED";
+          sig.status = "miss";
+          sig.missReason = mut.message;
+          ctx.onDeckSignals.delete(sig.id);
+          ctx.allSignals.set(sig.id, sig);
+          break;
+      }
+    }
+  } else {
+    await applyMutationsToDb(mutations);
+
+    const signalById = new Map(allSignals.map((s) => [s.id, s]));
+    for (const mut of mutations) {
+      if (mut.type === "activated") {
+        const sig = signalById.get(mut.signalId);
+        if (sig) {
+          const tp = sig.tradePlanJson as TradePlan | null;
+          if (tp) {
+            await handlePostActivation(sig, tp, mut);
+          }
         }
       }
     }
   }
 
-  return events;
+  return { events, mutations };
 }
