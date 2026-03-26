@@ -43,12 +43,12 @@ import { runLiveMonitorTickForTicker } from "./jobs/jobFunctions";
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
 async function waitWhilePaused(ctrl: SimControlSignal, emit?: SimEventCallback): Promise<void> {
-  let heartbeatCount = 0;
+  let ticks = 0;
   while (ctrl.paused && !ctrl.aborted) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    heartbeatCount++;
-    if (emit && heartbeatCount % 5 === 0) {
-      emit("heartbeat", { paused: true, elapsed: heartbeatCount });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    ticks++;
+    if (emit && ticks % 25 === 0) {
+      emit("heartbeat", { paused: true, elapsed: Math.floor(ticks / 5) });
     }
   }
 }
@@ -222,7 +222,15 @@ export class SimTickerStepper {
   private async phaseTransition(snapshotLabel: string): Promise<boolean> {
     this.dayResult.phases.push(this.captureSnapshot(snapshotLabel));
     this.emitDayUpdate();
-    await new Promise((r) => setTimeout(r, this.getPhaseDelay()));
+    const delay = this.getPhaseDelay();
+    const step = 50;
+    let elapsed = 0;
+    while (elapsed < delay) {
+      if (this.isAborted()) return true;
+      await new Promise((r) => setTimeout(r, Math.min(step, delay - elapsed)));
+      elapsed += step;
+    }
+    if (this.abortSignal?.paused) await waitWhilePaused(this.abortSignal, this.emit);
     return this.isAborted();
   }
 
@@ -253,6 +261,7 @@ export class SimTickerStepper {
         liquidityFloor: 0,
       };
       for (const ticker of this.config.tickers) {
+         if (this.isAborted()) break;
          const processed = await processDetectSetups({
           ticker,
           config: scanConfig,
@@ -502,6 +511,7 @@ export class SimTickerStepper {
     }
 
     for (const ticker of tickerArr) {
+      if (this.isAborted()) break;
       const pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
       const result = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
@@ -556,6 +566,7 @@ export class SimTickerStepper {
     // validate hit or miss
     const onDeckSignals = await getOnDeckSignals(this.allSignals);
     for (const sig of onDeckSignals) {
+      if (this.isAborted()) break;
       const rawBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
       const intradayBars = rawBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l }));
       const validateResult = validateMagnetTouch(

@@ -205,12 +205,12 @@ export interface SimControlSignal {
 }
 
 async function waitWhilePaused(ctrl: SimControlSignal, emit?: SimEventCallback): Promise<void> {
-  let heartbeatCount = 0;
+  let ticks = 0;
   while (ctrl.paused && !ctrl.aborted) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    heartbeatCount++;
-    if (emit && heartbeatCount % 5 === 0) {
-      emit("heartbeat", { paused: true, elapsed: heartbeatCount });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    ticks++;
+    if (emit && ticks % 25 === 0) {
+      emit("heartbeat", { paused: true, elapsed: Math.floor(ticks / 5) });
     }
   }
 }
