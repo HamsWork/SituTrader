@@ -36,6 +36,8 @@ export interface SimTrackingResult {
   lastMilestone: number;
   durationDays: number;
   exitReason: "stop_loss" | "milestone_then_stop" | "end_of_data" | "target_hit";
+  entryBarTs?: number;
+  exitBarTs?: number;
   chartBars?: SimTrackingBar[];
   chartEntry?: number;
   chartStop?: number;
@@ -392,7 +394,7 @@ export async function simulateAllTradeTracking(
   sig: Signal,
   ctx: SimDayContext,
 ): Promise<SimTrackingResult[]> {
-  const { fetchDailyBarsCached } = await import("./lib/polygon");
+  const { fetchDailyBarsCached, fetchIntradayBarsCached } = await import("./lib/polygon");
 
   const entryPrice = sig.entryPriceAtActivation ?? 0;
   const stopPrice = sig.stopPrice ?? 0;
@@ -468,6 +470,58 @@ export async function simulateAllTradeTracking(
     }
   }
 
+  const allExitTs = results.map(r => r.exitBarTs ?? 0).filter(t => t > 0);
+  const maxExitTs = allExitTs.length > 0 ? Math.max(...allExitTs) : 0;
+  const allEntryTs = results.map(r => r.entryBarTs ?? 0).filter(t => t > 0);
+  const minEntryTs = allEntryTs.length > 0 ? Math.min(...allEntryTs) : 0;
+
+  if (minEntryTs > 0 && maxExitTs > 0) {
+    const padMs = 5 * 60 * 1000;
+    const chartFrom = new Date(minEntryTs - padMs).toISOString().slice(0, 10);
+    const chartTo = new Date(maxExitTs + padMs).toISOString().slice(0, 10);
+
+    try {
+      const stock1m = await fetchIntradayBarsCached(sig.ticker, chartFrom, chartTo, "1");
+
+      let letf1m: import("./lib/polygon").PolygonBar[] = [];
+      if (letfTicker && letfTicker !== sig.ticker) {
+        letf1m = await fetchIntradayBarsCached(letfTicker, chartFrom, chartTo, "1");
+      }
+
+      for (const r of results) {
+        if (!r.entryBarTs || !r.exitBarTs) continue;
+        const fromTs = r.entryBarTs - padMs;
+        const toTs = r.exitBarTs + padMs;
+
+        let sourceBars: import("./lib/polygon").PolygonBar[];
+        if (r.instrument === "Shares" || r.instrument === "Options") {
+          sourceBars = stock1m;
+        } else {
+          sourceBars = letf1m.length > 0 ? letf1m : stock1m;
+        }
+
+        let sliced = sourceBars.filter(b => b.t >= fromTs && b.t <= toTs);
+
+        if (r.instrument === "Options" && sliced.length > 0) {
+          const optEntry = optionEntryMark ?? 0;
+          if (optEntry > 0) {
+            const delta = 0.5;
+            sliced = deriveOptionBarsFromUnderlying(sliced, entryPrice, optEntry, delta, isBuy);
+          }
+        } else if (r.instrument === "LETF Options" && sliced.length > 0 && letfEntryPrice && letfEntryPrice > 0) {
+          const letfOptEntry = letfEntryPrice * 0.03;
+          const letfOptDelta = 0.5;
+          const letfIsBuy2 = (letfJson?.leverage ?? 1) < 0 ? !isBuy : isBuy;
+          sliced = deriveOptionBarsFromUnderlying(sliced, letfEntryPrice, letfOptEntry, letfOptDelta, letfIsBuy2);
+        }
+
+        r.chartBars = sliced.map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
+      }
+    } catch (err: any) {
+      console.error(`[sim] Error fetching 1m chart bars: ${err.message}`);
+    }
+  }
+
   return results;
 }
 
@@ -494,10 +548,6 @@ function deriveOptionBarsFromUnderlying(
   });
 }
 
-function toBars(bars: import("./lib/polygon").PolygonBar[], count: number): SimTrackingBar[] {
-  return bars.slice(0, count).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
-}
-
 function runTenPercentTrack(
   instrument: string,
   entryPrice: number,
@@ -511,6 +561,7 @@ function runTenPercentTrack(
 
   let lastMilestone = 0;
   let durationDays = 0;
+  const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
 
   for (const bar of bars) {
     durationDays++;
@@ -524,26 +575,18 @@ function runTenPercentTrack(
     if (stopHit) {
       if (lastMilestone === 0) {
         return {
-          instrument,
-          tradeType: "ten_percent",
-          win: false,
+          instrument, tradeType: "ten_percent", win: false,
           profitPercent: parseFloat((-Math.abs(stopPctFromEntry)).toFixed(2)),
-          lastMilestone: 0,
-          durationDays,
-          exitReason: "stop_loss",
-          chartBars: toBars(bars, durationDays),
+          lastMilestone: 0, durationDays, exitReason: "stop_loss",
+          entryBarTs, exitBarTs: bar.t,
           chartEntry: entryPrice, chartStop: stopPrice,
         };
       } else {
         return {
-          instrument,
-          tradeType: "ten_percent",
-          win: true,
-          profitPercent: lastMilestone,
-          lastMilestone,
-          durationDays,
+          instrument, tradeType: "ten_percent", win: true,
+          profitPercent: lastMilestone, lastMilestone, durationDays,
           exitReason: "milestone_then_stop",
-          chartBars: toBars(bars, durationDays),
+          entryBarTs, exitBarTs: bar.t,
           chartEntry: entryPrice, chartStop: stopPrice,
         };
       }
@@ -556,14 +599,11 @@ function runTenPercentTrack(
   }
 
   return {
-    instrument,
-    tradeType: "ten_percent",
+    instrument, tradeType: "ten_percent",
     win: lastMilestone > 0,
     profitPercent: lastMilestone > 0 ? lastMilestone : 0,
-    lastMilestone,
-    durationDays,
-    exitReason: "end_of_data",
-    chartBars: toBars(bars, durationDays),
+    lastMilestone, durationDays, exitReason: "end_of_data",
+    entryBarTs, exitBarTs: bars.length > 0 ? bars[bars.length - 1].t : undefined,
     chartEntry: entryPrice, chartStop: stopPrice,
   };
 }
@@ -580,6 +620,8 @@ function runNormalTrack(
   const stopPctFromEntry = Math.abs(stopPrice - entryPrice) / entryPrice * 100;
   let durationDays = 0;
   let t1Hit = false;
+  const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
+  const target = t2Price ?? t1Price;
 
   for (const bar of bars) {
     durationDays++;
@@ -591,15 +633,11 @@ function runNormalTrack(
     if (t2HitThisBar) {
       const profitPct = Math.abs(t2Price! - entryPrice) / entryPrice * 100;
       return {
-        instrument,
-        tradeType: "normal",
-        win: true,
+        instrument, tradeType: "normal", win: true,
         profitPercent: parseFloat(profitPct.toFixed(2)),
-        lastMilestone: 2,
-        durationDays,
-        exitReason: "target_hit",
-        chartBars: toBars(bars, durationDays),
-        chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
+        lastMilestone: 2, durationDays, exitReason: "target_hit",
+        entryBarTs, exitBarTs: bar.t,
+        chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
       };
     }
 
@@ -611,27 +649,19 @@ function runNormalTrack(
       if (t1Hit) {
         const profitPct = Math.abs(t1Price - entryPrice) / entryPrice * 100;
         return {
-          instrument,
-          tradeType: "normal",
-          win: true,
+          instrument, tradeType: "normal", win: true,
           profitPercent: parseFloat((profitPct * 0.5).toFixed(2)),
-          lastMilestone: 1,
-          durationDays,
-          exitReason: "milestone_then_stop",
-          chartBars: toBars(bars, durationDays),
-          chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
+          lastMilestone: 1, durationDays, exitReason: "milestone_then_stop",
+          entryBarTs, exitBarTs: bar.t,
+          chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
         };
       }
       return {
-        instrument,
-        tradeType: "normal",
-        win: false,
+        instrument, tradeType: "normal", win: false,
         profitPercent: parseFloat((-stopPctFromEntry).toFixed(2)),
-        lastMilestone: 0,
-        durationDays,
-        exitReason: "stop_loss",
-        chartBars: toBars(bars, durationDays),
-        chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
+        lastMilestone: 0, durationDays, exitReason: "stop_loss",
+        entryBarTs, exitBarTs: bar.t,
+        chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
       };
     }
   }
@@ -642,15 +672,11 @@ function runNormalTrack(
       ? (lastClose - entryPrice) / entryPrice * 100
       : (entryPrice - lastClose) / entryPrice * 100;
     return {
-      instrument,
-      tradeType: "normal",
-      win: true,
+      instrument, tradeType: "normal", win: true,
       profitPercent: parseFloat(unrealized.toFixed(2)),
-      lastMilestone: 1,
-      durationDays,
-      exitReason: "end_of_data",
-      chartBars: toBars(bars, durationDays),
-      chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
+      lastMilestone: 1, durationDays, exitReason: "end_of_data",
+      entryBarTs, exitBarTs: bars[bars.length - 1].t,
+      chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
     };
   }
 
@@ -659,15 +685,12 @@ function runNormalTrack(
     ? (lastClose - entryPrice) / entryPrice * 100
     : (entryPrice - lastClose) / entryPrice * 100;
   return {
-    instrument,
-    tradeType: "normal",
+    instrument, tradeType: "normal",
     win: unrealized > 0,
     profitPercent: parseFloat(unrealized.toFixed(2)),
-    lastMilestone: 0,
-    durationDays,
-    exitReason: "end_of_data",
-    chartBars: toBars(bars, durationDays),
-    chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
+    lastMilestone: 0, durationDays, exitReason: "end_of_data",
+    entryBarTs, exitBarTs: bars.length > 0 ? bars[bars.length - 1].t : undefined,
+    chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
   };
 }
 

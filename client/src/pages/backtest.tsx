@@ -113,28 +113,43 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   const yMin = minP - rangePad;
   const yMax = maxP + rangePad;
 
-  const chartW = 500;
-  const chartH = 160;
-  const marginL = 52;
-  const marginR = 65;
+  const minBarGap = 3;
+  const dynamicW = Math.max(520, bars.length * minBarGap + 120);
+  const chartW = Math.min(dynamicW, 900);
+  const chartH = 170;
+  const marginL = 55;
+  const marginR = 70;
   const marginT = 8;
-  const marginB = 22;
+  const marginB = 24;
   const plotW = chartW - marginL - marginR;
   const plotH = chartH - marginT - marginB;
 
   const yScale = (v: number) => marginT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
-  const barW = Math.max(2, Math.min(12, (plotW / bars.length) * 0.7));
-  const gap = plotW / bars.length;
+  const gap = plotW / Math.max(bars.length, 1);
+  const barW = Math.max(1, Math.min(8, gap * 0.6));
 
   const yTicks: number[] = [];
   const tickStep = (yMax - yMin) / 5;
   for (let i = 0; i <= 5; i++) yTicks.push(yMin + tickStep * i);
 
-  const labelInterval = Math.max(1, Math.ceil(bars.length / 7));
+  const labelInterval = Math.max(1, Math.ceil(bars.length / 10));
+
+  const formatTimeLabel = (ts: number) => {
+    const d = new Date(ts);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const prevTs = bars.length > 0 ? bars[0].t : ts;
+    const prevD = new Date(prevTs);
+    const sameDay = d.getDate() === prevD.getDate() && d.getMonth() === prevD.getMonth();
+    if (!sameDay || (h === 9 && m === 30) || h === 0) {
+      return `${d.getMonth() + 1}/${d.getDate()} ${h}:${String(m).padStart(2, "0")}`;
+    }
+    return `${h}:${String(m).padStart(2, "0")}`;
+  };
 
   return (
     <div className="w-full overflow-x-auto mt-2" data-testid="trade-chart">
-      <svg width={chartW} height={chartH} className="block mx-auto" style={{ minWidth: chartW }}>
+      <svg width={chartW} height={chartH} className="block" style={{ minWidth: 400 }}>
         <rect x={marginL} y={marginT} width={plotW} height={plotH} fill="#09090b" rx={2} />
         {yTicks.map((tick, i) => {
           const y = yScale(tick);
@@ -183,16 +198,15 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
           const bodyH = Math.max(bodyBot - bodyTop, 1);
           const wickTop = yScale(b.h);
           const wickBot = yScale(b.l);
-          const dateStr = i % labelInterval === 0
-            ? new Date(b.t).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-            : "";
 
           return (
             <g key={i}>
-              <line x1={x} y1={wickTop} x2={x} y2={wickBot} stroke={color} strokeWidth={1} />
-              <rect x={x - barW / 2} y={bodyTop} width={barW} height={bodyH} fill={color} rx={0.5} />
-              {dateStr && (
-                <text x={x} y={chartH - 4} textAnchor="middle" fill="#52525b" fontSize={7} fontFamily="monospace">{dateStr}</text>
+              <line x1={x} y1={wickTop} x2={x} y2={wickBot} stroke={color} strokeWidth={0.5} />
+              <rect x={x - barW / 2} y={bodyTop} width={barW} height={bodyH} fill={color} rx={0.25} />
+              {i % labelInterval === 0 && (
+                <text x={x} y={chartH - 4} textAnchor="middle" fill="#52525b" fontSize={6.5} fontFamily="monospace">
+                  {formatTimeLabel(b.t)}
+                </text>
               )}
             </g>
           );
@@ -335,6 +349,8 @@ export default function BacktestPage() {
     lastMilestone: number;
     durationDays: number;
     exitReason: string;
+    entryBarTs?: number;
+    exitBarTs?: number;
     chartBars?: SimTrackingBar[];
     chartEntry?: number;
     chartStop?: number;
@@ -1768,18 +1784,14 @@ export default function BacktestPage() {
                                                 ))}
                                               </tbody>
                                             </table>
-                                            {(() => {
-                                              const sharesNormal = tc.trackingResults?.find(
-                                                (r) => r.instrument === "Shares" && r.tradeType === "normal" && r.chartBars && r.chartBars.length > 0
-                                              );
-                                              if (!sharesNormal) return null;
-                                              return (
-                                                <div className="mt-2 border-t border-zinc-800/30 pt-2">
-                                                  <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Shares T1/T2 Trade Chart</div>
-                                                  <TradeChart tr={sharesNormal} />
+                                            {tc.trackingResults?.filter((r) => r.chartBars && r.chartBars.length > 0).map((tr, ci) => (
+                                              <div key={ci} className="mt-2 border-t border-zinc-800/30 pt-2">
+                                                <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                                                  {tr.instrument} {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"} — 1m Chart
                                                 </div>
-                                              );
-                                            })()}
+                                                <TradeChart tr={tr} />
+                                              </div>
+                                            ))}
                                           </div>
                                         </div>
                                       )}
@@ -2092,18 +2104,14 @@ export default function BacktestPage() {
                                           ))}
                                         </tbody>
                                       </table>
-                                      {(() => {
-                                        const sharesNormal = tc.trackingResults?.find(
-                                          (r: SimTrackingResult) => r.instrument === "Shares" && r.tradeType === "normal" && r.chartBars && r.chartBars.length > 0
-                                        );
-                                        if (!sharesNormal) return null;
-                                        return (
-                                          <div className="mt-2 border-t border-zinc-800/30 pt-2">
-                                            <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Shares T1/T2 Trade Chart</div>
-                                            <TradeChart tr={sharesNormal} />
+                                      {tc.trackingResults?.filter((r: SimTrackingResult) => r.chartBars && r.chartBars.length > 0).map((tr: SimTrackingResult, ci: number) => (
+                                        <div key={ci} className="mt-2 border-t border-zinc-800/30 pt-2">
+                                          <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                                            {tr.instrument} {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"} — 1m Chart
                                           </div>
-                                        );
-                                      })()}
+                                          <TradeChart tr={tr} />
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 )}
