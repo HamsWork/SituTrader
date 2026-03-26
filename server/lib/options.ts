@@ -246,6 +246,8 @@ export async function enrichOptionsJsonForTicker(
   ctx: SimDayContext
 ): Promise<void> {
 
+  console.log("enrichOptionsJsonForTicker", ticker, pendingSignals.length);
+
   const minOI = params.minOI ?? 500;
   const maxSpread = params.maxSpread ?? 0.05;
   const force = params.force ?? false;
@@ -315,6 +317,7 @@ export async function enrichOptionsJsonForTicker(
         continue;
       }
 
+      console.log("Options chain", chain);
       log(`Options chain for ${ticker} at ${new Date(now.valueOf()).toISOString()}: ${chain.length} contracts`, "options");
       const nearATM = [...chain]
         .filter(c => Math.abs(c.strike_price - currentTickerPrice!) / currentTickerPrice! < 0.03)
