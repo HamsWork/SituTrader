@@ -1203,6 +1203,7 @@ export default function BacktestPage() {
                           const activeSignals = effectiveDay.activeSignals;
                           const newSignals = effectiveDay.newSignals;
                           return (
+                            <div className="space-y-3">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-violet-400">
@@ -1389,56 +1390,6 @@ export default function BacktestPage() {
                               </div>
 
                               <div className="space-y-2">
-                                <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
-                                  <TrendingUp className="w-3.5 h-3.5" />
-                                  TradeSync API ({tradeSyncCalls?.length ?? 0})
-                                </div>
-                                {tradeSyncCalls && tradeSyncCalls.length > 0 ? (
-                                  <div className="space-y-1.5" data-testid="sim-tradesync-calls">
-                                    {tradeSyncCalls.map((tc, i) => (
-                                      <div key={`ts-${i}`} className="px-2 py-2 rounded bg-indigo-500/5 border border-indigo-500/10 text-xs space-y-1">
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <span className="font-mono font-semibold">{tc.ticker}</span>
-                                            <span className="text-muted-foreground">{tc.setupType}</span>
-                                            <Badge variant="outline" className="text-[9px] h-4 px-1">
-                                              {tc.direction.includes("down") ? "SELL" : "BUY"}
-                                            </Badge>
-                                          </div>
-                                          {tc.outcome && tc.outcome !== "pending" ? (
-                                            <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
-                                              tc.outcome === "hit" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                              "bg-red-500/10 text-red-400 border-red-500/20"
-                                            }`}>
-                                              {tc.outcome === "hit" ? "HIT" : "MISS"}
-                                            </Badge>
-                                          ) : (
-                                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
-                                              {tc.status}
-                                            </Badge>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-3 text-muted-foreground">
-                                          <span>Entry: ${tc.entryPrice.toFixed(2)}</span>
-                                          {tc.stopPrice && <span>Stop: ${tc.stopPrice.toFixed(2)}</span>}
-                                          <span>Target: ${tc.targetPrice.toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1 pt-0.5">
-                                          {tc.instruments.map((inst) => (
-                                            <Badge key={inst} variant="secondary" className="text-[8px] h-3.5 px-1">
-                                              {inst}
-                                            </Badge>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-[10px] text-muted-foreground px-2">No TradeSync calls this day</p>
-                                )}
-                              </div>
-
-                              <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   Today's Events
@@ -1490,6 +1441,139 @@ export default function BacktestPage() {
                                   )}
                                 </div>
                               </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
+                                <TrendingUp className="w-3.5 h-3.5" />
+                                TradeSync API ({tradeSyncCalls?.length ?? 0})
+                              </div>
+                              {tradeSyncCalls && tradeSyncCalls.length > 0 ? (
+                                <div className="space-y-3" data-testid="sim-tradesync-calls">
+                                  {tradeSyncCalls.map((tc, i) => (
+                                    <div key={`ts-${i}`} className="rounded bg-indigo-500/5 border border-indigo-500/10 text-xs overflow-hidden">
+                                      <div className="px-3 py-2.5 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono font-semibold text-sm">{tc.ticker}</span>
+                                            <span className="text-muted-foreground">{tc.setupType}</span>
+                                            <Badge variant="outline" className={`text-[9px] h-4 px-1 ${tc.direction.includes("down") ? "border-red-500/30 text-red-400" : "border-emerald-500/30 text-emerald-400"}`}>
+                                              {tc.direction.includes("down") ? "SELL" : "BUY"}
+                                            </Badge>
+                                            <div className="flex flex-wrap gap-1">
+                                              {tc.instruments.map((inst) => (
+                                                <Badge key={inst} variant="secondary" className="text-[8px] h-3.5 px-1">
+                                                  {inst}
+                                                </Badge>
+                                              ))}
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {tc.triggerTs && (
+                                              <span className="text-[10px] text-indigo-400/70 font-mono">
+                                                {(() => {
+                                                  const d = new Date(tc.triggerTs);
+                                                  if (isNaN(d.getTime())) return "";
+                                                  const h = d.getHours();
+                                                  const m = d.getMinutes();
+                                                  const ampm = h >= 12 ? "PM" : "AM";
+                                                  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+                                                })()}
+                                              </span>
+                                            )}
+                                            {tc.outcome && tc.outcome !== "pending" ? (
+                                              <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
+                                                tc.outcome === "hit" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                                "bg-red-500/10 text-red-400 border-red-500/20"
+                                              }`}>
+                                                {tc.outcome === "hit" ? "HIT" : "MISS"}
+                                              </Badge>
+                                            ) : (
+                                              <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                                                {tc.status}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                          <div className="px-2 py-1.5 rounded bg-zinc-800/50">
+                                            <div className="text-[9px] text-muted-foreground mb-0.5">Entry</div>
+                                            <div className="font-mono font-semibold">${tc.entryPrice.toFixed(2)}</div>
+                                          </div>
+                                          <div className="px-2 py-1.5 rounded bg-zinc-800/50">
+                                            <div className="text-[9px] text-muted-foreground mb-0.5">Stop</div>
+                                            <div className="font-mono font-semibold text-red-400">{tc.stopPrice ? `$${tc.stopPrice.toFixed(2)}` : "—"}</div>
+                                          </div>
+                                          <div className="px-2 py-1.5 rounded bg-zinc-800/50">
+                                            <div className="text-[9px] text-muted-foreground mb-0.5">Target</div>
+                                            <div className="font-mono font-semibold text-emerald-400">${tc.targetPrice.toFixed(2)}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {tc.trackingResults && tc.trackingResults.length > 0 && (
+                                        <div className="border-t border-indigo-500/10">
+                                          <div className="px-3 py-2">
+                                            <div className="text-[9px] font-medium text-indigo-400/70 uppercase tracking-wider mb-1.5">Tracking Results</div>
+                                            <table className="w-full text-[11px]">
+                                              <thead>
+                                                <tr className="text-muted-foreground border-b border-zinc-800/50">
+                                                  <th className="text-left py-1 pr-2 font-medium">Instrument</th>
+                                                  <th className="text-left py-1 pr-2 font-medium">Type</th>
+                                                  <th className="text-center py-1 px-1 font-medium">Result</th>
+                                                  <th className="text-center py-1 px-1 font-medium">P/L %</th>
+                                                  <th className="text-center py-1 px-1 font-medium">Days</th>
+                                                  <th className="text-right py-1 pl-1 font-medium">Exit</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {tc.trackingResults.map((tr, j) => (
+                                                  <tr key={j} className="border-b border-zinc-800/20">
+                                                    <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
+                                                    <td className="py-1 pr-2">
+                                                      <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
+                                                        {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"}
+                                                      </span>
+                                                    </td>
+                                                    <td className="text-center py-1 px-1">
+                                                      {tr.win ? (
+                                                        <span className="text-emerald-400 font-semibold">WIN</span>
+                                                      ) : (
+                                                        <span className="text-red-400 font-semibold">LOSS</span>
+                                                      )}
+                                                    </td>
+                                                    <td className={`text-center py-1 px-1 font-mono ${tr.profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                      {tr.profitPercent >= 0 ? "+" : ""}{tr.profitPercent.toFixed(2)}%
+                                                    </td>
+                                                    <td className="text-center py-1 px-1 font-mono text-muted-foreground">{tr.durationDays}d</td>
+                                                    <td className="text-right py-1 pl-1">
+                                                      <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                                        tr.exitReason === "target_hit" ? "bg-emerald-500/15 text-emerald-400" :
+                                                        tr.exitReason === "stop_loss" ? "bg-red-500/15 text-red-400" :
+                                                        tr.exitReason === "milestone_then_stop" ? "bg-amber-500/15 text-amber-400" :
+                                                        "bg-zinc-500/15 text-zinc-400"
+                                                      }`}>
+                                                        {tr.exitReason === "target_hit" ? "Target" :
+                                                         tr.exitReason === "stop_loss" ? "Stopped" :
+                                                         tr.exitReason === "milestone_then_stop" ? "Partial" :
+                                                         "EOD"}
+                                                      </span>
+                                                    </td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-muted-foreground px-2">No TradeSync calls this day</p>
+                              )}
+                            </div>
                             </div>
                           );
                         })()}
