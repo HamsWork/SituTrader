@@ -490,8 +490,8 @@ export async function simulateAllTradeTracking(
 
       for (const r of results) {
         if (!r.entryBarTs || !r.exitBarTs) continue;
-        const fromTs = r.entryBarTs - padMs;
-        const toTs = r.exitBarTs + padMs;
+        const fromTs = r.entryBarTs;
+        const toTs = r.exitBarTs + 24 * 60 * 60 * 1000;
 
         let sourceBars: import("./lib/polygon").PolygonBar[];
         if (r.instrument === "Shares" || r.instrument === "Options") {
