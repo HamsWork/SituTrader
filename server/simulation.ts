@@ -509,14 +509,15 @@ export async function simulateAllTradeTracking(
     }
   }
 
-  const padMs = 5 * 60 * 1000;
   for (const r of results) {
-    if (!r.entryBarTs || !r.exitBarTs) continue;
+    if (!r.entryBarTs) continue;
     const src = barSources[r.instrument];
     if (!src || src.length === 0) continue;
-    const fromTs = r.entryBarTs - padMs;
-    const toTs = r.exitBarTs + padMs;
-    r.chartBars = src.filter(b => b.t >= fromTs && b.t <= toTs).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
+    const entryDay = new Date(r.entryBarTs);
+    entryDay.setUTCHours(0, 0, 0, 0);
+    const exitDay = r.exitBarTs ? new Date(r.exitBarTs) : entryDay;
+    exitDay.setUTCHours(23, 59, 59, 999);
+    r.chartBars = src.filter(b => b.t >= entryDay.getTime() && b.t <= exitDay.getTime()).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
   }
 
   return results;
