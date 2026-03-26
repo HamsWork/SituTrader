@@ -394,7 +394,7 @@ export async function simulateAllTradeTracking(
   sig: Signal,
   ctx: SimDayContext,
 ): Promise<SimTrackingResult[]> {
-  const { fetchDailyBarsCached, fetchIntradayBarsCached } = await import("./lib/polygon");
+  const { fetchDailyBarsCached, fetchIntradayBarsCached, buildOccSymbol, getStrikeIncrement, generateFridaysBetween } = await import("./lib/polygon");
 
   const entryPrice = sig.entryPriceAtActivation ?? 0;
   const stopPrice = sig.stopPrice ?? 0;
@@ -422,15 +422,34 @@ export async function simulateAllTradeTracking(
   }
 
   const optionEntryMark = sig.optionEntryMark;
-  if (optionEntryMark && optionEntryMark > 0 && sharesBars.length > 0) {
+  if (optionEntryMark && optionEntryMark > 0) {
     const delta = 0.5;
     const optStopPrice = Math.max(0, optionEntryMark - delta * stopDist);
     const optT1Price = optionEntryMark + delta * Math.abs((tp?.t1 ?? sig.magnetPrice) - entryPrice);
     const optT2 = tp?.t2 != null ? optionEntryMark + delta * Math.abs(tp.t2 - entryPrice) : null;
 
-    const optBars = deriveOptionBarsFromUnderlying(sharesBars, entryPrice, optionEntryMark, delta, isBuy);
-    results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars));
-    results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars));
+    let optBars: import("./lib/polygon").PolygonBar[] = [];
+    const optContractTicker = sig.optionContractTicker;
+    if (optContractTicker) {
+      optBars = await fetchDailyBarsCached(optContractTicker, activationDate, ctx.config.endDate);
+    }
+    if (optBars.length === 0) {
+      const right: "C" | "P" = isBuy ? "C" : "P";
+      const inc = getStrikeIncrement(entryPrice);
+      const atmStrike = Math.round(entryPrice / inc) * inc;
+      const minExp = activationDate;
+      const maxExpD = new Date(activationDate);
+      maxExpD.setDate(maxExpD.getDate() + 14);
+      const maxExp = maxExpD.toISOString().slice(0, 10);
+      const fridays = generateFridaysBetween(minExp, maxExp);
+      const expDate = fridays.length > 0 ? fridays[0] : maxExp;
+      const occSymbol = buildOccSymbol(sig.ticker, expDate, right, atmStrike);
+      optBars = await fetchDailyBarsCached(occSymbol, activationDate, ctx.config.endDate);
+    }
+    if (optBars.length > 0) {
+      results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars));
+      results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars));
+    }
   }
 
   const letfJson = sig.leveragedEtfJson as import("@shared/schema").LeveragedEtfSuggestion | null;
@@ -464,9 +483,21 @@ export async function simulateAllTradeTracking(
       const letfOptT1 = letfOptEntry + letfOptDelta * Math.abs(letfT1 - letfEntryPrice);
       const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice) : null;
 
-      const letfOptBars = deriveOptionBarsFromUnderlying(letfBars, letfEntryPrice, letfOptEntry, letfOptDelta, letfIsBuy);
-      results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars));
-      results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars));
+      const letfRight: "C" | "P" = letfIsBuy ? "C" : "P";
+      const letfInc = getStrikeIncrement(letfEntryPrice);
+      const letfAtmStrike = Math.round(letfEntryPrice / letfInc) * letfInc;
+      const letfMinExp = activationDate;
+      const letfMaxExpD = new Date(activationDate);
+      letfMaxExpD.setDate(letfMaxExpD.getDate() + 14);
+      const letfMaxExp = letfMaxExpD.toISOString().slice(0, 10);
+      const letfFridays = generateFridaysBetween(letfMinExp, letfMaxExp);
+      const letfExpDate = letfFridays.length > 0 ? letfFridays[0] : letfMaxExp;
+      const letfOccSymbol = buildOccSymbol(letfTicker, letfExpDate, letfRight, letfAtmStrike);
+      const letfOptBars = await fetchDailyBarsCached(letfOccSymbol, activationDate, ctx.config.endDate);
+      if (letfOptBars.length > 0) {
+        results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars));
+        results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars));
+      }
     }
   }
 
@@ -488,33 +519,64 @@ export async function simulateAllTradeTracking(
         letf1m = await fetchIntradayBarsCached(letfTicker, chartFrom, chartTo, "1");
       }
 
+      const optionContractTicker = sig.optionContractTicker;
+      let opt1m: import("./lib/polygon").PolygonBar[] | null = null;
+      let letfOpt1m: import("./lib/polygon").PolygonBar[] | null = null;
+
       for (const r of results) {
         if (!r.entryBarTs || !r.exitBarTs) continue;
         const fromTs = r.entryBarTs;
         const toTs = r.exitBarTs + 24 * 60 * 60 * 1000;
 
         let sourceBars: import("./lib/polygon").PolygonBar[];
-        if (r.instrument === "Shares" || r.instrument === "Options") {
+        if (r.instrument === "Shares") {
           sourceBars = stock1m;
-        } else {
-          sourceBars = letf1m.length > 0 ? letf1m : stock1m;
-        }
-
-        let sliced = sourceBars.filter(b => b.t >= fromTs && b.t <= toTs);
-
-        if (r.instrument === "Options" && sliced.length > 0) {
-          const optEntry = optionEntryMark ?? 0;
-          if (optEntry > 0) {
-            const delta = 0.5;
-            sliced = deriveOptionBarsFromUnderlying(sliced, entryPrice, optEntry, delta, isBuy);
+        } else if (r.instrument === "Options") {
+          if (opt1m === null) {
+            if (optionContractTicker) {
+              opt1m = await fetchIntradayBarsCached(optionContractTicker, chartFrom, chartTo, "1");
+            }
+            if (!opt1m || opt1m.length === 0) {
+              const right: "C" | "P" = isBuy ? "C" : "P";
+              const inc = getStrikeIncrement(entryPrice);
+              const atmStrike = Math.round(entryPrice / inc) * inc;
+              const minExp = chartFrom;
+              const maxExpD = new Date(chartFrom);
+              maxExpD.setDate(maxExpD.getDate() + 14);
+              const maxExp = maxExpD.toISOString().slice(0, 10);
+              const fridays = generateFridaysBetween(minExp, maxExp);
+              const expDate = fridays.length > 0 ? fridays[0] : maxExp;
+              const occSym = buildOccSymbol(sig.ticker, expDate, right, atmStrike);
+              opt1m = await fetchIntradayBarsCached(occSym, chartFrom, chartTo, "1");
+            }
+            if (!opt1m) opt1m = [];
           }
-        } else if (r.instrument === "LETF Options" && sliced.length > 0 && letfEntryPrice && letfEntryPrice > 0) {
-          const letfOptEntry = letfEntryPrice * 0.03;
-          const letfOptDelta = 0.5;
-          const letfIsBuy2 = (letfJson?.leverage ?? 1) < 0 ? !isBuy : isBuy;
-          sliced = deriveOptionBarsFromUnderlying(sliced, letfEntryPrice, letfOptEntry, letfOptDelta, letfIsBuy2);
+          sourceBars = opt1m;
+        } else if (r.instrument === "LETF") {
+          sourceBars = letf1m.length > 0 ? letf1m : stock1m;
+        } else {
+          if (letfOpt1m === null && letfTicker) {
+            const letfIsBuy2 = (letfJson?.leverage ?? 1) < 0 ? !isBuy : isBuy;
+            const letfRight: "C" | "P" = letfIsBuy2 ? "C" : "P";
+            const letfPrice = letfEntryPrice ?? 0;
+            if (letfPrice > 0) {
+              const letfInc = getStrikeIncrement(letfPrice);
+              const letfAtm = Math.round(letfPrice / letfInc) * letfInc;
+              const minExp = chartFrom;
+              const maxExpD = new Date(chartFrom);
+              maxExpD.setDate(maxExpD.getDate() + 14);
+              const maxExp = maxExpD.toISOString().slice(0, 10);
+              const fridays = generateFridaysBetween(minExp, maxExp);
+              const expDate = fridays.length > 0 ? fridays[0] : maxExp;
+              const occSym = buildOccSymbol(letfTicker, expDate, letfRight, letfAtm);
+              letfOpt1m = await fetchIntradayBarsCached(occSym, chartFrom, chartTo, "1");
+            }
+            if (!letfOpt1m) letfOpt1m = [];
+          }
+          sourceBars = (letfOpt1m && letfOpt1m.length > 0) ? letfOpt1m : [];
         }
 
+        const sliced = sourceBars.filter(b => b.t >= fromTs && b.t <= toTs);
         r.chartBars = sliced.map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
       }
     } catch (err: any) {
@@ -523,29 +585,6 @@ export async function simulateAllTradeTracking(
   }
 
   return results;
-}
-
-function deriveOptionBarsFromUnderlying(
-  underlyingBars: import("./lib/polygon").PolygonBar[],
-  underlyingEntry: number,
-  optionEntry: number,
-  delta: number,
-  underlyingIsBuy: boolean,
-): import("./lib/polygon").PolygonBar[] {
-  return underlyingBars.map((bar) => {
-    const sign = underlyingIsBuy ? 1 : -1;
-    const hMove = sign * (bar.h - underlyingEntry);
-    const lMove = sign * (bar.l - underlyingEntry);
-    const oMove = sign * (bar.o - underlyingEntry);
-    const cMove = sign * (bar.c - underlyingEntry);
-
-    const optH = Math.max(0.01, optionEntry + delta * Math.max(hMove, lMove));
-    const optL = Math.max(0.01, optionEntry + delta * Math.min(hMove, lMove));
-    const optO = Math.max(0.01, optionEntry + delta * oMove);
-    const optC = Math.max(0.01, optionEntry + delta * cMove);
-
-    return { o: optO, h: optH, l: optL, c: optC, v: bar.v, t: bar.t };
-  });
 }
 
 function runTenPercentTrack(

@@ -282,7 +282,7 @@ export async function fetchOptionsChainAtTime(
   }];
 }
 
-function buildOccSymbol(
+export function buildOccSymbol(
   ticker: string,
   expDate: string,
   right: "C" | "P",
@@ -296,7 +296,7 @@ function buildOccSymbol(
   return `O:${ticker}${yy}${mm}${dd}${right}${strikePad}`;
 }
 
-function getStrikeIncrement(price: number): number {
+export function getStrikeIncrement(price: number): number {
   if (price <= 5) return 0.5;
   if (price <= 25) return 1;
   if (price <= 100) return 2.5;
@@ -304,7 +304,7 @@ function getStrikeIncrement(price: number): number {
   return 10;
 }
 
-function generateFridaysBetween(minDate: string, maxDate: string): string[] {
+export function generateFridaysBetween(minDate: string, maxDate: string): string[] {
   const dates: string[] = [];
   const start = new Date(minDate + "T00:00:00Z");
   const end = new Date(maxDate + "T00:00:00Z");
