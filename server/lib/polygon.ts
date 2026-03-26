@@ -209,34 +209,87 @@ export async function fetchOptionsChainAtTime(
   return enriched;
 }
 
+function buildOccSymbol(ticker: string, expDate: string, right: "C" | "P", strike: number): string {
+  const yy = expDate.slice(2, 4);
+  const mm = expDate.slice(5, 7);
+  const dd = expDate.slice(8, 10);
+  const strikeInt = Math.round(strike * 1000);
+  const strikePad = String(strikeInt).padStart(8, "0");
+  return `O:${ticker}${yy}${mm}${dd}${right}${strikePad}`;
+}
+
+function getStrikeIncrement(price: number): number {
+  if (price <= 5) return 0.5;
+  if (price <= 25) return 1;
+  if (price <= 100) return 2.5;
+  if (price <= 250) return 5;
+  return 10;
+}
+
+function generateFridaysBetween(minDate: string, maxDate: string): string[] {
+  const dates: string[] = [];
+  const start = new Date(minDate + "T00:00:00Z");
+  const end = new Date(maxDate + "T00:00:00Z");
+  const d = new Date(start);
+  const dow = d.getUTCDay();
+  const daysToFri = (5 - dow + 7) % 7;
+  d.setUTCDate(d.getUTCDate() + daysToFri);
+  while (d <= end) {
+    dates.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 7);
+  }
+  return dates;
+}
+
 export async function fetchOptionsChain(
   ticker: string,
   contractType: "call" | "put",
   minExpDate: string,
   maxExpDate: string,
-  limit: number = 50
+  limit: number = 50,
+  stockPrice?: number | null,
 ): Promise<OptionsContract[]> {
-  try {
-    const data = await polygonGet(`/v3/reference/options/contracts`, {
-      underlying_ticker: ticker,
-      contract_type: contractType,
-      "expiration_date.gte": minExpDate,
-      "expiration_date.lte": maxExpDate,
-      order: "asc",
-      sort: "expiration_date",
-      limit: String(limit),
-    });
-    return (data.results ?? []).map((r: any) => ({
-      ticker: r.ticker,
-      strike_price: r.strike_price,
-      expiration_date: r.expiration_date,
-      contract_type: r.contract_type,
-      open_interest: r.open_interest ?? undefined,
-    }));
-  } catch (err: any) {
-    log(`Error fetching options chain for ${ticker}: ${err.message}`, "polygon");
+  const price = stockPrice ?? await fetchStockPrice(ticker);
+  if (price == null || price <= 0) {
+    log(`fetchOptionsChain: no stock price for ${ticker}, can't generate symbols`, "polygon");
     return [];
   }
+
+  const right: "C" | "P" = contractType === "call" ? "C" : "P";
+  const inc = getStrikeIncrement(price);
+
+  const tolerance = price * 0.10;
+  const minStrike = Math.floor((price - tolerance) / inc) * inc;
+  const maxStrike = Math.ceil((price + tolerance) / inc) * inc;
+
+  const strikes: number[] = [];
+  for (let s = minStrike; s <= maxStrike; s += inc) {
+    if (s > 0) strikes.push(Math.round(s * 100) / 100);
+  }
+
+  const expirations = generateFridaysBetween(minExpDate, maxExpDate);
+  if (expirations.length === 0) {
+    log(`fetchOptionsChain: no fridays between ${minExpDate} and ${maxExpDate}`, "polygon");
+    return [];
+  }
+
+  const contracts: OptionsContract[] = [];
+  for (const exp of expirations) {
+    for (const strike of strikes) {
+      const sym = buildOccSymbol(ticker, exp, right, strike);
+      contracts.push({
+        ticker: sym,
+        strike_price: strike,
+        expiration_date: exp,
+        contract_type: contractType,
+      });
+      if (contracts.length >= limit) break;
+    }
+    if (contracts.length >= limit) break;
+  }
+
+  log(`fetchOptionsChain: generated ${contracts.length} symbols for ${ticker} (${contractType}) ${minExpDate}..${maxExpDate}, price=$${price.toFixed(2)}, inc=$${inc}`, "polygon");
+  return contracts;
 }
 
 export async function fetchOptionContractDetails(contractSymbol: string): Promise<{
