@@ -586,32 +586,85 @@ export function runActivationCheck(
 
 
 export function monitorActivatedSignalsForTicker(
-    ticker: string, pendingSignals: Signal[], currentPrice: number, freshBars: IntradayBar[], config: ActivationScanConfig,
+    ticker: string, activeSignals: Signal[], currentPrice: number | null, freshBars: IntradayBar[], config: ActivationScanConfig,
 ): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
     const events: ActivationEvent[] = [];
     const mutations: ActivationMutation[] = [];
+    const nowIso = config.now.toISOString();
 
-    // for (const sig of pendingSignals) {
-    //     if (sig.activationStatus !== "ACTIVE") continue;
-    //     if (sig.status !== "pending") continue;
+    for (const sig of activeSignals) {
+        if (sig.activationStatus !== "ACTIVE") continue;
+        if (sig.status !== "pending") continue;
 
-    //     const tp = sig.tradePlanJson as TradePlan;
-    //     if (!tp) continue;
-    //     const entryPrice = sig.entryPriceAtActivation ?? 0;
-    //     const isSell = tp.bias === "SELL";
-        
-    //     if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
-    //         const msg = `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice.toFixed(2)}`;
-    //         events.push({
-    //             signalId: sig.id, ticker, type: "invalidated", tier: sig.tier,
-    //             qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
-    //         });
-    //         mutations.push({
-    //             signalId: sig.id, ticker, setupType: sig.setupType,
-    //             type: "invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
-    //         });
-    //     }
-    // }
+        const tp = sig.tradePlanJson as TradePlan;
+        if (!tp) continue;
+        const entryPrice = sig.entryPriceAtActivation ?? 0;
+        const isSell = tp.bias === "SELL";
+
+        if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
+            const msg = `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice.toFixed(2)}`;
+            events.push({
+                signalId: sig.id, ticker, type: "invalidated", tier: sig.tier,
+                qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+            });
+            mutations.push({
+                signalId: sig.id, ticker, setupType: sig.setupType,
+                type: "invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+            });
+            continue;
+        }
+
+        if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
+            const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
+            const progress = computeProgressToTarget(currentPrice, entryPrice, tp.t1, isSell);
+            const timingAnchor = sig.activatedTs ? new Date(sig.activatedTs).getTime() : 0;
+            const activeMinutes = timingAnchor > 0
+                ? Math.floor((config.now.getTime() - timingAnchor) / 60000)
+                : 0;
+
+            if (shouldApplyBE(config.stopMode) && sig.stopStage === "INITIAL") {
+                const beEarned = rNow >= config.beRThreshold || progress >= config.beProgressThreshold;
+                if (beEarned) {
+                    const msg = `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`;
+                    events.push({
+                        signalId: sig.id, ticker, type: "stop_to_be", tier: sig.tier,
+                        qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                    });
+                    mutations.push({
+                        signalId: sig.id, ticker, setupType: sig.setupType, type: "stop_to_be",
+                        stopPrice: entryPrice, stopStage: "BE",
+                        tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                    });
+                    continue;
+                }
+            }
+
+            if (
+                shouldApplyTimeStop(config.stopMode) &&
+                sig.stopStage !== "TIME_TIGHTENED" &&
+                !sig.timeStopTriggeredTs
+            ) {
+                if (activeMinutes >= config.timeStopMinutes && progress < config.timeStopProgressThreshold) {
+                    const stopDist = Math.abs(entryPrice - sig.stopPrice);
+                    const tightenedDist = stopDist * config.timeStopTightenFactor;
+                    const newStop = isSell ? entryPrice + tightenedDist : entryPrice - tightenedDist;
+
+                    const msg = `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress * 100).toFixed(0)}% progress`;
+                    events.push({
+                        signalId: sig.id, ticker, type: "time_stop", tier: sig.tier,
+                        qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                    });
+                    mutations.push({
+                        signalId: sig.id, ticker, setupType: sig.setupType, type: "time_stop",
+                        stopPrice: newStop, stopStage: "TIME_TIGHTENED",
+                        tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                    });
+                    continue;
+                }
+            }
+        }
+    }
+
     return { events, mutations };
 }
 

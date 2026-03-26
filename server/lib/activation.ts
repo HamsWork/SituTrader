@@ -9,6 +9,7 @@ import {
   type ActivationScanConfig,
   type ActivationMutation,
   checkActivationForTicker,
+  monitorActivatedSignalsForTicker,
 } from "./signalHelper";
 import type { Signal, TradePlan, IntradayBar } from "@shared/schema";
 
@@ -328,13 +329,24 @@ export async function runActivationScanForTicker(
     today,
   };
 
-  const { events, mutations } = checkActivationForTicker(
+  const { events: activationEvents, mutations: activationMutations } = checkActivationForTicker(
     ticker,
     allSignals,
     currentPrice,
     freshBars,
     activationScanConfig,
   );
+
+  const { events: monitorEvents, mutations: monitorMutations } = monitorActivatedSignalsForTicker(
+    ticker,
+    allSignals,
+    currentPrice,
+    freshBars,
+    activationScanConfig,
+  );
+
+  const events = [...activationEvents, ...monitorEvents];
+  const mutations = [...activationMutations, ...monitorMutations];
 
   if (ctx) {
     for (const mut of mutations) {
