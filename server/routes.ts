@@ -578,7 +578,8 @@ export async function registerRoutes(
               allDailyBars,
               settings.entryMode || "conservative",
               settings.stopMode || "atr",
-              atrMult
+              atrMult,
+              setup.direction,
             );
 
             let status = "pending";

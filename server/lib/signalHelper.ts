@@ -201,6 +201,7 @@ export async function scanTickerSetups(
         const tradePlan = generateTradePlan(
             lastBar.close, setup.magnetPrice, dailyBars,
             config.entryMode, config.stopMode, config.atrMultiplier,
+            setup.direction,
         );
 
         const stopPrice = tradePlan.stopDistance

@@ -7,10 +7,13 @@ export function generateTradePlan(
   dailyBars: DailyBar[],
   entryMode: string = "conservative",
   stopMode: string = "atr",
-  atrMultiplier: number = 0.25
+  atrMultiplier: number = 0.25,
+  signalDirection?: string,
 ): TradePlan {
   const atr = computeATR(dailyBars);
-  const bias: "BUY" | "SELL" = lastClose > magnetPrice ? "SELL" : "BUY";
+  const bias: "BUY" | "SELL" = signalDirection
+    ? (signalDirection.includes("up") ? "BUY" : "SELL")
+    : (lastClose > magnetPrice ? "SELL" : "BUY");
   const direction = bias === "SELL" ? "down-to-magnet" : "up-to-magnet";
 
   let entryTrigger: string;
