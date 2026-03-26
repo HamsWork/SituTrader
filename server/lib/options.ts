@@ -246,8 +246,6 @@ export async function enrichOptionsJsonForTicker(
   ctx: SimDayContext
 ): Promise<void> {
 
-  console.log("enrichOptionsJsonForTicker", ticker, pendingSignals.length);
-
   const minOI = params.minOI ?? 500;
   const maxSpread = params.maxSpread ?? 0.05;
   const force = params.force ?? false;
@@ -264,6 +262,8 @@ export async function enrichOptionsJsonForTicker(
     try {
       const oldOptionJson = signal.optionsJson as OptionsData | null;
       if (oldOptionJson?.mode === "AUTO" && !force) {
+        console.log("Skipping signal", signal.id, signal.ticker, "because it already has options data and force is false");
+        console.log("Old options data", oldOptionJson);
         continue;
       }
 
