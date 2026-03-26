@@ -67,7 +67,6 @@ export class SimTickerStepper {
   private ctx: SimDayContext;
   
   private top3: RankedSimEntry[] = [];
-  private simTimeCT: number = SIM_PRE_OPEN_CT;
 
   private get dayResult() { return this.ctx.dayResult; }
   private get btodSignalIds() { return this.ctx.btodSignalIds; }
@@ -197,7 +196,7 @@ export class SimTickerStepper {
       date: this.today,
       dayIndex: this.dayIdx,
       totalDays: this.totalDays,
-      simTimeCT: this.simTimeCT,
+      simTimeCT: this.ctx.currentMin,
       signalsGenerated: this.dayResult.signalsGenerated.length,
       btodTop3Count: this.dayResult.btodTop3.length,
       btodTop3: this.dayResult.btodTop3,
@@ -536,7 +535,7 @@ export class SimTickerStepper {
   }
 
   async liveMonitorFinalize(): Promise<boolean> {
-    this.simTimeCT = SIM_RTH_END_CT;
+    this.ctx.currentMin = SIM_RTH_END_CT;
     return await this.phaseTransition("Live Monitor");
   }
 
