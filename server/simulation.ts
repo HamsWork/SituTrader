@@ -376,7 +376,7 @@ export async function handlePostActivationSim(
   }
 }
 
-async function simulateAllTradeTracking(
+export async function simulateAllTradeTracking(
   sig: Signal,
   ctx: SimDayContext,
 ): Promise<SimTrackingResult[]> {
