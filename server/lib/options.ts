@@ -262,7 +262,6 @@ export async function enrichOptionsJsonForTicker(
     try {
       const oldOptionJson = signal.optionsJson as OptionsData | null;
       if (oldOptionJson?.mode === "AUTO" && !force) {
-        log(`Skipping signal ${signal.id} (${signal.ticker}) because it already has options data and force is false`, "options");
         continue;
       }
 
