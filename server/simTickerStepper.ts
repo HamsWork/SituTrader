@@ -723,7 +723,7 @@ export class SimTickerStepper {
     });
 
     const onDeckSignals = Array.from(this.allSignals.values())
-      .filter((s) => s.activationStatus === "NOT_ACTIVE")
+      .filter((s) => s.activationStatus === "NOT_ACTIVE" && s.status !== "hit" && s.status !== "miss")
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
