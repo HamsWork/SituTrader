@@ -234,34 +234,52 @@ export async function fetchOptionsChainAtTime(
     minExpDate,
     maxExpDate,
     limit,
+    stockPrice,
   );
 
   if (allContracts.length === 0) return [];
-  const realisticContracts: OptionsContract[] = [];
-  for (const contract of allContracts) {
+
+  const atmCandidates = [...allContracts]
+    .sort((a, b) => Math.abs(a.strike_price - stockPrice) - Math.abs(b.strike_price - stockPrice))
+    .slice(0, 5);
+
+  const enriched: OptionsContract[] = [];
+  for (const contract of atmCandidates) {
     const mark = await fetchOptionMarkAtTime(contract.ticker, timestampMs);
-
-    if (mark == null || mark <= 0) continue;
-
-    const spread = mark * 0.05;
-    realisticContracts.push({
-      ...contract,
-      bid: Math.max(0.01, mark - spread / 2),
-      ask: mark + spread / 2,
-      mark,
-    });
+    if (mark != null && mark > 0) {
+      const spread = mark * 0.05;
+      enriched.push({
+        ...contract,
+        bid: Math.max(0.01, mark - spread / 2),
+        ask: mark + spread / 2,
+        mark,
+      });
+    }
   }
 
-  if (realisticContracts.length === 0) return [];
+  if (enriched.length > 0) {
+    enriched.sort(
+      (a, b) => Math.abs(a.strike_price - stockPrice) - Math.abs(b.strike_price - stockPrice),
+    );
+    return enriched;
+  }
 
-  realisticContracts.sort(
-    (a, b) =>
-      Math.abs(a.strike_price - stockPrice) -
-      Math.abs(b.strike_price - stockPrice),
-  );
-  // const candidates = realisticContracts.slice(0, 10);
+  const best = atmCandidates[0];
+  const dist = Math.abs(best.strike_price - stockPrice);
+  const intrinsic = contractType === "call"
+    ? Math.max(0, stockPrice - best.strike_price)
+    : Math.max(0, best.strike_price - stockPrice);
+  const estimatedMark = Math.max(0.10, intrinsic + stockPrice * 0.02);
+  const estSpread = estimatedMark * 0.10;
 
-  return realisticContracts;
+  log(`fetchOptionsChainAtTime: no real marks found for ${ticker}, using estimate $${estimatedMark.toFixed(2)} for ${best.ticker}`, "polygon");
+
+  return [{
+    ...best,
+    bid: Math.max(0.01, estimatedMark - estSpread / 2),
+    ask: estimatedMark + estSpread / 2,
+    mark: Math.round(estimatedMark * 100) / 100,
+  }];
 }
 
 function buildOccSymbol(
