@@ -5,7 +5,6 @@ import {
 import { storage } from "./storage";
 import { SimTickerStepper } from "./simTickerStepper";
 import type { Signal } from "@shared/schema";
-import { buildTradeSyncPayloadFromSignal } from "./lib/tradesync";
 
 export const SIM_BEFORE_PRE_OPEN_CT = 8 * 60 + 15;
 export const SIM_PRE_OPEN_CT = 8 * 60 + 20;
@@ -21,6 +20,15 @@ export interface RankedSimEntry {
   rank: number;
 }
 
+export interface SimTrackingResult {
+  instrument: string;
+  win: boolean;
+  profitPercent: number;
+  lastMilestone: number;
+  durationDays: number;
+  exitReason: "stop_loss" | "milestone_then_stop" | "end_of_data";
+}
+
 export interface SimTradeSyncCall {
   signalId: number;
   ticker: string;
@@ -33,6 +41,7 @@ export interface SimTradeSyncCall {
   status: "SIMULATED";
   triggerTs: string;
   outcome?: "hit" | "miss" | "pending";
+  trackingResults?: SimTrackingResult[];
 }
 
 export interface InstrumentStats {
@@ -271,10 +280,10 @@ export function applyMutationsToCtx(
   }
 }
 
-export function handlePostActivationSim(
+export async function handlePostActivationSim(
   ctx: SimDayContext,
   mutations: import("./lib/signalHelper").ActivationMutation[],
-): void {
+): Promise<void> {
   for (const mut of mutations) {
     const sig = ctx.allSignals.get(mut.signalId);
     if (!sig) continue;
@@ -305,7 +314,9 @@ export function handlePostActivationSim(
           if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
 
-          const trackingResult = await trackTradeSyncCallSimulation(sig, ctx)
+          const trackingResults = await simulateTenPercentTracking(sig, ctx);
+
+          const anyWin = trackingResults.some((r) => r.win);
           ctx.dayResult.tradeSyncCalls.push({
             signalId: sig.id,
             ticker: sig.ticker,
@@ -317,6 +328,8 @@ export function handlePostActivationSim(
             instruments,
             status: "SIMULATED",
             triggerTs: mut.activatedTs ?? ctx.today,
+            outcome: anyWin ? "hit" : "miss",
+            trackingResults,
           });
         } else {
           ctx.dayResult.activations.push({
@@ -343,31 +356,105 @@ export function handlePostActivationSim(
   }
 }
 
-async function trackTradeSyncCallSimulation(sig: Signal, ctx: SimDayContext): Promise<void> {
-  const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
-  const instruments: string[] = ["Shares"];
-  const tradeTypes: "ten_percent" | "normal"[] = ["ten_percent"];
-  
-  const results: {
-    instrument: string;
-    trade_type: "ten_percent" | "normal";
-    win: boolean; 
-    profitPercent: number;
-  }[] = [];
+async function simulateTenPercentTracking(
+  sig: Signal,
+  ctx: SimDayContext,
+): Promise<SimTrackingResult[]> {
+  const { fetchDailyBarsCached } = await import("./lib/polygon");
 
-  for (const tradeType of tradeTypes) {
-    for (const instrument of instruments) {
-      const payload = buildTradeSyncPayloadFromSignal(sig, instrument, tp.stopDistance, ctx.today);
-      const result = await trackTradeSyncCallSimulationForInstrument(payload, ctx);
-      results.push(result);
+  const entryPrice = sig.entryPriceAtActivation ?? 0;
+  const stopPrice = sig.stopPrice ?? 0;
+  if (entryPrice <= 0) return [];
+
+  const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
+  const isBuy = tp?.bias === "BUY";
+  const activationDate = sig.activatedTs
+    ? sig.activatedTs.slice(0, 10)
+    : ctx.today;
+
+  const bars = await fetchDailyBarsCached(
+    sig.ticker,
+    activationDate,
+    ctx.config.endDate,
+  );
+
+  if (bars.length === 0) return [];
+
+  const sharesResult = runTenPercentMilestoneTrack(
+    "Shares",
+    entryPrice,
+    stopPrice,
+    isBuy,
+    bars,
+    activationDate,
+  );
+
+  return [sharesResult];
+}
+
+function runTenPercentMilestoneTrack(
+  instrument: string,
+  entryPrice: number,
+  stopPrice: number,
+  isBuy: boolean,
+  bars: import("./lib/polygon").PolygonBar[],
+  activationDate: string,
+): SimTrackingResult {
+  const stopPercent = ((stopPrice - entryPrice) / entryPrice) * 100;
+
+  let lastMilestone = 0;
+  let durationDays = 0;
+
+  for (const bar of bars) {
+    durationDays++;
+
+    const highPct = ((bar.h - entryPrice) / entryPrice) * 100;
+    const lowPct = ((bar.l - entryPrice) / entryPrice) * 100;
+
+    const favorablePct = isBuy ? highPct : -lowPct;
+    const adversePct = isBuy ? lowPct : -highPct;
+
+    const stopHit = isBuy
+      ? bar.l <= stopPrice
+      : bar.h >= stopPrice;
+
+    if (stopHit) {
+      if (lastMilestone === 0) {
+        return {
+          instrument,
+          win: false,
+          profitPercent: parseFloat(stopPercent.toFixed(2)),
+          lastMilestone: 0,
+          durationDays,
+          exitReason: "stop_loss",
+        };
+      } else {
+        return {
+          instrument,
+          win: true,
+          profitPercent: lastMilestone,
+          lastMilestone,
+          durationDays,
+          exitReason: "milestone_then_stop",
+        };
+      }
+    }
+
+    const milestone = Math.floor(favorablePct / 10) * 10;
+    if (milestone > lastMilestone) {
+      lastMilestone = milestone;
     }
   }
 
-  return results;
-}
-
-async function trackTradeSyncCallSimulationForInstrument(payload: TradeSyncSignalData, ctx: SimDayContext): Promise<void> {
-  // TODO
+  const win = lastMilestone > 0;
+  return {
+    instrument,
+    win,
+    profitPercent: win ? lastMilestone : 0,
+    lastMilestone,
+    durationDays,
+    exitReason: "end_of_data",
+  };
 }
 
 

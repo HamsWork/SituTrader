@@ -350,7 +350,7 @@ export async function runActivationScanForTicker(
 
   if (ctx) {
     applyMutationsToCtx(ctx, mutations, now);
-    handlePostActivationSim(ctx, mutations);
+    await handlePostActivationSim(ctx, mutations);
   } else {
     await applyMutationsToDb(mutations);
 
