@@ -583,18 +583,20 @@ export async function fetchOptionMarkAtTime(
   timestampMs: number,
 ): Promise<number | null> {
   try {
-    const windowStart = timestampMs - 5 * 60 * 1000;
-    const windowEnd = timestampMs + 5 * 60 * 1000;
-    const data = await polygonGet(
-      `/v2/aggs/ticker/${contractTicker}/range/1/minute/${windowStart}/${windowEnd}`,
-      {
-        adjusted: "true",
-        sort: "asc",
-        limit: "20",
-      },
-    );
+    const date = new Date(timestampMs).toISOString().slice(0, 10);
+    const apiKey = API_KEY;
+    const normalized = contractTicker.startsWith("o:") ? "O:" + contractTicker.slice(2) : contractTicker;
+    const url = `${POLYGON_BASE}/v2/aggs/ticker/${normalized}/range/1/second/${date}/${date}?adjusted=true&sort=asc&limit=50000&apiKey=${apiKey}`;
+
+    await rateLimitWait();
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      log(`fetchOptionMarkAtTime HTTP ${resp.status} for ${normalized} on ${date}`, "polygon");
+      return null;
+    }
+    const data = await resp.json();
+
     if (data?.results && data.results.length > 0) {
-      console.log("fetchOptionMarkAtTime results", data.results);
       let closest = data.results[0];
       let minDist = Math.abs(closest.t - timestampMs);
       for (const bar of data.results) {
@@ -608,16 +610,6 @@ export async function fetchOptionMarkAtTime(
       return Math.round(vwap * 100) / 100;
     }
 
-    const tradesData = await polygonGet(`/v3/trades/${contractTicker}`, {
-      "timestamp.gte": new Date(windowStart).toISOString(),
-      "timestamp.lte": new Date(windowEnd).toISOString(),
-      limit: "10",
-      sort: "timestamp",
-      order: "desc",
-    });
-    if (tradesData?.results && tradesData.results.length > 0) {
-      return tradesData.results[0].price;
-    }
     return null;
   } catch (err: any) {
     log(
