@@ -137,9 +137,6 @@ export async function scanTickerSetups(
     const setups = detectAllSetups(recentBars, config.setups, config.gapThreshold)
         .filter(setup => isPreOpen ? setup.targetDate >= today : setup.targetDate > today);
 
-    console.log("today", today);
-    console.log("isPreOpen", isPreOpen);
-    console.log("detected setups", setups);
 
     if (setups.length === 0) return [];
 
