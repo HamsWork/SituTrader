@@ -45,6 +45,18 @@ export interface SimTradeSyncCall {
   trackingResults?: SimTrackingResult[];
 }
 
+export interface InstrumentTradeTypeStats {
+  instrument: string;
+  tradeType: "ten_percent" | "normal";
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  avgProfitPct: number;
+  totalProfitPct: number;
+  avgDurationDays: number;
+}
+
 export interface InstrumentStats {
   instrument: string;
   totalTrades: number;
@@ -754,40 +766,57 @@ export async function runSimulation(
     else tc.outcome = "pending";
   }
 
-  const LETF_MULTIPLIER = 2;
-  const instrumentStatsMap = new Map<string, { wins: number; losses: number; pending: number; profitPcts: number[] }>();
+  type BucketKey = string;
+  const detailedMap = new Map<BucketKey, { wins: number; losses: number; profitPcts: number[]; durations: number[] }>();
+
   for (const tc of allTsCalls) {
-    const isLong = tc.direction.includes("up");
-    const entry = tc.entryPrice;
-    const target = tc.targetPrice;
-    const stop = tc.stopPrice ?? entry;
-
-    const underlyingProfitPct = isLong
-      ? ((target - entry) / entry) * 100
-      : ((entry - target) / entry) * 100;
-    const underlyingLossPct = isLong
-      ? ((stop - entry) / entry) * 100
-      : ((entry - stop) / entry) * 100;
-
-    for (const inst of tc.instruments) {
-      if (!instrumentStatsMap.has(inst)) instrumentStatsMap.set(inst, { wins: 0, losses: 0, pending: 0, profitPcts: [] });
-      const bucket = instrumentStatsMap.get(inst)!;
-
-      let multiplier = 1;
-      if (inst === "LETF" || inst === "LETF Options") multiplier = LETF_MULTIPLIER;
-
-      if (tc.outcome === "hit") {
+    if (!tc.trackingResults || tc.trackingResults.length === 0) continue;
+    for (const tr of tc.trackingResults) {
+      const key = `${tr.instrument}__${tr.tradeType}`;
+      if (!detailedMap.has(key)) detailedMap.set(key, { wins: 0, losses: 0, profitPcts: [], durations: [] });
+      const bucket = detailedMap.get(key)!;
+      if (tr.win) {
         bucket.wins++;
-        bucket.profitPcts.push(underlyingProfitPct * multiplier);
-      } else if (tc.outcome === "miss") {
-        bucket.losses++;
-        bucket.profitPcts.push(underlyingLossPct * multiplier);
       } else {
-        bucket.pending++;
+        bucket.losses++;
       }
+      bucket.profitPcts.push(tr.profitPercent);
+      bucket.durations.push(tr.durationDays);
     }
   }
 
+  const instrumentTradeTypeStats: InstrumentTradeTypeStats[] = Array.from(detailedMap.entries())
+    .map(([key, data]) => {
+      const [instrument, tradeType] = key.split("__") as [string, "ten_percent" | "normal"];
+      const resolved = data.wins + data.losses;
+      return {
+        instrument,
+        tradeType,
+        totalTrades: resolved,
+        wins: data.wins,
+        losses: data.losses,
+        winRate: resolved > 0 ? data.wins / resolved : 0,
+        avgProfitPct: data.profitPcts.length > 0 ? data.profitPcts.reduce((a, b) => a + b, 0) / data.profitPcts.length : 0,
+        totalProfitPct: data.profitPcts.reduce((a, b) => a + b, 0),
+        avgDurationDays: data.durations.length > 0 ? data.durations.reduce((a, b) => a + b, 0) / data.durations.length : 0,
+      };
+    })
+    .sort((a, b) => {
+      const instOrder = ["Shares", "Options", "LETF", "LETF Options"];
+      const ai = instOrder.indexOf(a.instrument);
+      const bi = instOrder.indexOf(b.instrument);
+      if (ai !== bi) return ai - bi;
+      return a.tradeType === "ten_percent" ? -1 : 1;
+    });
+
+  const instrumentStatsMap = new Map<string, { wins: number; losses: number; pending: number; profitPcts: number[] }>();
+  for (const s of instrumentTradeTypeStats) {
+    if (!instrumentStatsMap.has(s.instrument)) instrumentStatsMap.set(s.instrument, { wins: 0, losses: 0, pending: 0, profitPcts: [] });
+    const bucket = instrumentStatsMap.get(s.instrument)!;
+    bucket.wins += s.wins;
+    bucket.losses += s.losses;
+    bucket.profitPcts.push(s.totalProfitPct);
+  }
   const instrumentStats: InstrumentStats[] = Array.from(instrumentStatsMap.entries()).map(([inst, data]) => {
     const resolved = data.wins + data.losses;
     return {
@@ -821,8 +850,10 @@ export async function runSimulation(
     btodActivations,
     totalTradeSyncCalls,
     tradeSyncDays,
+    tradeSyncDayPct: tradingDays.length > 0 ? tradeSyncDays / tradingDays.length : 0,
     tsWinRate,
     instrumentStats,
+    instrumentTradeTypeStats,
     hitRate,
     dayResults: results.map((r) => ({
       date: r.date,
@@ -859,9 +890,10 @@ export async function runSimulation(
     message: `  TradeSync Calls: ${finalStats.totalTradeSyncCalls} (${finalStats.tradeSyncDays}/${finalStats.totalDays} days) | Win Rate: ${(tsWinRate * 100).toFixed(1)}% (${tsWins}W/${tsLosses}L)`,
     type: "info",
   });
-  for (const is of instrumentStats) {
+  for (const is of instrumentTradeTypeStats) {
+    const label = is.tradeType === "ten_percent" ? "10%" : "T1/T2";
     emit("log", {
-      message: `    ${is.instrument}: ${(is.winRate * 100).toFixed(1)}% WR (${is.wins}W/${is.losses}L) | Avg P/L: ${is.avgProfitPct >= 0 ? "+" : ""}${is.avgProfitPct.toFixed(2)}% | Total: ${is.totalProfitPct >= 0 ? "+" : ""}${is.totalProfitPct.toFixed(2)}%`,
+      message: `    ${is.instrument} [${label}]: ${(is.winRate * 100).toFixed(1)}% WR (${is.wins}W/${is.losses}L) | Avg P/L: ${is.avgProfitPct >= 0 ? "+" : ""}${is.avgProfitPct.toFixed(2)}% | Total: ${is.totalProfitPct >= 0 ? "+" : ""}${is.totalProfitPct.toFixed(2)}% | ~${is.avgDurationDays.toFixed(1)}d`,
       type: "info",
     });
   }

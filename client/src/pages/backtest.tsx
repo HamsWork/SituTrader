@@ -179,6 +179,16 @@ export default function BacktestPage() {
     eligibleCount: number;
   }
 
+  interface SimTrackingResult {
+    instrument: string;
+    tradeType: "ten_percent" | "normal";
+    win: boolean;
+    profitPercent: number;
+    lastMilestone: number;
+    durationDays: number;
+    exitReason: string;
+  }
+
   interface SimTradeSyncCall {
     signalId: number;
     ticker: string;
@@ -190,6 +200,8 @@ export default function BacktestPage() {
     instruments: string[];
     status: "SIMULATED";
     triggerTs: string;
+    outcome?: "hit" | "miss" | "pending";
+    trackingResults?: SimTrackingResult[];
   }
 
   interface SimPhaseSnapshot {
@@ -1490,48 +1502,70 @@ export default function BacktestPage() {
                     </Card>
                   </div>
 
-                  {simFinalStats.instrumentStats && simFinalStats.instrumentStats.length > 0 && (
+                  {simFinalStats.instrumentTradeTypeStats && simFinalStats.instrumentTradeTypeStats.length > 0 && (
                     <Card className="border-zinc-800 bg-zinc-950/50">
                       <CardContent className="p-3">
-                        <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 mb-2">
-                          <TrendingUp className="w-3.5 h-3.5" />
-                          TradeSync Instrument Breakdown
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            TradeSync Instrument Breakdown
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            TS Active Days: <span className="text-indigo-400 font-semibold">{simFinalStats.tradeSyncDays}/{simFinalStats.totalDays}</span>
+                            {" "}(<span className="text-indigo-400">{((simFinalStats.tradeSyncDayPct ?? 0) * 100).toFixed(1)}%</span>)
+                          </div>
                         </div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs" data-testid="table-instrument-stats">
                             <thead>
                               <tr className="border-b border-zinc-800 text-muted-foreground">
                                 <th className="text-left py-1.5 pr-3 font-medium">Instrument</th>
+                                <th className="text-left py-1.5 pr-2 font-medium">Type</th>
                                 <th className="text-center py-1.5 px-2 font-medium">Trades</th>
                                 <th className="text-center py-1.5 px-2 font-medium">W/L</th>
                                 <th className="text-center py-1.5 px-2 font-medium">Win Rate</th>
                                 <th className="text-center py-1.5 px-2 font-medium">Avg P/L</th>
                                 <th className="text-center py-1.5 px-2 font-medium">Total P/L</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Avg Days</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {simFinalStats.instrumentStats.map((is: any) => (
-                                <tr key={is.instrument} className="border-b border-zinc-800/50" data-testid={`row-instrument-${is.instrument}`}>
-                                  <td className="py-1.5 pr-3 font-mono font-semibold">{is.instrument}</td>
-                                  <td className="text-center py-1.5 px-2">{is.totalTrades}{is.pending > 0 && <span className="text-muted-foreground"> ({is.pending}p)</span>}</td>
-                                  <td className="text-center py-1.5 px-2">
-                                    <span className="text-emerald-400">{is.wins}W</span>
-                                    <span className="text-muted-foreground">/</span>
-                                    <span className="text-red-400">{is.losses}L</span>
-                                  </td>
-                                  <td className="text-center py-1.5 px-2">
-                                    <span className={is.winRate >= 0.5 ? "text-emerald-400" : "text-red-400"}>
-                                      {(is.winRate * 100).toFixed(1)}%
-                                    </span>
-                                  </td>
-                                  <td className={`text-center py-1.5 px-2 font-mono ${is.avgProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                    {is.avgProfitPct >= 0 ? "+" : ""}{is.avgProfitPct.toFixed(2)}%
-                                  </td>
-                                  <td className={`text-center py-1.5 px-2 font-mono font-semibold ${is.totalProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                    {is.totalProfitPct >= 0 ? "+" : ""}{is.totalProfitPct.toFixed(2)}%
-                                  </td>
-                                </tr>
-                              ))}
+                              {simFinalStats.instrumentTradeTypeStats.map((is: any, idx: number) => {
+                                const prevInst = idx > 0 ? simFinalStats.instrumentTradeTypeStats[idx - 1]?.instrument : null;
+                                const showBorder = prevInst && prevInst !== is.instrument;
+                                return (
+                                  <tr key={`${is.instrument}-${is.tradeType}`} className={`${showBorder ? "border-t border-zinc-700" : "border-b border-zinc-800/30"}`} data-testid={`row-instrument-${is.instrument}-${is.tradeType}`}>
+                                    <td className="py-1.5 pr-3 font-mono font-semibold">
+                                      {(prevInst !== is.instrument || idx === 0) ? is.instrument : ""}
+                                    </td>
+                                    <td className="py-1.5 pr-2">
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${is.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
+                                        {is.tradeType === "ten_percent" ? "10%" : "T1/T2"}
+                                      </span>
+                                    </td>
+                                    <td className="text-center py-1.5 px-2">{is.totalTrades}</td>
+                                    <td className="text-center py-1.5 px-2">
+                                      <span className="text-emerald-400">{is.wins}W</span>
+                                      <span className="text-muted-foreground">/</span>
+                                      <span className="text-red-400">{is.losses}L</span>
+                                    </td>
+                                    <td className="text-center py-1.5 px-2">
+                                      <span className={is.winRate >= 0.5 ? "text-emerald-400" : "text-red-400"}>
+                                        {(is.winRate * 100).toFixed(1)}%
+                                      </span>
+                                    </td>
+                                    <td className={`text-center py-1.5 px-2 font-mono ${is.avgProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                      {is.avgProfitPct >= 0 ? "+" : ""}{is.avgProfitPct.toFixed(2)}%
+                                    </td>
+                                    <td className={`text-center py-1.5 px-2 font-mono font-semibold ${is.totalProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                      {is.totalProfitPct >= 0 ? "+" : ""}{is.totalProfitPct.toFixed(2)}%
+                                    </td>
+                                    <td className="text-center py-1.5 px-2 text-muted-foreground font-mono">
+                                      {is.avgDurationDays?.toFixed(1) ?? "—"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
