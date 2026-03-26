@@ -255,7 +255,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
 }
 
 import { hasLeveragedEtfMapping, selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
-import { SimDayContext } from "server/simulation";
+import { SimDayContext, applyMutationsToCtx } from "server/simulation";
 
 export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null> {
   const letfData = signal.leveragedEtfJson as any;
@@ -349,53 +349,7 @@ export async function runActivationScanForTicker(
   const mutations = [...activationMutations, ...monitorMutations];
 
   if (ctx) {
-    for (const mut of mutations) {
-      const sig = ctx.onDeckSignals.get(mut.signalId) ?? ctx.activeSignals.get(mut.signalId);
-      if (!sig) continue;
-
-      switch (mut.type) {
-        case "activated":
-          sig.activationStatus = "ACTIVE";
-          sig.activatedTs = mut.activatedTs ?? null;
-          sig.entryPriceAtActivation = mut.entryPrice ?? null;
-          sig.stopPrice = mut.stopPrice ?? null;
-          sig.stopStage = "INITIAL";
-          ctx.onDeckSignals.delete(sig.id);
-          ctx.activeSignals.set(sig.id, sig);
-          ctx.allSignals.set(sig.id, sig);
-          break;
-        case "invalidated":
-          sig.activationStatus = "INVALIDATED";
-          sig.status = "miss";
-          sig.missReason = mut.message;
-          sig.invalidationTs = now.toISOString();
-          ctx.onDeckSignals.delete(sig.id);
-          ctx.activeSignals.delete(sig.id);
-          ctx.allSignals.set(sig.id, sig);
-          break;
-        case "stop_to_be":
-          sig.stopStage = "BE";
-          sig.stopPrice = mut.stopPrice ?? sig.entryPriceAtActivation ?? 0;
-          sig.stopMovedToBeTs = now.toISOString();
-          ctx.activeSignals.set(sig.id, sig);
-          ctx.allSignals.set(sig.id, sig);
-          break;
-        case "time_stop":
-          sig.stopStage = "TIME_TIGHTENED";
-          sig.stopPrice = mut.stopPrice ?? sig.stopPrice;
-          sig.timeStopTriggeredTs = now.toISOString();
-          ctx.activeSignals.set(sig.id, sig);
-          ctx.allSignals.set(sig.id, sig);
-          break;
-        case "entry_invalidated":
-          sig.activationStatus = "INVALIDATED";
-          sig.status = "miss";
-          sig.missReason = mut.message;
-          ctx.onDeckSignals.delete(sig.id);
-          ctx.allSignals.set(sig.id, sig);
-          break;
-      }
-    }
+    applyMutationsToCtx(ctx, mutations, now);
   } else {
     await applyMutationsToDb(mutations);
 

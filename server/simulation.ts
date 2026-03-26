@@ -214,6 +214,60 @@ export interface SimDayContext {
 
 }
 
+export function applyMutationsToCtx(
+  ctx: SimDayContext,
+  mutations: import("./lib/signalHelper").ActivationMutation[],
+  now: Date,
+): void {
+  for (const mut of mutations) {
+    const sig = ctx.onDeckSignals.get(mut.signalId) ?? ctx.activeSignals.get(mut.signalId);
+    if (!sig) continue;
+
+    switch (mut.type) {
+      case "activated":
+        sig.activationStatus = "ACTIVE";
+        sig.activatedTs = mut.activatedTs ?? null;
+        sig.entryPriceAtActivation = mut.entryPrice ?? null;
+        sig.stopPrice = mut.stopPrice ?? null;
+        sig.stopStage = "INITIAL";
+        ctx.onDeckSignals.delete(sig.id);
+        ctx.activeSignals.set(sig.id, sig);
+        ctx.allSignals.set(sig.id, sig);
+        break;
+      case "invalidated":
+        sig.activationStatus = "INVALIDATED";
+        sig.status = "miss";
+        sig.missReason = mut.message;
+        sig.invalidationTs = now.toISOString();
+        ctx.onDeckSignals.delete(sig.id);
+        ctx.activeSignals.delete(sig.id);
+        ctx.allSignals.set(sig.id, sig);
+        break;
+      case "stop_to_be":
+        sig.stopStage = "BE";
+        sig.stopPrice = mut.stopPrice ?? sig.entryPriceAtActivation ?? 0;
+        sig.stopMovedToBeTs = now.toISOString();
+        ctx.activeSignals.set(sig.id, sig);
+        ctx.allSignals.set(sig.id, sig);
+        break;
+      case "time_stop":
+        sig.stopStage = "TIME_TIGHTENED";
+        sig.stopPrice = mut.stopPrice ?? sig.stopPrice;
+        sig.timeStopTriggeredTs = now.toISOString();
+        ctx.activeSignals.set(sig.id, sig);
+        ctx.allSignals.set(sig.id, sig);
+        break;
+      case "entry_invalidated":
+        sig.activationStatus = "INVALIDATED";
+        sig.status = "miss";
+        sig.missReason = mut.message;
+        ctx.onDeckSignals.delete(sig.id);
+        ctx.allSignals.set(sig.id, sig);
+        break;
+    }
+  }
+}
+
 export interface SimDayOutput {
   result: SimDayResult;
   nextSimSignalId: number;
