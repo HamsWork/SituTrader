@@ -408,6 +408,7 @@ export async function simulateAllTradeTracking(
     : ctx.today;
 
   const stopDist = tp?.stopDistance ?? Math.abs(entryPrice - stopPrice);
+  const actTs = sig.activatedTs ? new Date(sig.activatedTs).getTime() : undefined;
 
   const sharesBars = await fetchIntradayBars(
     sig.ticker,
@@ -421,8 +422,8 @@ export async function simulateAllTradeTracking(
 
   if (sharesBars.length > 0) {
     barSources["Shares"] = sharesBars;
-    results.push(runTenPercentTrack("Shares", entryPrice, stopPrice, isBuy, sharesBars));
-    results.push(runNormalTrack("Shares", entryPrice, stopPrice, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars));
+    results.push(runTenPercentTrack("Shares", entryPrice, stopPrice, isBuy, sharesBars, actTs));
+    results.push(runNormalTrack("Shares", entryPrice, stopPrice, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars, actTs));
   }
 
   const optionEntryMark = sig.optionEntryMark;
@@ -452,8 +453,8 @@ export async function simulateAllTradeTracking(
     }
     if (optBars.length > 0) {
       barSources["Options"] = optBars;
-      results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars));
-      results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars));
+      results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars, actTs));
+      results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars, actTs));
     }
   }
 
@@ -480,8 +481,8 @@ export async function simulateAllTradeTracking(
             : letfEntryPrice * (1 - (Math.abs(tp.t2 - entryPrice) / entryPrice) * Math.abs(leverage)))
         : null;
 
-      results.push(runTenPercentTrack("LETF", letfEntryPrice, letfStop, letfIsBuy, letfBars));
-      results.push(runNormalTrack("LETF", letfEntryPrice, letfStop, letfT1, letfT2, letfIsBuy, letfBars));
+      results.push(runTenPercentTrack("LETF", letfEntryPrice, letfStop, letfIsBuy, letfBars, actTs));
+      results.push(runNormalTrack("LETF", letfEntryPrice, letfStop, letfT1, letfT2, letfIsBuy, letfBars, actTs));
 
       const letfOptDelta = 0.5;
       const letfOptEntry = letfEntryPrice * 0.03;
@@ -502,8 +503,8 @@ export async function simulateAllTradeTracking(
       const letfOptBars = await fetchIntradayBars(letfOccSymbol, activationDate, ctx.config.endDate, "1");
       if (letfOptBars.length > 0) {
         barSources["LETF Options"] = letfOptBars;
-        results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars));
-        results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars));
+        results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars, actTs));
+        results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars, actTs));
       }
     }
   }
@@ -536,13 +537,16 @@ function runTenPercentTrack(
   stopPrice: number,
   isBuy: boolean,
   bars: import("./lib/polygon").PolygonBar[],
+  activationTs?: number,
 ): SimTrackingResult {
   const stopPctFromEntry = isBuy
     ? ((stopPrice - entryPrice) / entryPrice) * 100
     : ((entryPrice - stopPrice) / entryPrice) * 100;
 
   let lastMilestone = 0;
-  const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
+  const startIdx = activationTs ? bars.findIndex(b => b.t >= activationTs) : 0;
+  const trackBars = startIdx > 0 ? bars.slice(startIdx) : bars;
+  const entryBarTs = trackBars.length > 0 ? trackBars[0].t : undefined;
 
   const buildMilestones = (ms: number) => {
     const arr: { pct: number; price: number }[] = [];
@@ -555,7 +559,7 @@ function runTenPercentTrack(
     return arr;
   };
 
-  for (const bar of bars) {
+  for (const bar of trackBars) {
 
     const favorablePct = isBuy
       ? ((bar.h - entryPrice) / entryPrice) * 100
@@ -591,7 +595,7 @@ function runTenPercentTrack(
     }
   }
 
-  const lastTs = bars.length > 0 ? bars[bars.length - 1].t : undefined;
+  const lastTs = trackBars.length > 0 ? trackBars[trackBars.length - 1].t : undefined;
   const endDays = entryBarTs && lastTs ? tradingDaysFromTs(entryBarTs, lastTs) : 1;
   return {
     instrument, tradeType: "ten_percent",
@@ -612,13 +616,16 @@ function runNormalTrack(
   t2Price: number | null,
   isBuy: boolean,
   bars: import("./lib/polygon").PolygonBar[],
+  activationTs?: number,
 ): SimTrackingResult {
   const stopPctFromEntry = Math.abs(stopPrice - entryPrice) / entryPrice * 100;
   let t1Hit = false;
-  const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
+  const startIdx = activationTs ? bars.findIndex(b => b.t >= activationTs) : 0;
+  const trackBars = startIdx > 0 ? bars.slice(startIdx) : bars;
+  const entryBarTs = trackBars.length > 0 ? trackBars[0].t : undefined;
   const target = t2Price ?? t1Price;
 
-  for (const bar of bars) {
+  for (const bar of trackBars) {
     const stopHit = isBuy ? bar.l <= stopPrice : bar.h >= stopPrice;
     const t1HitThisBar = isBuy ? bar.h >= t1Price : bar.l <= t1Price;
     const t2HitThisBar = t2Price != null && (isBuy ? bar.h >= t2Price : bar.l <= t2Price);
@@ -661,11 +668,11 @@ function runNormalTrack(
     }
   }
 
-  const lastTs = bars.length > 0 ? bars[bars.length - 1].t : undefined;
+  const lastTs = trackBars.length > 0 ? trackBars[trackBars.length - 1].t : undefined;
   const endDays = entryBarTs && lastTs ? tradingDaysFromTs(entryBarTs, lastTs) : 1;
 
   if (t1Hit) {
-    const lastClose = bars[bars.length - 1].c;
+    const lastClose = trackBars[trackBars.length - 1].c;
     const unrealized = isBuy
       ? (lastClose - entryPrice) / entryPrice * 100
       : (entryPrice - lastClose) / entryPrice * 100;
@@ -678,7 +685,7 @@ function runNormalTrack(
     };
   }
 
-  const lastClose = bars.length > 0 ? bars[bars.length - 1].c : entryPrice;
+  const lastClose = trackBars.length > 0 ? trackBars[trackBars.length - 1].c : entryPrice;
   const unrealized = isBuy
     ? (lastClose - entryPrice) / entryPrice * 100
     : (entryPrice - lastClose) / entryPrice * 100;
