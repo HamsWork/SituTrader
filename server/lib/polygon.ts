@@ -37,6 +37,8 @@ async function polygonGet(
     url.searchParams.set(k, v);
   }
 
+  console.log("polygonGet", url.toString());
+
   const cacheKey = url.toString();
   const cached = requestCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < cacheTtl) {
