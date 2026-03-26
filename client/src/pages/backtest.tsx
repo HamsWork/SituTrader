@@ -1606,115 +1606,287 @@ export default function BacktestPage() {
               )}
 
               {simFinalStats && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <Card>
-                      <CardContent className="pt-3 pb-3 px-4 text-center">
-                        <div className="text-xl font-bold" data-testid="text-sim-total-signals">{simFinalStats.totalSignalsGenerated}</div>
-                        <div className="text-[10px] text-muted-foreground">Signals Generated</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-3 pb-3 px-4 text-center">
-                        <div className="text-xl font-bold text-amber-500" data-testid="text-sim-activations">{simFinalStats.totalActivations}</div>
-                        <div className="text-[10px] text-muted-foreground">Activations</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-3 pb-3 px-4 text-center">
-                        <div className="text-xl font-bold text-emerald-500" data-testid="text-sim-hits">{simFinalStats.totalHits}</div>
-                        <div className="text-[10px] text-muted-foreground">Hits ({(simFinalStats.hitRate * 100).toFixed(1)}%)</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-3 pb-3 px-4 text-center">
-                        <div className="text-xl font-bold text-violet-500" data-testid="text-sim-btod">{simFinalStats.btodActivations}</div>
-                        <div className="text-[10px] text-muted-foreground">BTOD Activations</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-3 pb-3 px-4 text-center">
-                        <div className="text-xl font-bold text-indigo-400" data-testid="text-sim-tradesync">{simFinalStats.totalTradeSyncCalls ?? 0}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          TS Calls ({simFinalStats.tradeSyncDays ?? 0}/{simFinalStats.totalDays} days)
-                          {simFinalStats.tsWinRate != null && ` · ${(simFinalStats.tsWinRate * 100).toFixed(1)}% WR`}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
+                <Tabs defaultValue="summary" className="space-y-3">
+                  <TabsList className="h-8">
+                    <TabsTrigger value="summary" className="text-xs h-7" data-testid="tab-sim-summary">Summary</TabsTrigger>
+                    <TabsTrigger value="ts-calls" className="text-xs h-7" data-testid="tab-sim-ts-calls">
+                      TradeSync Calls ({simFinalStats.totalTradeSyncCalls ?? 0})
+                    </TabsTrigger>
+                  </TabsList>
 
-                  {simFinalStats.instrumentTradeTypeStats && simFinalStats.instrumentTradeTypeStats.length > 0 && (
-                    <Card className="border-zinc-800 bg-zinc-950/50">
-                      <CardContent className="p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
-                            <TrendingUp className="w-3.5 h-3.5" />
-                            TradeSync Instrument Breakdown
-                          </div>
+                  <TabsContent value="summary" className="space-y-3 mt-0">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      <Card>
+                        <CardContent className="pt-3 pb-3 px-4 text-center">
+                          <div className="text-xl font-bold" data-testid="text-sim-total-signals">{simFinalStats.totalSignalsGenerated}</div>
+                          <div className="text-[10px] text-muted-foreground">Signals Generated</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-3 pb-3 px-4 text-center">
+                          <div className="text-xl font-bold text-amber-500" data-testid="text-sim-activations">{simFinalStats.totalActivations}</div>
+                          <div className="text-[10px] text-muted-foreground">Activations</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-3 pb-3 px-4 text-center">
+                          <div className="text-xl font-bold text-emerald-500" data-testid="text-sim-hits">{simFinalStats.totalHits}</div>
+                          <div className="text-[10px] text-muted-foreground">Hits ({(simFinalStats.hitRate * 100).toFixed(1)}%)</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-3 pb-3 px-4 text-center">
+                          <div className="text-xl font-bold text-violet-500" data-testid="text-sim-btod">{simFinalStats.btodActivations}</div>
+                          <div className="text-[10px] text-muted-foreground">BTOD Activations</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-3 pb-3 px-4 text-center">
+                          <div className="text-xl font-bold text-indigo-400" data-testid="text-sim-tradesync">{simFinalStats.totalTradeSyncCalls ?? 0}</div>
                           <div className="text-[10px] text-muted-foreground">
-                            TS Active Days: <span className="text-indigo-400 font-semibold">{simFinalStats.tradeSyncDays}/{simFinalStats.totalDays}</span>
-                            {" "}(<span className="text-indigo-400">{((simFinalStats.tradeSyncDayPct ?? 0) * 100).toFixed(1)}%</span>)
+                            TS Calls ({simFinalStats.tradeSyncDays ?? 0}/{simFinalStats.totalDays} days)
+                            {simFinalStats.tsWinRate != null && ` · ${(simFinalStats.tsWinRate * 100).toFixed(1)}% WR`}
                           </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs" data-testid="table-instrument-stats">
-                            <thead>
-                              <tr className="border-b border-zinc-800 text-muted-foreground">
-                                <th className="text-left py-1.5 pr-3 font-medium">Instrument</th>
-                                <th className="text-left py-1.5 pr-2 font-medium">Type</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Trades</th>
-                                <th className="text-center py-1.5 px-2 font-medium">W/L</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Win Rate</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Avg P/L</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Total P/L</th>
-                                <th className="text-center py-1.5 px-2 font-medium">Avg Days</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {simFinalStats.instrumentTradeTypeStats.map((is: any, idx: number) => {
-                                const prevInst = idx > 0 ? simFinalStats.instrumentTradeTypeStats[idx - 1]?.instrument : null;
-                                const showBorder = prevInst && prevInst !== is.instrument;
-                                return (
-                                  <tr key={`${is.instrument}-${is.tradeType}`} className={`${showBorder ? "border-t border-zinc-700" : "border-b border-zinc-800/30"}`} data-testid={`row-instrument-${is.instrument}-${is.tradeType}`}>
-                                    <td className="py-1.5 pr-3 font-mono font-semibold">
-                                      {(prevInst !== is.instrument || idx === 0) ? is.instrument : ""}
-                                    </td>
-                                    <td className="py-1.5 pr-2">
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${is.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
-                                        {is.tradeType === "ten_percent" ? "10%" : "T1/T2"}
-                                      </span>
-                                    </td>
-                                    <td className="text-center py-1.5 px-2">{is.totalTrades}</td>
-                                    <td className="text-center py-1.5 px-2">
-                                      <span className="text-emerald-400">{is.wins}W</span>
-                                      <span className="text-muted-foreground">/</span>
-                                      <span className="text-red-400">{is.losses}L</span>
-                                    </td>
-                                    <td className="text-center py-1.5 px-2">
-                                      <span className={is.winRate >= 0.5 ? "text-emerald-400" : "text-red-400"}>
-                                        {(is.winRate * 100).toFixed(1)}%
-                                      </span>
-                                    </td>
-                                    <td className={`text-center py-1.5 px-2 font-mono ${is.avgProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                      {is.avgProfitPct >= 0 ? "+" : ""}{is.avgProfitPct.toFixed(2)}%
-                                    </td>
-                                    <td className={`text-center py-1.5 px-2 font-mono font-semibold ${is.totalProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                      {is.totalProfitPct >= 0 ? "+" : ""}{is.totalProfitPct.toFixed(2)}%
-                                    </td>
-                                    <td className="text-center py-1.5 px-2 text-muted-foreground font-mono">
-                                      {is.avgDurationDays?.toFixed(1) ?? "—"}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
+                        </CardContent>
+                      </Card>
+                    </div>
 
-                </div>
+                    {simFinalStats.instrumentTradeTypeStats && simFinalStats.instrumentTradeTypeStats.length > 0 && (
+                      <Card className="border-zinc-800 bg-zinc-950/50">
+                        <CardContent className="p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400">
+                              <TrendingUp className="w-3.5 h-3.5" />
+                              TradeSync Instrument Breakdown
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              TS Active Days: <span className="text-indigo-400 font-semibold">{simFinalStats.tradeSyncDays}/{simFinalStats.totalDays}</span>
+                              {" "}(<span className="text-indigo-400">{((simFinalStats.tradeSyncDayPct ?? 0) * 100).toFixed(1)}%</span>)
+                            </div>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs" data-testid="table-instrument-stats">
+                              <thead>
+                                <tr className="border-b border-zinc-800 text-muted-foreground">
+                                  <th className="text-left py-1.5 pr-3 font-medium">Instrument</th>
+                                  <th className="text-left py-1.5 pr-2 font-medium">Type</th>
+                                  <th className="text-center py-1.5 px-2 font-medium">Trades</th>
+                                  <th className="text-center py-1.5 px-2 font-medium">W/L</th>
+                                  <th className="text-center py-1.5 px-2 font-medium">Win Rate</th>
+                                  <th className="text-center py-1.5 px-2 font-medium">Avg P/L</th>
+                                  <th className="text-center py-1.5 px-2 font-medium">Total P/L</th>
+                                  <th className="text-center py-1.5 px-2 font-medium">Avg Days</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {simFinalStats.instrumentTradeTypeStats.map((is: any, idx: number) => {
+                                  const prevInst = idx > 0 ? simFinalStats.instrumentTradeTypeStats[idx - 1]?.instrument : null;
+                                  const showBorder = prevInst && prevInst !== is.instrument;
+                                  return (
+                                    <tr key={`${is.instrument}-${is.tradeType}`} className={`${showBorder ? "border-t border-zinc-700" : "border-b border-zinc-800/30"}`} data-testid={`row-instrument-${is.instrument}-${is.tradeType}`}>
+                                      <td className="py-1.5 pr-3 font-mono font-semibold">
+                                        {(prevInst !== is.instrument || idx === 0) ? is.instrument : ""}
+                                      </td>
+                                      <td className="py-1.5 pr-2">
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${is.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
+                                          {is.tradeType === "ten_percent" ? "10%" : "T1/T2"}
+                                        </span>
+                                      </td>
+                                      <td className="text-center py-1.5 px-2">{is.totalTrades}</td>
+                                      <td className="text-center py-1.5 px-2">
+                                        <span className="text-emerald-400">{is.wins}W</span>
+                                        <span className="text-muted-foreground">/</span>
+                                        <span className="text-red-400">{is.losses}L</span>
+                                      </td>
+                                      <td className="text-center py-1.5 px-2">
+                                        <span className={is.winRate >= 0.5 ? "text-emerald-400" : "text-red-400"}>
+                                          {(is.winRate * 100).toFixed(1)}%
+                                        </span>
+                                      </td>
+                                      <td className={`text-center py-1.5 px-2 font-mono ${is.avgProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {is.avgProfitPct >= 0 ? "+" : ""}{is.avgProfitPct.toFixed(2)}%
+                                      </td>
+                                      <td className={`text-center py-1.5 px-2 font-mono font-semibold ${is.totalProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {is.totalProfitPct >= 0 ? "+" : ""}{is.totalProfitPct.toFixed(2)}%
+                                      </td>
+                                      <td className="text-center py-1.5 px-2 text-muted-foreground font-mono">
+                                        {is.avgDurationDays?.toFixed(1) ?? "—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="ts-calls" className="space-y-3 mt-0">
+                    {(() => {
+                      const allCalls = simDayResults.flatMap((day) =>
+                        (day.tradeSyncCalls ?? []).map((tc: SimTradeSyncCall) => ({ ...tc, date: day.date }))
+                      );
+                      if (allCalls.length === 0) return (
+                        <div className="border border-dashed rounded-lg p-8 text-center">
+                          <TrendingUp className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">No TradeSync calls recorded</p>
+                        </div>
+                      );
+
+                      const wins = allCalls.filter((c) => c.outcome === "hit").length;
+                      const losses = allCalls.filter((c) => c.outcome === "miss").length;
+                      const resolved = wins + losses;
+                      const winRate = resolved > 0 ? wins / resolved : 0;
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <Card>
+                              <CardContent className="pt-3 pb-3 px-4 text-center">
+                                <div className="text-xl font-bold text-indigo-400">{allCalls.length}</div>
+                                <div className="text-[10px] text-muted-foreground">Total TS Calls</div>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-3 pb-3 px-4 text-center">
+                                <div className="text-xl font-bold text-emerald-400">{wins}</div>
+                                <div className="text-[10px] text-muted-foreground">Wins</div>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-3 pb-3 px-4 text-center">
+                                <div className="text-xl font-bold text-red-400">{losses}</div>
+                                <div className="text-[10px] text-muted-foreground">Losses</div>
+                              </CardContent>
+                            </Card>
+                            <Card>
+                              <CardContent className="pt-3 pb-3 px-4 text-center">
+                                <div className={`text-xl font-bold ${winRate >= 0.5 ? "text-emerald-400" : "text-red-400"}`}>{(winRate * 100).toFixed(1)}%</div>
+                                <div className="text-[10px] text-muted-foreground">Win Rate</div>
+                              </CardContent>
+                            </Card>
+                          </div>
+
+                          <div className="space-y-3">
+                            {allCalls.map((tc: any, i: number) => (
+                              <div key={`ts-all-${i}`} className="rounded bg-indigo-500/5 border border-indigo-500/10 text-xs overflow-hidden" data-testid={`ts-call-${i}`}>
+                                <div className="px-3 py-2.5 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-muted-foreground font-mono">{tc.date}</span>
+                                      <span className="font-mono font-semibold text-sm">{tc.ticker}</span>
+                                      <span className="text-muted-foreground">{tc.setupType}</span>
+                                      <Badge variant="outline" className={`text-[9px] h-4 px-1 ${tc.direction?.includes("down") ? "border-red-500/30 text-red-400" : "border-emerald-500/30 text-emerald-400"}`}>
+                                        {tc.direction?.includes("down") ? "SELL" : "BUY"}
+                                      </Badge>
+                                      <div className="flex flex-wrap gap-1">
+                                        {(tc.instruments ?? []).map((inst: string) => (
+                                          <Badge key={inst} variant="secondary" className="text-[8px] h-3.5 px-1">{inst}</Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {tc.triggerTs && (
+                                        <span className="text-[10px] text-indigo-400/70 font-mono">
+                                          {(() => {
+                                            const d = new Date(tc.triggerTs);
+                                            if (isNaN(d.getTime())) return "";
+                                            const h = d.getHours(); const m = d.getMinutes();
+                                            return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+                                          })()}
+                                        </span>
+                                      )}
+                                      {tc.outcome && tc.outcome !== "pending" ? (
+                                        <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
+                                          tc.outcome === "hit" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                          "bg-red-500/10 text-red-400 border-red-500/20"
+                                        }`}>
+                                          {tc.outcome === "hit" ? "HIT" : "MISS"}
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                                          {tc.status}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                    <div className="px-2 py-1.5 rounded bg-zinc-800/50">
+                                      <div className="text-[9px] text-muted-foreground mb-0.5">Entry</div>
+                                      <div className="font-mono font-semibold">${tc.entryPrice?.toFixed(2)}</div>
+                                    </div>
+                                    <div className="px-2 py-1.5 rounded bg-zinc-800/50">
+                                      <div className="text-[9px] text-muted-foreground mb-0.5">Stop</div>
+                                      <div className="font-mono font-semibold text-red-400">{tc.stopPrice ? `$${tc.stopPrice.toFixed(2)}` : "—"}</div>
+                                    </div>
+                                    <div className="px-2 py-1.5 rounded bg-zinc-800/50">
+                                      <div className="text-[9px] text-muted-foreground mb-0.5">Target</div>
+                                      <div className="font-mono font-semibold text-emerald-400">${tc.targetPrice?.toFixed(2)}</div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {tc.trackingResults && tc.trackingResults.length > 0 && (
+                                  <div className="border-t border-indigo-500/10">
+                                    <div className="px-3 py-2">
+                                      <div className="text-[9px] font-medium text-indigo-400/70 uppercase tracking-wider mb-1.5">Tracking Results</div>
+                                      <table className="w-full text-[11px]">
+                                        <thead>
+                                          <tr className="text-muted-foreground border-b border-zinc-800/50">
+                                            <th className="text-left py-1 pr-2 font-medium">Instrument</th>
+                                            <th className="text-left py-1 pr-2 font-medium">Type</th>
+                                            <th className="text-center py-1 px-1 font-medium">Result</th>
+                                            <th className="text-center py-1 px-1 font-medium">P/L %</th>
+                                            <th className="text-center py-1 px-1 font-medium">Days</th>
+                                            <th className="text-right py-1 pl-1 font-medium">Exit</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {tc.trackingResults.map((tr: SimTrackingResult, j: number) => (
+                                            <tr key={j} className="border-b border-zinc-800/20">
+                                              <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
+                                              <td className="py-1 pr-2">
+                                                <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
+                                                  {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"}
+                                                </span>
+                                              </td>
+                                              <td className="text-center py-1 px-1">
+                                                {tr.win ? <span className="text-emerald-400 font-semibold">WIN</span> : <span className="text-red-400 font-semibold">LOSS</span>}
+                                              </td>
+                                              <td className={`text-center py-1 px-1 font-mono ${tr.profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                {tr.profitPercent >= 0 ? "+" : ""}{tr.profitPercent.toFixed(2)}%
+                                              </td>
+                                              <td className="text-center py-1 px-1 font-mono text-muted-foreground">{tr.durationDays}d</td>
+                                              <td className="text-right py-1 pl-1">
+                                                <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                                  tr.exitReason === "target_hit" ? "bg-emerald-500/15 text-emerald-400" :
+                                                  tr.exitReason === "stop_loss" ? "bg-red-500/15 text-red-400" :
+                                                  tr.exitReason === "milestone_then_stop" ? "bg-amber-500/15 text-amber-400" :
+                                                  "bg-zinc-500/15 text-zinc-400"
+                                                }`}>
+                                                  {tr.exitReason === "target_hit" ? "Target" :
+                                                   tr.exitReason === "stop_loss" ? "Stopped" :
+                                                   tr.exitReason === "milestone_then_stop" ? "Partial" : "EOD"}
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </TabsContent>
+                </Tabs>
               )}
 
               {!simRunning && simLogs.length === 0 && !simFinalStats && (
