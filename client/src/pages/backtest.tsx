@@ -100,7 +100,25 @@ function getDateFromMonthsAgo(months: number): string {
 }
 
 function TradeChart({ tr }: { tr: SimTrackingResult }) {
-  if (!tr.chartBars || tr.chartBars.length === 0) return null;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerW, setContainerW] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerW(entry.contentRect.width);
+      }
+    });
+    ro.observe(el);
+    setContainerW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  if (!tr.chartBars || tr.chartBars.length === 0) return (
+    <div ref={containerRef} className="w-full mt-1" data-testid="trade-chart" />
+  );
 
   const bars = tr.chartBars;
   const isBuy = tr.chartEntry != null && tr.chartStop != null && tr.chartEntry > tr.chartStop;
@@ -115,10 +133,8 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   const yMin = minP - rangePad;
   const yMax = maxP + rangePad;
 
-  const minBarGap = 3;
-  const dynamicW = Math.max(520, bars.length * minBarGap + 120);
-  const chartW = Math.min(dynamicW, 900);
-  const chartH = 170;
+  const chartW = Math.max(400, containerW || 400);
+  const chartH = 190;
   const marginL = 55;
   const marginR = 85;
   const marginT = 8;
@@ -184,8 +200,8 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   }
 
   return (
-    <div className="w-full overflow-x-auto mt-1" data-testid="trade-chart">
-      <svg width={chartW} height={chartH} className="block" style={{ minWidth: 400 }}>
+    <div ref={containerRef} className="w-full mt-1" data-testid="trade-chart">
+      <svg width={chartW} height={chartH} className="block w-full">
         <rect x={marginL} y={marginT} width={plotW} height={plotH} fill="#09090b" rx={2} />
         {yTicks.map((tick, i) => {
           const y = yScale(tick);
