@@ -1509,7 +1509,7 @@ export default function BacktestPage() {
                                                   </span>
                                                 )
                                               ) : (
-                                                <span className="text-zinc-600">—</span>
+                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400">NO_DATA</span>
                                               )}
                                             </td>
                                             <td className="text-center py-1.5 px-2">
