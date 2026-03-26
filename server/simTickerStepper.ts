@@ -733,11 +733,17 @@ export class SimTickerStepper {
 
     const activeSignals = Array.from(this.allSignals.values())
       .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
-      .map((s) => ({
-        id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
-        qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
-        entryPrice: s.entryPriceAtActivation, activatedTs: s.activatedTs,
-      }));
+      .map((s) => {
+        const tp = s.tradePlanJson as import("@shared/schema").TradePlan | null;
+        return {
+          id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
+          qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice,
+          entryPrice: s.entryPriceAtActivation, activatedTs: s.activatedTs,
+          stopPrice: s.stopPrice, stopDistance: tp?.stopDistance ?? null,
+          t1: tp?.t1 ?? null, t2: tp?.t2 ?? null, bias: tp?.bias ?? null,
+          riskReward: tp?.riskReward ?? null,
+        };
+      });
 
     this.emit("day", {
       date: this.today,

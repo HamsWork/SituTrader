@@ -168,6 +168,12 @@ export default function BacktestPage() {
     status?: string;
     entryPrice?: number | null;
     activatedTs?: string | null;
+    stopPrice?: number | null;
+    stopDistance?: number | null;
+    t1?: number | null;
+    t2?: number | null;
+    bias?: "BUY" | "SELL" | null;
+    riskReward?: number | null;
   }
 
   interface SimBtodStatus {
@@ -1279,22 +1285,60 @@ export default function BacktestPage() {
                                   Activated ({activeSignals.length})
                                 </div>
                                 {activeSignals.length > 0 ? (
-                                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                                    {activeSignals.map((sig) => (
-                                      <div key={sig.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs" data-testid={`sim-active-${sig.id}`}>
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-mono font-semibold">{sig.ticker}</span>
-                                          <span className="text-muted-foreground">{sig.setupType}</span>
-                                          <Badge variant="outline" className="text-[9px] h-4 px-1">
-                                            {sig.direction === "BEARISH" ? "SELL" : "BUY"}
-                                          </Badge>
+                                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                                    {activeSignals.map((sig) => {
+                                      const activationTime = sig.activatedTs
+                                        ? (() => {
+                                            const d = new Date(sig.activatedTs);
+                                            const h = d.getHours();
+                                            const m = d.getMinutes();
+                                            const ampm = h >= 12 ? "PM" : "AM";
+                                            return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+                                          })()
+                                        : null;
+                                      const biasLabel = sig.bias ?? (sig.direction?.includes("down") ? "SELL" : "BUY");
+                                      return (
+                                        <div key={sig.id} className="px-2 py-2 rounded bg-amber-500/5 border border-amber-500/10 text-xs space-y-1.5" data-testid={`sim-active-${sig.id}`}>
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-mono font-semibold">{sig.ticker}</span>
+                                              <span className="text-muted-foreground">{sig.setupType}</span>
+                                              <Badge variant="outline" className={`text-[9px] h-4 px-1 ${biasLabel === "SELL" ? "border-red-500/30 text-red-400" : "border-emerald-500/30 text-emerald-400"}`}>
+                                                {biasLabel}
+                                              </Badge>
+                                              <span className="text-[9px] text-muted-foreground">{sig.tier}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              {activationTime && (
+                                                <span className="text-[10px] text-amber-400 font-mono" data-testid={`text-activation-time-${sig.id}`}>
+                                                  <Clock className="w-3 h-3 inline mr-0.5" />{activationTime}
+                                                </span>
+                                              )}
+                                              {sig.entryPrice && <span className="font-mono text-muted-foreground">@${sig.entryPrice.toFixed(2)}</span>}
+                                            </div>
+                                          </div>
+                                          {(sig.t1 || sig.stopPrice) && (
+                                            <div className="flex items-center gap-3 text-[10px] text-muted-foreground pl-1">
+                                              {sig.stopPrice != null && (
+                                                <span>Stop: <span className="text-red-400 font-mono">${sig.stopPrice.toFixed(2)}</span></span>
+                                              )}
+                                              {sig.t1 != null && (
+                                                <span>T1: <span className="text-emerald-400 font-mono">${sig.t1.toFixed(2)}</span></span>
+                                              )}
+                                              {sig.t2 != null && (
+                                                <span>T2: <span className="text-emerald-400 font-mono">${sig.t2.toFixed(2)}</span></span>
+                                              )}
+                                              {sig.riskReward != null && (
+                                                <span>R:R <span className="text-blue-400 font-mono">{sig.riskReward.toFixed(1)}</span></span>
+                                              )}
+                                              {sig.magnetPrice != null && (
+                                                <span>Magnet: <span className="text-violet-400 font-mono">${sig.magnetPrice.toFixed(2)}</span></span>
+                                              )}
+                                            </div>
+                                          )}
                                         </div>
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                          {sig.entryPrice && <span>@${sig.entryPrice.toFixed(2)}</span>}
-                                          <span className="text-[9px]">{sig.tier}</span>
-                                        </div>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 ) : (
                                   <p className="text-[10px] text-muted-foreground px-2">No active signals</p>
@@ -1400,16 +1444,29 @@ export default function BacktestPage() {
                                   Today's Events
                                 </div>
                                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                                  {activationDetails.map((a, i) => (
-                                    <div key={`act-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs">
-                                      <div className="flex items-center gap-2">
-                                        {a.isBtod && <Star className="w-3 h-3 text-violet-400" />}
-                                        <Zap className="w-3 h-3 text-amber-400" />
-                                        <span className="font-mono">{a.ticker}/{a.setupType}</span>
+                                  {activationDetails.map((a, i) => {
+                                    const actTime = a.triggerTs
+                                      ? (() => {
+                                          const d = new Date(a.triggerTs);
+                                          if (isNaN(d.getTime())) return null;
+                                          const h = d.getHours();
+                                          const m = d.getMinutes();
+                                          const ampm = h >= 12 ? "PM" : "AM";
+                                          return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+                                        })()
+                                      : null;
+                                    return (
+                                      <div key={`act-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/10 text-xs">
+                                        <div className="flex items-center gap-2">
+                                          {a.isBtod && <Star className="w-3 h-3 text-violet-400" />}
+                                          <Zap className="w-3 h-3 text-amber-400" />
+                                          <span className="font-mono">{a.ticker}/{a.setupType}</span>
+                                          {actTime && <span className="text-[10px] text-amber-400/70 font-mono">{actTime}</span>}
+                                        </div>
+                                        <span className="text-muted-foreground">@${a.entryPrice.toFixed(2)}</span>
                                       </div>
-                                      <span className="text-muted-foreground">@${a.entryPrice.toFixed(2)}</span>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                   {hitDetails.map((h, i) => (
                                     <div key={`hit-${i}`} className="flex items-center justify-between px-2 py-1.5 rounded bg-emerald-500/5 border border-emerald-500/10 text-xs">
                                       <div className="flex items-center gap-2">
