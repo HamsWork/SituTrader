@@ -394,7 +394,7 @@ export async function simulateAllTradeTracking(
   sig: Signal,
   ctx: SimDayContext,
 ): Promise<SimTrackingResult[]> {
-  const { fetchDailyBarsCached, fetchIntradayBarsCached, buildOccSymbol, getStrikeIncrement, generateFridaysBetween } = await import("./lib/polygon");
+  const { fetchIntradayBars, buildOccSymbol, getStrikeIncrement, generateFridaysBetween } = await import("./lib/polygon");
 
   const entryPrice = sig.entryPriceAtActivation ?? 0;
   const stopPrice = sig.stopPrice ?? 0;
@@ -408,15 +408,18 @@ export async function simulateAllTradeTracking(
 
   const stopDist = tp?.stopDistance ?? Math.abs(entryPrice - stopPrice);
 
-  const sharesBars = await fetchDailyBarsCached(
+  const sharesBars = await fetchIntradayBars(
     sig.ticker,
     activationDate,
     ctx.config.endDate,
+    "1",
   );
 
   const results: SimTrackingResult[] = [];
+  const barSources: Record<string, import("./lib/polygon").PolygonBar[]> = {};
 
   if (sharesBars.length > 0) {
+    barSources["Shares"] = sharesBars;
     results.push(runTenPercentTrack("Shares", entryPrice, stopPrice, isBuy, sharesBars));
     results.push(runNormalTrack("Shares", entryPrice, stopPrice, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars));
   }
@@ -431,7 +434,7 @@ export async function simulateAllTradeTracking(
     let optBars: import("./lib/polygon").PolygonBar[] = [];
     const optContractTicker = sig.optionContractTicker;
     if (optContractTicker) {
-      optBars = await fetchDailyBarsCached(optContractTicker, activationDate, ctx.config.endDate);
+      optBars = await fetchIntradayBars(optContractTicker, activationDate, ctx.config.endDate, "1");
     }
     if (optBars.length === 0) {
       const right: "C" | "P" = isBuy ? "C" : "P";
@@ -444,9 +447,10 @@ export async function simulateAllTradeTracking(
       const fridays = generateFridaysBetween(minExp, maxExp);
       const expDate = fridays.length > 0 ? fridays[0] : maxExp;
       const occSymbol = buildOccSymbol(sig.ticker, expDate, right, atmStrike);
-      optBars = await fetchDailyBarsCached(occSymbol, activationDate, ctx.config.endDate);
+      optBars = await fetchIntradayBars(occSymbol, activationDate, ctx.config.endDate, "1");
     }
     if (optBars.length > 0) {
+      barSources["Options"] = optBars;
       results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars));
       results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars));
     }
@@ -456,8 +460,9 @@ export async function simulateAllTradeTracking(
   const letfTicker = sig.instrumentTicker ?? letfJson?.ticker;
   const letfEntryPrice = sig.instrumentEntryPrice;
   if (letfTicker && letfEntryPrice && letfEntryPrice > 0) {
-    const letfBars = await fetchDailyBarsCached(letfTicker, activationDate, ctx.config.endDate);
+    const letfBars = await fetchIntradayBars(letfTicker, activationDate, ctx.config.endDate, "1");
     if (letfBars.length > 0) {
+      barSources["LETF"] = letfBars;
       const leverage = letfJson?.leverage ?? 1;
       const letfIsBuy = leverage < 0 ? !isBuy : isBuy;
       const letfStopPct = Math.abs(stopDist / entryPrice);
@@ -493,98 +498,35 @@ export async function simulateAllTradeTracking(
       const letfFridays = generateFridaysBetween(letfMinExp, letfMaxExp);
       const letfExpDate = letfFridays.length > 0 ? letfFridays[0] : letfMaxExp;
       const letfOccSymbol = buildOccSymbol(letfTicker, letfExpDate, letfRight, letfAtmStrike);
-      const letfOptBars = await fetchDailyBarsCached(letfOccSymbol, activationDate, ctx.config.endDate);
+      const letfOptBars = await fetchIntradayBars(letfOccSymbol, activationDate, ctx.config.endDate, "1");
       if (letfOptBars.length > 0) {
+        barSources["LETF Options"] = letfOptBars;
         results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars));
         results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars));
       }
     }
   }
 
-  const allExitTs = results.map(r => r.exitBarTs ?? 0).filter(t => t > 0);
-  const maxExitTs = allExitTs.length > 0 ? Math.max(...allExitTs) : 0;
-  const allEntryTs = results.map(r => r.entryBarTs ?? 0).filter(t => t > 0);
-  const minEntryTs = allEntryTs.length > 0 ? Math.min(...allEntryTs) : 0;
-
-  if (minEntryTs > 0 && maxExitTs > 0) {
-    const padMs = 5 * 60 * 1000;
-    const chartFrom = new Date(minEntryTs - padMs).toISOString().slice(0, 10);
-    const chartTo = new Date(maxExitTs + padMs).toISOString().slice(0, 10);
-
-    try {
-      const stock1m = await fetchIntradayBarsCached(sig.ticker, chartFrom, chartTo, "1");
-
-      let letf1m: import("./lib/polygon").PolygonBar[] = [];
-      if (letfTicker && letfTicker !== sig.ticker) {
-        letf1m = await fetchIntradayBarsCached(letfTicker, chartFrom, chartTo, "1");
-      }
-
-      const optionContractTicker = sig.optionContractTicker;
-      let opt1m: import("./lib/polygon").PolygonBar[] | null = null;
-      let letfOpt1m: import("./lib/polygon").PolygonBar[] | null = null;
-
-      for (const r of results) {
-        if (!r.entryBarTs || !r.exitBarTs) continue;
-        const fromTs = r.entryBarTs;
-        const toTs = r.exitBarTs + 24 * 60 * 60 * 1000;
-
-        let sourceBars: import("./lib/polygon").PolygonBar[];
-        if (r.instrument === "Shares") {
-          sourceBars = stock1m;
-        } else if (r.instrument === "Options") {
-          if (opt1m === null) {
-            if (optionContractTicker) {
-              opt1m = await fetchIntradayBarsCached(optionContractTicker, chartFrom, chartTo, "1");
-            }
-            if (!opt1m || opt1m.length === 0) {
-              const right: "C" | "P" = isBuy ? "C" : "P";
-              const inc = getStrikeIncrement(entryPrice);
-              const atmStrike = Math.round(entryPrice / inc) * inc;
-              const minExp = chartFrom;
-              const maxExpD = new Date(chartFrom);
-              maxExpD.setDate(maxExpD.getDate() + 14);
-              const maxExp = maxExpD.toISOString().slice(0, 10);
-              const fridays = generateFridaysBetween(minExp, maxExp);
-              const expDate = fridays.length > 0 ? fridays[0] : maxExp;
-              const occSym = buildOccSymbol(sig.ticker, expDate, right, atmStrike);
-              opt1m = await fetchIntradayBarsCached(occSym, chartFrom, chartTo, "1");
-            }
-            if (!opt1m) opt1m = [];
-          }
-          sourceBars = opt1m;
-        } else if (r.instrument === "LETF") {
-          sourceBars = letf1m.length > 0 ? letf1m : stock1m;
-        } else {
-          if (letfOpt1m === null && letfTicker) {
-            const letfIsBuy2 = (letfJson?.leverage ?? 1) < 0 ? !isBuy : isBuy;
-            const letfRight: "C" | "P" = letfIsBuy2 ? "C" : "P";
-            const letfPrice = letfEntryPrice ?? 0;
-            if (letfPrice > 0) {
-              const letfInc = getStrikeIncrement(letfPrice);
-              const letfAtm = Math.round(letfPrice / letfInc) * letfInc;
-              const minExp = chartFrom;
-              const maxExpD = new Date(chartFrom);
-              maxExpD.setDate(maxExpD.getDate() + 14);
-              const maxExp = maxExpD.toISOString().slice(0, 10);
-              const fridays = generateFridaysBetween(minExp, maxExp);
-              const expDate = fridays.length > 0 ? fridays[0] : maxExp;
-              const occSym = buildOccSymbol(letfTicker, expDate, letfRight, letfAtm);
-              letfOpt1m = await fetchIntradayBarsCached(occSym, chartFrom, chartTo, "1");
-            }
-            if (!letfOpt1m) letfOpt1m = [];
-          }
-          sourceBars = (letfOpt1m && letfOpt1m.length > 0) ? letfOpt1m : [];
-        }
-
-        const sliced = sourceBars.filter(b => b.t >= fromTs && b.t <= toTs);
-        r.chartBars = sliced.map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
-      }
-    } catch (err: any) {
-      console.error(`[sim] Error fetching 1m chart bars: ${err.message}`);
-    }
+  const padMs = 5 * 60 * 1000;
+  for (const r of results) {
+    if (!r.entryBarTs || !r.exitBarTs) continue;
+    const src = barSources[r.instrument];
+    if (!src || src.length === 0) continue;
+    const fromTs = r.entryBarTs - padMs;
+    const toTs = r.exitBarTs + padMs;
+    r.chartBars = src.filter(b => b.t >= fromTs && b.t <= toTs).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
   }
 
   return results;
+}
+
+function tradingDaysFromTs(entryTs: number, exitTs: number): number {
+  const d1 = new Date(entryTs);
+  const d2 = new Date(exitTs);
+  d1.setUTCHours(0, 0, 0, 0);
+  d2.setUTCHours(0, 0, 0, 0);
+  const diffMs = d2.getTime() - d1.getTime();
+  return Math.max(1, Math.round(diffMs / (24 * 60 * 60 * 1000)) + 1);
 }
 
 function runTenPercentTrack(
@@ -599,11 +541,9 @@ function runTenPercentTrack(
     : ((entryPrice - stopPrice) / entryPrice) * 100;
 
   let lastMilestone = 0;
-  let durationDays = 0;
   const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
 
   for (const bar of bars) {
-    durationDays++;
 
     const favorablePct = isBuy
       ? ((bar.h - entryPrice) / entryPrice) * 100
@@ -612,18 +552,19 @@ function runTenPercentTrack(
     const stopHit = isBuy ? bar.l <= stopPrice : bar.h >= stopPrice;
 
     if (stopHit) {
+      const days = entryBarTs ? tradingDaysFromTs(entryBarTs, bar.t) : 1;
       if (lastMilestone === 0) {
         return {
           instrument, tradeType: "ten_percent", win: false,
           profitPercent: parseFloat((-Math.abs(stopPctFromEntry)).toFixed(2)),
-          lastMilestone: 0, durationDays, exitReason: "stop_loss",
+          lastMilestone: 0, durationDays: days, exitReason: "stop_loss",
           entryBarTs, exitBarTs: bar.t,
           chartEntry: entryPrice, chartStop: stopPrice,
         };
       } else {
         return {
           instrument, tradeType: "ten_percent", win: true,
-          profitPercent: lastMilestone, lastMilestone, durationDays,
+          profitPercent: lastMilestone, lastMilestone, durationDays: days,
           exitReason: "milestone_then_stop",
           entryBarTs, exitBarTs: bar.t,
           chartEntry: entryPrice, chartStop: stopPrice,
@@ -637,12 +578,14 @@ function runTenPercentTrack(
     }
   }
 
+  const lastTs = bars.length > 0 ? bars[bars.length - 1].t : undefined;
+  const endDays = entryBarTs && lastTs ? tradingDaysFromTs(entryBarTs, lastTs) : 1;
   return {
     instrument, tradeType: "ten_percent",
     win: lastMilestone > 0,
     profitPercent: lastMilestone > 0 ? lastMilestone : 0,
-    lastMilestone, durationDays, exitReason: "end_of_data",
-    entryBarTs, exitBarTs: bars.length > 0 ? bars[bars.length - 1].t : undefined,
+    lastMilestone, durationDays: endDays, exitReason: "end_of_data",
+    entryBarTs, exitBarTs: lastTs,
     chartEntry: entryPrice, chartStop: stopPrice,
   };
 }
@@ -657,24 +600,22 @@ function runNormalTrack(
   bars: import("./lib/polygon").PolygonBar[],
 ): SimTrackingResult {
   const stopPctFromEntry = Math.abs(stopPrice - entryPrice) / entryPrice * 100;
-  let durationDays = 0;
   let t1Hit = false;
   const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
   const target = t2Price ?? t1Price;
 
   for (const bar of bars) {
-    durationDays++;
-
     const stopHit = isBuy ? bar.l <= stopPrice : bar.h >= stopPrice;
     const t1HitThisBar = isBuy ? bar.h >= t1Price : bar.l <= t1Price;
     const t2HitThisBar = t2Price != null && (isBuy ? bar.h >= t2Price : bar.l <= t2Price);
 
     if (t2HitThisBar) {
       const profitPct = Math.abs(t2Price! - entryPrice) / entryPrice * 100;
+      const days = entryBarTs ? tradingDaysFromTs(entryBarTs, bar.t) : 1;
       return {
         instrument, tradeType: "normal", win: true,
         profitPercent: parseFloat(profitPct.toFixed(2)),
-        lastMilestone: 2, durationDays, exitReason: "target_hit",
+        lastMilestone: 2, durationDays: days, exitReason: "target_hit",
         entryBarTs, exitBarTs: bar.t,
         chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
       };
@@ -685,12 +626,13 @@ function runNormalTrack(
     }
 
     if (stopHit) {
+      const days = entryBarTs ? tradingDaysFromTs(entryBarTs, bar.t) : 1;
       if (t1Hit) {
         const profitPct = Math.abs(t1Price - entryPrice) / entryPrice * 100;
         return {
           instrument, tradeType: "normal", win: true,
           profitPercent: parseFloat((profitPct * 0.5).toFixed(2)),
-          lastMilestone: 1, durationDays, exitReason: "milestone_then_stop",
+          lastMilestone: 1, durationDays: days, exitReason: "milestone_then_stop",
           entryBarTs, exitBarTs: bar.t,
           chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
         };
@@ -698,12 +640,15 @@ function runNormalTrack(
       return {
         instrument, tradeType: "normal", win: false,
         profitPercent: parseFloat((-stopPctFromEntry).toFixed(2)),
-        lastMilestone: 0, durationDays, exitReason: "stop_loss",
+        lastMilestone: 0, durationDays: days, exitReason: "stop_loss",
         entryBarTs, exitBarTs: bar.t,
         chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
       };
     }
   }
+
+  const lastTs = bars.length > 0 ? bars[bars.length - 1].t : undefined;
+  const endDays = entryBarTs && lastTs ? tradingDaysFromTs(entryBarTs, lastTs) : 1;
 
   if (t1Hit) {
     const lastClose = bars[bars.length - 1].c;
@@ -713,8 +658,8 @@ function runNormalTrack(
     return {
       instrument, tradeType: "normal", win: true,
       profitPercent: parseFloat(unrealized.toFixed(2)),
-      lastMilestone: 1, durationDays, exitReason: "end_of_data",
-      entryBarTs, exitBarTs: bars[bars.length - 1].t,
+      lastMilestone: 1, durationDays: endDays, exitReason: "end_of_data",
+      entryBarTs, exitBarTs: lastTs,
       chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
     };
   }
@@ -727,8 +672,8 @@ function runNormalTrack(
     instrument, tradeType: "normal",
     win: unrealized > 0,
     profitPercent: parseFloat(unrealized.toFixed(2)),
-    lastMilestone: 0, durationDays, exitReason: "end_of_data",
-    entryBarTs, exitBarTs: bars.length > 0 ? bars[bars.length - 1].t : undefined,
+    lastMilestone: 0, durationDays: endDays, exitReason: "end_of_data",
+    entryBarTs, exitBarTs: lastTs,
     chartEntry: entryPrice, chartStop: stopPrice, chartTarget: target,
   };
 }
