@@ -1,0 +1,70 @@
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import ndjson from "ndjson";
+import { pipeline } from "stream";
+import fs from "fs";
+
+const s3 = new S3Client({
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: process.env.FLATFILE_AWS_KEY,
+    secretAccessKey: process.env.FLATFILE_AWS_SECRET,
+  },
+});
+
+async function streamFlatFile(prefix) {
+  const date = new Date("2025-03-27");
+  const year  = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day   = String(date.getUTCDate()).padStart(2, "0");
+
+  const key = `${prefix}/${year}/${month}/${day}/options-${prefix}-${year}${month}${day}.ndjson`;
+
+  const command = new GetObjectCommand({
+    Bucket: "polygon-option-data", // example
+    Key: key,
+  });
+
+  const data = await s3.send(command);
+  return data.Body.pipe(ndjson.parse());
+}
+
+async function reconstructSnapshot() {
+  const timestampMs = new Date("2025-03-27T14:30:00Z").getTime();
+
+  const tradesStream = await streamFlatFile("trades");
+  const quotesStream = await streamFlatFile("quotes");
+
+  let closestTrade, closestQuote;
+
+  await Promise.all([
+    new Promise((resolve) =>
+      pipeline(tradesStream, async function (source) {
+        for await (const trade of source) {
+          if (trade.sym === "AAPL230616C00150000") {
+            if (!closestTrade || Math.abs(trade.t - timestampMs) < Math.abs(closestTrade.t - timestampMs)) {
+              closestTrade = trade;
+            }
+          }
+        }
+        resolve();
+      })
+    ),
+    new Promise((resolve) =>
+      pipeline(quotesStream, async function (source) {
+        for await (const quote of source) {
+          if (quote.sym === "AAPL230616C00150000") {
+            if (!closestQuote || Math.abs(quote.t - timestampMs) < Math.abs(closestQuote.t - timestampMs)) {
+              closestQuote = quote;
+            }
+          }
+        }
+        resolve();
+      })
+    ),
+  ]);
+
+  console.log("Closest Trade:", closestTrade);
+  console.log("Closest Quote:", closestQuote);
+}
+
+reconstructSnapshot().catch(console.error);
