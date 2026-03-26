@@ -328,10 +328,9 @@ export async function handlePostActivationSim(
           instruments.push("LETF", "LETF Options");
 
           const activationEntry = mut.entryPrice ?? 0;
-          const effectiveDirection = activationEntry < sig.magnetPrice
-            ? "up-to-magnet" : "down-to-magnet";
           const stopDist = tp?.stopDistance ?? 0;
-          const effectiveStop = effectiveDirection === "up-to-magnet"
+          const isBuy = sig.direction?.includes("up");
+          const effectiveStop = isBuy
             ? activationEntry - stopDist
             : activationEntry + stopDist;
 
@@ -342,7 +341,7 @@ export async function handlePostActivationSim(
             signalId: sig.id,
             ticker: sig.ticker,
             setupType: sig.setupType,
-            direction: effectiveDirection,
+            direction: sig.direction,
             entryPrice: activationEntry,
             stopPrice: effectiveStop,
             targetPrice: sig.magnetPrice,
