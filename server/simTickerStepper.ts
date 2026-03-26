@@ -727,7 +727,7 @@ export class SimTickerStepper {
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
-        status: s.status,
+        status: s.status, optionsJson: s.optionsJson ?? null,
       }));
 
     const activeSignals = Array.from(this.allSignals.values())

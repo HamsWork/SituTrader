@@ -156,6 +156,36 @@ export default function BacktestPage() {
   const [backtestProgress, setBacktestProgress] = useState<{ completed: number; total: number; ticker: string; setup: string } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
+  interface SimOptionsJson {
+    mode: string;
+    tradable: boolean;
+    contract?: {
+      ticker: string;
+      strike: number;
+      expiration: string;
+      right: "C" | "P";
+      bid: number;
+      ask: number;
+      mark: number;
+      openInterest: number;
+      impliedVol: number | null;
+      delta: number | null;
+      gamma: number | null;
+      theta: number | null;
+      vega: number | null;
+    };
+    checks?: {
+      oiOk: boolean;
+      spreadOk: boolean;
+      openInterest: number | null;
+      spread: number | null;
+      bid: number | null;
+      ask: number | null;
+      checkedAt: string;
+      reasonIfFail: string | null;
+    };
+  }
+
   interface SimSignalSummary {
     id: number;
     ticker: string;
@@ -174,6 +204,7 @@ export default function BacktestPage() {
     t2?: number | null;
     bias?: "BUY" | "SELL" | null;
     riskReward?: number | null;
+    optionsJson?: SimOptionsJson | null;
   }
 
   interface SimBtodStatus {
@@ -1347,49 +1378,6 @@ export default function BacktestPage() {
                               </div>
 
                               <div className="space-y-2">
-                                <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400">
-                                  <Target className="w-3.5 h-3.5" />
-                                  On Deck ({onDeckSignals.length})
-                                </div>
-                                {onDeckSignals.length > 0 ? (
-                                  <div className="space-y-1 max-h-64 overflow-y-auto">
-                                    {[...onDeckSignals].sort((a, b) => b.qualityScore - a.qualityScore).map((sig) => (
-                                      <div key={sig.id} className={`flex items-center justify-between px-2 py-1.5 rounded text-xs ${
-                                        sig.status === "hit" ? "bg-emerald-500/5 border border-emerald-500/10" :
-                                        sig.status === "miss" ? "bg-red-500/5 border border-red-500/10" :
-                                        "bg-blue-500/5 border border-blue-500/10"
-                                      }`} data-testid={`sim-ondeck-${sig.id}`}>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-mono font-semibold">{sig.ticker}</span>
-                                          <span className="text-muted-foreground">{sig.setupType}</span>
-                                          <Badge variant="outline" className="text-[9px] h-4 px-1">
-                                            {sig.direction === "BEARISH" ? "SELL" : "BUY"}
-                                          </Badge>
-                                          <span className="text-muted-foreground">${sig.magnetPrice.toFixed(2)}</span>
-                                          {sig.targetDate && (
-                                            <span className="text-[9px] text-muted-foreground">{sig.targetDate}</span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-semibold text-yellow-500">QS {sig.qualityScore}</span>
-                                          <span className="text-[9px] text-muted-foreground">{sig.tier}</span>
-                                          <span className={`text-[9px] font-medium ${
-                                            sig.status === "hit" ? "text-emerald-400" :
-                                            sig.status === "miss" ? "text-red-400" :
-                                            "text-muted-foreground"
-                                          }`}>
-                                            {sig.status === "hit" ? "HIT" : sig.status === "miss" ? "MISS" : "PENDING"}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-[10px] text-muted-foreground px-2">No on-deck signals</p>
-                                )}
-                              </div>
-
-                              <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   Today's Events
@@ -1441,6 +1429,107 @@ export default function BacktestPage() {
                                   )}
                                 </div>
                               </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400">
+                                <Target className="w-3.5 h-3.5" />
+                                On Deck ({onDeckSignals.length})
+                              </div>
+                              {onDeckSignals.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs" data-testid="table-ondeck-signals">
+                                    <thead>
+                                      <tr className="border-b border-zinc-800 text-muted-foreground">
+                                        <th className="text-left py-1.5 pr-2 font-medium">Ticker</th>
+                                        <th className="text-left py-1.5 pr-2 font-medium">Setup</th>
+                                        <th className="text-left py-1.5 pr-2 font-medium">Bias</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Magnet</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">QS</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Tier</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Option</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Strike</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Exp</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Bid/Ask</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Mark</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Delta</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">OI</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Tradable</th>
+                                        <th className="text-center py-1.5 px-2 font-medium">Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {[...onDeckSignals].sort((a, b) => b.qualityScore - a.qualityScore).map((sig) => {
+                                        const opt = sig.optionsJson as SimOptionsJson | null;
+                                        const c = opt?.contract;
+                                        return (
+                                          <tr key={sig.id} className="border-b border-zinc-800/30" data-testid={`sim-ondeck-${sig.id}`}>
+                                            <td className="py-1.5 pr-2 font-mono font-semibold">{sig.ticker}</td>
+                                            <td className="py-1.5 pr-2 text-muted-foreground">{sig.setupType}</td>
+                                            <td className="py-1.5 pr-2">
+                                              <Badge variant="outline" className={`text-[9px] h-4 px-1 ${sig.direction?.includes("down") ? "border-red-500/30 text-red-400" : "border-emerald-500/30 text-emerald-400"}`}>
+                                                {sig.direction?.includes("down") ? "SELL" : "BUY"}
+                                              </Badge>
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-muted-foreground">${sig.magnetPrice.toFixed(2)}</td>
+                                            <td className="text-center py-1.5 px-2 font-semibold text-yellow-500">{sig.qualityScore}</td>
+                                            <td className="text-center py-1.5 px-2 text-[10px] text-muted-foreground">{sig.tier}</td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px]">
+                                              {c ? (
+                                                <span className={c.right === "C" ? "text-emerald-400" : "text-red-400"}>{c.right === "C" ? "Call" : "Put"}</span>
+                                              ) : (
+                                                <span className="text-zinc-600">—</span>
+                                              )}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px]">
+                                              {c ? `$${c.strike.toFixed(0)}` : "—"}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px] text-muted-foreground">
+                                              {c?.expiration ?? "—"}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px]">
+                                              {c ? `${c.bid.toFixed(2)}/${c.ask.toFixed(2)}` : "—"}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px] font-semibold">
+                                              {c ? `$${c.mark.toFixed(2)}` : "—"}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px]">
+                                              {c?.delta != null ? c.delta.toFixed(2) : "—"}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2 font-mono text-[10px]">
+                                              {c?.openInterest != null ? c.openInterest.toLocaleString() : "—"}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2">
+                                              {opt ? (
+                                                opt.tradable ? (
+                                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">YES</span>
+                                                ) : (
+                                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">
+                                                    {opt.checks?.reasonIfFail ?? "NO"}
+                                                  </span>
+                                                )
+                                              ) : (
+                                                <span className="text-zinc-600">—</span>
+                                              )}
+                                            </td>
+                                            <td className="text-center py-1.5 px-2">
+                                              <span className={`text-[9px] font-medium ${
+                                                sig.status === "hit" ? "text-emerald-400" :
+                                                sig.status === "miss" ? "text-red-400" :
+                                                "text-muted-foreground"
+                                              }`}>
+                                                {sig.status === "hit" ? "HIT" : sig.status === "miss" ? "MISS" : "PENDING"}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-muted-foreground px-2">No on-deck signals</p>
+                              )}
                             </div>
 
                             <div className="space-y-2">
