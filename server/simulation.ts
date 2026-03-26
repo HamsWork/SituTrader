@@ -22,11 +22,12 @@ export interface RankedSimEntry {
 
 export interface SimTrackingResult {
   instrument: string;
+  tradeType: "ten_percent" | "normal";
   win: boolean;
   profitPercent: number;
   lastMilestone: number;
   durationDays: number;
-  exitReason: "stop_loss" | "milestone_then_stop" | "end_of_data";
+  exitReason: "stop_loss" | "milestone_then_stop" | "end_of_data" | "target_hit";
 }
 
 export interface SimTradeSyncCall {
@@ -314,7 +315,7 @@ export async function handlePostActivationSim(
           if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
 
-          const trackingResults = await simulateTenPercentTracking(sig, ctx);
+          const trackingResults = await simulateAllTradeTracking(sig, ctx);
 
           const anyWin = trackingResults.some((r) => r.win);
           ctx.dayResult.tradeSyncCalls.push({
@@ -356,7 +357,7 @@ export async function handlePostActivationSim(
   }
 }
 
-async function simulateTenPercentTracking(
+async function simulateAllTradeTracking(
   sig: Signal,
   ctx: SimDayContext,
 ): Promise<SimTrackingResult[]> {
@@ -372,35 +373,106 @@ async function simulateTenPercentTracking(
     ? sig.activatedTs.slice(0, 10)
     : ctx.today;
 
-  const bars = await fetchDailyBarsCached(
+  const stopDist = tp?.stopDistance ?? Math.abs(entryPrice - stopPrice);
+
+  const sharesBars = await fetchDailyBarsCached(
     sig.ticker,
     activationDate,
     ctx.config.endDate,
   );
 
-  if (bars.length === 0) return [];
+  const results: SimTrackingResult[] = [];
 
-  const sharesResult = runTenPercentMilestoneTrack(
-    "Shares",
-    entryPrice,
-    stopPrice,
-    isBuy,
-    bars,
-    activationDate,
-  );
+  if (sharesBars.length > 0) {
+    results.push(runTenPercentTrack("Shares", entryPrice, stopPrice, isBuy, sharesBars));
+    results.push(runNormalTrack("Shares", entryPrice, stopPrice, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars));
+  }
 
-  return [sharesResult];
+  const optionEntryMark = sig.optionEntryMark;
+  if (optionEntryMark && optionEntryMark > 0 && sharesBars.length > 0) {
+    const delta = 0.5;
+    const optStopPrice = Math.max(0, optionEntryMark - delta * stopDist);
+    const optT1Price = optionEntryMark + delta * Math.abs((tp?.t1 ?? sig.magnetPrice) - entryPrice);
+    const optT2 = tp?.t2 != null ? optionEntryMark + delta * Math.abs(tp.t2 - entryPrice) : null;
+
+    const optBars = deriveOptionBarsFromUnderlying(sharesBars, entryPrice, optionEntryMark, delta, isBuy);
+    results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars));
+    results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars));
+  }
+
+  const letfJson = sig.leveragedEtfJson as import("@shared/schema").LeveragedEtfSuggestion | null;
+  const letfTicker = sig.instrumentTicker ?? letfJson?.ticker;
+  const letfEntryPrice = sig.instrumentEntryPrice;
+  if (letfTicker && letfEntryPrice && letfEntryPrice > 0) {
+    const letfBars = await fetchDailyBarsCached(letfTicker, activationDate, ctx.config.endDate);
+    if (letfBars.length > 0) {
+      const leverage = letfJson?.leverage ?? 1;
+      const letfIsBuy = leverage < 0 ? !isBuy : isBuy;
+      const letfStopPct = Math.abs(stopDist / entryPrice);
+      const letfStop = letfIsBuy
+        ? letfEntryPrice * (1 - letfStopPct * Math.abs(leverage))
+        : letfEntryPrice * (1 + letfStopPct * Math.abs(leverage));
+      const letfT1Pct = Math.abs((tp?.t1 ?? sig.magnetPrice) - entryPrice) / entryPrice;
+      const letfT1 = letfIsBuy
+        ? letfEntryPrice * (1 + letfT1Pct * Math.abs(leverage))
+        : letfEntryPrice * (1 - letfT1Pct * Math.abs(leverage));
+      const letfT2 = tp?.t2 != null
+        ? (letfIsBuy
+            ? letfEntryPrice * (1 + (Math.abs(tp.t2 - entryPrice) / entryPrice) * Math.abs(leverage))
+            : letfEntryPrice * (1 - (Math.abs(tp.t2 - entryPrice) / entryPrice) * Math.abs(leverage)))
+        : null;
+
+      results.push(runTenPercentTrack("LETF", letfEntryPrice, letfStop, letfIsBuy, letfBars));
+      results.push(runNormalTrack("LETF", letfEntryPrice, letfStop, letfT1, letfT2, letfIsBuy, letfBars));
+
+      const letfOptDelta = 0.5;
+      const letfOptEntry = letfEntryPrice * 0.03;
+      const letfOptStop = Math.max(0, letfOptEntry - letfOptDelta * Math.abs(letfStop - letfEntryPrice));
+      const letfOptT1 = letfOptEntry + letfOptDelta * Math.abs(letfT1 - letfEntryPrice);
+      const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice) : null;
+
+      const letfOptBars = deriveOptionBarsFromUnderlying(letfBars, letfEntryPrice, letfOptEntry, letfOptDelta, letfIsBuy);
+      results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars));
+      results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars));
+    }
+  }
+
+  return results;
 }
 
-function runTenPercentMilestoneTrack(
+function deriveOptionBarsFromUnderlying(
+  underlyingBars: import("./lib/polygon").PolygonBar[],
+  underlyingEntry: number,
+  optionEntry: number,
+  delta: number,
+  underlyingIsBuy: boolean,
+): import("./lib/polygon").PolygonBar[] {
+  return underlyingBars.map((bar) => {
+    const sign = underlyingIsBuy ? 1 : -1;
+    const hMove = sign * (bar.h - underlyingEntry);
+    const lMove = sign * (bar.l - underlyingEntry);
+    const oMove = sign * (bar.o - underlyingEntry);
+    const cMove = sign * (bar.c - underlyingEntry);
+
+    const optH = Math.max(0.01, optionEntry + delta * Math.max(hMove, lMove));
+    const optL = Math.max(0.01, optionEntry + delta * Math.min(hMove, lMove));
+    const optO = Math.max(0.01, optionEntry + delta * oMove);
+    const optC = Math.max(0.01, optionEntry + delta * cMove);
+
+    return { o: optO, h: optH, l: optL, c: optC, v: bar.v, t: bar.t };
+  });
+}
+
+function runTenPercentTrack(
   instrument: string,
   entryPrice: number,
   stopPrice: number,
   isBuy: boolean,
   bars: import("./lib/polygon").PolygonBar[],
-  activationDate: string,
 ): SimTrackingResult {
-  const stopPercent = ((stopPrice - entryPrice) / entryPrice) * 100;
+  const stopPctFromEntry = isBuy
+    ? ((stopPrice - entryPrice) / entryPrice) * 100
+    : ((entryPrice - stopPrice) / entryPrice) * 100;
 
   let lastMilestone = 0;
   let durationDays = 0;
@@ -408,22 +480,19 @@ function runTenPercentMilestoneTrack(
   for (const bar of bars) {
     durationDays++;
 
-    const highPct = ((bar.h - entryPrice) / entryPrice) * 100;
-    const lowPct = ((bar.l - entryPrice) / entryPrice) * 100;
+    const favorablePct = isBuy
+      ? ((bar.h - entryPrice) / entryPrice) * 100
+      : ((entryPrice - bar.l) / entryPrice) * 100;
 
-    const favorablePct = isBuy ? highPct : -lowPct;
-    const adversePct = isBuy ? lowPct : -highPct;
-
-    const stopHit = isBuy
-      ? bar.l <= stopPrice
-      : bar.h >= stopPrice;
+    const stopHit = isBuy ? bar.l <= stopPrice : bar.h >= stopPrice;
 
     if (stopHit) {
       if (lastMilestone === 0) {
         return {
           instrument,
+          tradeType: "ten_percent",
           win: false,
-          profitPercent: parseFloat(stopPercent.toFixed(2)),
+          profitPercent: parseFloat((-Math.abs(stopPctFromEntry)).toFixed(2)),
           lastMilestone: 0,
           durationDays,
           exitReason: "stop_loss",
@@ -431,6 +500,7 @@ function runTenPercentMilestoneTrack(
       } else {
         return {
           instrument,
+          tradeType: "ten_percent",
           win: true,
           profitPercent: lastMilestone,
           lastMilestone,
@@ -446,12 +516,105 @@ function runTenPercentMilestoneTrack(
     }
   }
 
-  const win = lastMilestone > 0;
   return {
     instrument,
-    win,
-    profitPercent: win ? lastMilestone : 0,
+    tradeType: "ten_percent",
+    win: lastMilestone > 0,
+    profitPercent: lastMilestone > 0 ? lastMilestone : 0,
     lastMilestone,
+    durationDays,
+    exitReason: "end_of_data",
+  };
+}
+
+function runNormalTrack(
+  instrument: string,
+  entryPrice: number,
+  stopPrice: number,
+  t1Price: number,
+  t2Price: number | null,
+  isBuy: boolean,
+  bars: import("./lib/polygon").PolygonBar[],
+): SimTrackingResult {
+  const stopPctFromEntry = Math.abs(stopPrice - entryPrice) / entryPrice * 100;
+  let durationDays = 0;
+  let t1Hit = false;
+
+  for (const bar of bars) {
+    durationDays++;
+
+    const stopHit = isBuy ? bar.l <= stopPrice : bar.h >= stopPrice;
+    const t1HitThisBar = isBuy ? bar.h >= t1Price : bar.l <= t1Price;
+    const t2HitThisBar = t2Price != null && (isBuy ? bar.h >= t2Price : bar.l <= t2Price);
+
+    if (t2HitThisBar) {
+      const profitPct = Math.abs(t2Price! - entryPrice) / entryPrice * 100;
+      return {
+        instrument,
+        tradeType: "normal",
+        win: true,
+        profitPercent: parseFloat(profitPct.toFixed(2)),
+        lastMilestone: 2,
+        durationDays,
+        exitReason: "target_hit",
+      };
+    }
+
+    if (t1HitThisBar && !t1Hit) {
+      t1Hit = true;
+    }
+
+    if (stopHit) {
+      if (t1Hit) {
+        const profitPct = Math.abs(t1Price - entryPrice) / entryPrice * 100;
+        return {
+          instrument,
+          tradeType: "normal",
+          win: true,
+          profitPercent: parseFloat((profitPct * 0.5).toFixed(2)),
+          lastMilestone: 1,
+          durationDays,
+          exitReason: "milestone_then_stop",
+        };
+      }
+      return {
+        instrument,
+        tradeType: "normal",
+        win: false,
+        profitPercent: parseFloat((-stopPctFromEntry).toFixed(2)),
+        lastMilestone: 0,
+        durationDays,
+        exitReason: "stop_loss",
+      };
+    }
+  }
+
+  if (t1Hit) {
+    const lastClose = bars[bars.length - 1].c;
+    const unrealized = isBuy
+      ? (lastClose - entryPrice) / entryPrice * 100
+      : (entryPrice - lastClose) / entryPrice * 100;
+    return {
+      instrument,
+      tradeType: "normal",
+      win: true,
+      profitPercent: parseFloat(unrealized.toFixed(2)),
+      lastMilestone: 1,
+      durationDays,
+      exitReason: "end_of_data",
+    };
+  }
+
+  const lastClose = bars.length > 0 ? bars[bars.length - 1].c : entryPrice;
+  const unrealized = isBuy
+    ? (lastClose - entryPrice) / entryPrice * 100
+    : (entryPrice - lastClose) / entryPrice * 100;
+  return {
+    instrument,
+    tradeType: "normal",
+    win: unrealized > 0,
+    profitPercent: parseFloat(unrealized.toFixed(2)),
+    lastMilestone: 0,
     durationDays,
     exitReason: "end_of_data",
   };
