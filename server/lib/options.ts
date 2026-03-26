@@ -316,8 +316,6 @@ export async function enrichOptionsJsonForTicker(
         continue;
       }
 
-      console.log("Options chain", chain);
-      log(`Options chain for ${ticker} at ${new Date(now.valueOf()).toISOString()}: ${chain.length} contracts`, "options");
       const nearATM = [...chain]
         .filter(c => Math.abs(c.strike_price - currentTickerPrice!) / currentTickerPrice! < 0.03)
         .sort((a, b) => {
@@ -398,6 +396,7 @@ export async function enrichOptionsJsonForTicker(
           reasonIfFail: !oiOk ? "LOW_OI" : !spreadOk ? "WIDE_SPREAD" : null,
         },
       };
+
 
       if (ctx) {
         signal.optionsJson = optionsData;

@@ -252,7 +252,6 @@ export async function fetchOptionsChainAtTime(
     });
   }
 
-  console.log("Realistic contracts", realisticContracts);
   if (realisticContracts.length === 0) return [];
 
   realisticContracts.sort(
