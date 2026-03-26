@@ -234,7 +234,6 @@ export async function fetchOptionsChainAtTime(
     maxExpDate,
     limit,
   );
-  console.log("All contracts", allContracts);
 
   if (allContracts.length === 0) return [];
 
@@ -254,6 +253,7 @@ export async function fetchOptionsChainAtTime(
   const enriched: OptionsContract[] = [];
   for (const contract of candidates) {
     const mark = await fetchOptionMarkAtTime(contract.ticker, timestampMs);
+
     if (mark == null || mark <= 0) continue;
 
     const spread = mark * 0.05;
@@ -597,6 +597,7 @@ export async function fetchOptionMarkAtTime(
         limit: "20",
       },
     );
+    console.log("fetchOptionMarkAtTime data", data);
     if (data?.results && data.results.length > 0) {
       let closest = data.results[0];
       let minDist = Math.abs(closest.t - timestampMs);
