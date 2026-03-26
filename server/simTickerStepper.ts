@@ -143,7 +143,7 @@ export class SimTickerStepper {
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
-        status: s.status,
+        status: s.status, optionsJson: s.optionsJson ?? null,
       }));
     const active = Array.from(this.allSignals.values())
       .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
@@ -183,7 +183,7 @@ export class SimTickerStepper {
       .map((s) => ({
         id: s.id, ticker: s.ticker, setupType: s.setupType, direction: s.direction,
         qualityScore: s.qualityScore, tier: s.tier, magnetPrice: s.magnetPrice, targetDate: s.targetDate,
-        status: s.status,
+        status: s.status, optionsJson: s.optionsJson ?? null,
       }));
     const active = Array.from(this.allSignals.values())
       .filter((s) => s.activationStatus === "ACTIVE" && s.status !== "hit" && s.status !== "miss")
@@ -811,7 +811,7 @@ export class SimTickerStepper {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
         const { allResolved, hadEvents } = await this.liveMonitorTick();
-        if (hadEvents) this.emitDayUpdatePublic();
+        this.emitDayUpdatePublic();
         if (allResolved) break;
         this.ctx.currentMin++;
       }
