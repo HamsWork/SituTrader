@@ -236,28 +236,14 @@ export async function fetchOptionsChainAtTime(
   );
 
   if (allContracts.length === 0) return [];
-
-  const strikeTolerance = stockPrice * 0.1;
-  const realistic = allContracts.filter(
-    (c) => Math.abs(c.strike_price - stockPrice) <= strikeTolerance,
-  );
-  if (realistic.length === 0) return [];
-
-  realistic.sort(
-    (a, b) =>
-      Math.abs(a.strike_price - stockPrice) -
-      Math.abs(b.strike_price - stockPrice),
-  );
-  const candidates = realistic.slice(0, 10);
-
-  const enriched: OptionsContract[] = [];
-  for (const contract of candidates) {
+  const realisticContracts: OptionsContract[] = [];
+  for (const contract of allContracts) {
     const mark = await fetchOptionMarkAtTime(contract.ticker, timestampMs);
 
     if (mark == null || mark <= 0) continue;
 
     const spread = mark * 0.05;
-    enriched.push({
+    realisticContracts.push({
       ...contract,
       bid: Math.max(0.01, mark - spread / 2),
       ask: mark + spread / 2,
@@ -265,7 +251,17 @@ export async function fetchOptionsChainAtTime(
     });
   }
 
-  return enriched;
+  console.log("Realistic contracts", realisticContracts);
+  if (realisticContracts.length === 0) return [];
+
+  realisticContracts.sort(
+    (a, b) =>
+      Math.abs(a.strike_price - stockPrice) -
+      Math.abs(b.strike_price - stockPrice),
+  );
+  // const candidates = realisticContracts.slice(0, 10);
+
+  return realisticContracts;
 }
 
 function buildOccSymbol(
@@ -597,8 +593,8 @@ export async function fetchOptionMarkAtTime(
         limit: "20",
       },
     );
-    console.log("fetchOptionMarkAtTime data", data);
     if (data?.results && data.results.length > 0) {
+      console.log("fetchOptionMarkAtTime results", data.results);
       let closest = data.results[0];
       let minDist = Math.abs(closest.t - timestampMs);
       for (const bar of data.results) {
