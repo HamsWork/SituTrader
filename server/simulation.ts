@@ -20,6 +20,14 @@ export interface RankedSimEntry {
   rank: number;
 }
 
+export interface SimTrackingBar {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+}
+
 export interface SimTrackingResult {
   instrument: string;
   tradeType: "ten_percent" | "normal";
@@ -28,6 +36,10 @@ export interface SimTrackingResult {
   lastMilestone: number;
   durationDays: number;
   exitReason: "stop_loss" | "milestone_then_stop" | "end_of_data" | "target_hit";
+  chartBars?: SimTrackingBar[];
+  chartEntry?: number;
+  chartStop?: number;
+  chartTarget?: number;
 }
 
 export interface SimTradeSyncCall {
@@ -482,6 +494,10 @@ function deriveOptionBarsFromUnderlying(
   });
 }
 
+function toBars(bars: import("./lib/polygon").PolygonBar[], count: number): SimTrackingBar[] {
+  return bars.slice(0, count).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
+}
+
 function runTenPercentTrack(
   instrument: string,
   entryPrice: number,
@@ -515,6 +531,8 @@ function runTenPercentTrack(
           lastMilestone: 0,
           durationDays,
           exitReason: "stop_loss",
+          chartBars: toBars(bars, durationDays),
+          chartEntry: entryPrice, chartStop: stopPrice,
         };
       } else {
         return {
@@ -525,6 +543,8 @@ function runTenPercentTrack(
           lastMilestone,
           durationDays,
           exitReason: "milestone_then_stop",
+          chartBars: toBars(bars, durationDays),
+          chartEntry: entryPrice, chartStop: stopPrice,
         };
       }
     }
@@ -543,6 +563,8 @@ function runTenPercentTrack(
     lastMilestone,
     durationDays,
     exitReason: "end_of_data",
+    chartBars: toBars(bars, durationDays),
+    chartEntry: entryPrice, chartStop: stopPrice,
   };
 }
 
@@ -576,6 +598,8 @@ function runNormalTrack(
         lastMilestone: 2,
         durationDays,
         exitReason: "target_hit",
+        chartBars: toBars(bars, durationDays),
+        chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
       };
     }
 
@@ -594,6 +618,8 @@ function runNormalTrack(
           lastMilestone: 1,
           durationDays,
           exitReason: "milestone_then_stop",
+          chartBars: toBars(bars, durationDays),
+          chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
         };
       }
       return {
@@ -604,6 +630,8 @@ function runNormalTrack(
         lastMilestone: 0,
         durationDays,
         exitReason: "stop_loss",
+        chartBars: toBars(bars, durationDays),
+        chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
       };
     }
   }
@@ -621,6 +649,8 @@ function runNormalTrack(
       lastMilestone: 1,
       durationDays,
       exitReason: "end_of_data",
+      chartBars: toBars(bars, durationDays),
+      chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
     };
   }
 
@@ -636,6 +666,8 @@ function runNormalTrack(
     lastMilestone: 0,
     durationDays,
     exitReason: "end_of_data",
+    chartBars: toBars(bars, durationDays),
+    chartEntry: entryPrice, chartStop: stopPrice, chartTarget: t2Price ?? t1Price,
   };
 }
 

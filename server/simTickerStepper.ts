@@ -27,7 +27,6 @@ import {
   SIM_RTH_START_CT,
   SIM_RTH_END_CT,
   SIM_AFTER_CLOSE_CT,
-  simulateAllTradeTracking,
 } from "./simulation";
 import { initializeBtodForDay } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
@@ -391,7 +390,7 @@ export class SimTickerStepper {
     return false;
   }
 
-  private async applyActivationMutation(mut: ActivationMutation, min: number): Promise<void> {
+  private applyActivationMutation(mut: ActivationMutation, min: number): void {
     const sig = this.allSignals.get(mut.signalId);
     if (!sig) return;
 
@@ -423,40 +422,11 @@ export class SimTickerStepper {
         const wasBtod = lastActivation?.signalId === sig.id && lastActivation?.isBtod;
 
         if (wasBtod) {
+          const activationEntry = mut.entryPrice ?? 0;
           const tp = sig.tradePlanJson as TradePlan;
           const instruments: string[] = ["Shares"];
           if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
-
-          const activationEntry = mut.entryPrice ?? 0;
-          const stopDist = tp?.stopDistance ?? 0;
-          const isBuy = sig.direction?.includes("up");
-          const effectiveStop = isBuy
-            ? activationEntry - stopDist
-            : activationEntry + stopDist;
-
-          let trackingResults: any[] = [];
-          try {
-            trackingResults = await simulateAllTradeTracking(sig, this.ctx);
-          } catch (err: any) {
-            this.emit("log", { message: `  ⚠ TradeSync tracking error: ${err.message}`, type: "error" });
-          }
-
-          const anyWin = trackingResults.some((r: any) => r.win);
-          this.dayResult.tradeSyncCalls.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            direction: sig.direction,
-            entryPrice: activationEntry,
-            stopPrice: effectiveStop,
-            targetPrice: sig.magnetPrice,
-            instruments,
-            status: "SIMULATED",
-            triggerTs: mut.activatedTs ?? this.today,
-            outcome: anyWin ? "hit" : "miss",
-            trackingResults,
-          });
 
           this.emit("log", {
             message: `  ★ BTOD ACTIVATION [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${activationEntry.toFixed(2)} (Rank #${this.top3.find((r) => r.signalId === sig.id)?.rank})`,
@@ -549,7 +519,7 @@ export class SimTickerStepper {
       hadEvents = hadEvents || result.hadEvents;
 
       for (const mut of result.mutations) {
-        await this.applyActivationMutation(mut, this.ctx.currentMin);
+        this.applyActivationMutation(mut, this.ctx.currentMin);
       }
     }
 
