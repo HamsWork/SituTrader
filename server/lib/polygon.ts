@@ -466,12 +466,30 @@ export async function fetchStockPrice(ticker: string): Promise<number | null> {
       `/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`,
     );
     const t = data.ticker;
-    if (!t) return null;
-    return t.lastTrade?.p ?? t.day?.c ?? 0;
+    if (t) {
+      const price = t.lastTrade?.p ?? t.day?.c ?? t.prevDay?.c ?? null;
+      if (price != null && price > 0) return price;
+    }
   } catch (err: any) {
-    log(`Error fetching stock price for ${ticker}: ${err.message}`, "polygon");
-    return null;
+    log(`Snapshot error for ${ticker}: ${err.message}`, "polygon");
   }
+
+  try {
+    const today = new Date();
+    const to = today.toISOString().slice(0, 10);
+    const from = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const data = await polygonGet(
+      `/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}`,
+      { adjusted: "true", sort: "desc", limit: "1" },
+    );
+    if (data?.results?.length > 0) {
+      return data.results[0].c ?? null;
+    }
+  } catch (err: any) {
+    log(`Daily bar fallback error for ${ticker}: ${err.message}`, "polygon");
+  }
+
+  return null;
 }
 
 export async function fetchSnapshot(ticker: string): Promise<{
