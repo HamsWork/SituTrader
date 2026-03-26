@@ -327,6 +327,14 @@ export async function handlePostActivationSim(
           if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
 
+          const activationEntry = mut.entryPrice ?? 0;
+          const effectiveDirection = activationEntry < sig.magnetPrice
+            ? "up-to-magnet" : "down-to-magnet";
+          const stopDist = tp?.stopDistance ?? 0;
+          const effectiveStop = effectiveDirection === "up-to-magnet"
+            ? activationEntry - stopDist
+            : activationEntry + stopDist;
+
           const trackingResults = await simulateAllTradeTracking(sig, ctx);
 
           const anyWin = trackingResults.some((r) => r.win);
@@ -334,9 +342,9 @@ export async function handlePostActivationSim(
             signalId: sig.id,
             ticker: sig.ticker,
             setupType: sig.setupType,
-            direction: sig.direction,
-            entryPrice: mut.entryPrice ?? 0,
-            stopPrice: sig.stopPrice,
+            direction: effectiveDirection,
+            entryPrice: activationEntry,
+            stopPrice: effectiveStop,
             targetPrice: sig.magnetPrice,
             instruments,
             status: "SIMULATED",
