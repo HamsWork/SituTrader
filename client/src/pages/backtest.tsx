@@ -1349,9 +1349,18 @@ export default function BacktestPage() {
                                               {tc.direction.includes("down") ? "SELL" : "BUY"}
                                             </Badge>
                                           </div>
-                                          <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
-                                            {tc.status}
-                                          </Badge>
+                                          {tc.outcome && tc.outcome !== "pending" ? (
+                                            <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
+                                              tc.outcome === "hit" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                              "bg-red-500/10 text-red-400 border-red-500/20"
+                                            }`}>
+                                              {tc.outcome === "hit" ? "HIT" : "MISS"}
+                                            </Badge>
+                                          ) : (
+                                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                                              {tc.status}
+                                            </Badge>
+                                          )}
                                         </div>
                                         <div className="flex items-center gap-3 text-muted-foreground">
                                           <span>Entry: ${tc.entryPrice.toFixed(2)}</span>
@@ -1473,10 +1482,62 @@ export default function BacktestPage() {
                     <Card>
                       <CardContent className="pt-3 pb-3 px-4 text-center">
                         <div className="text-xl font-bold text-indigo-400" data-testid="text-sim-tradesync">{simFinalStats.totalTradeSyncCalls ?? 0}</div>
-                        <div className="text-[10px] text-muted-foreground">TradeSync Calls ({simFinalStats.tradeSyncDays ?? 0}/{simFinalStats.totalDays} days)</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          TS Calls ({simFinalStats.tradeSyncDays ?? 0}/{simFinalStats.totalDays} days)
+                          {simFinalStats.tsWinRate != null && ` · ${(simFinalStats.tsWinRate * 100).toFixed(1)}% WR`}
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
+
+                  {simFinalStats.instrumentStats && simFinalStats.instrumentStats.length > 0 && (
+                    <Card className="border-zinc-800 bg-zinc-950/50">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 mb-2">
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          TradeSync Instrument Breakdown
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs" data-testid="table-instrument-stats">
+                            <thead>
+                              <tr className="border-b border-zinc-800 text-muted-foreground">
+                                <th className="text-left py-1.5 pr-3 font-medium">Instrument</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Trades</th>
+                                <th className="text-center py-1.5 px-2 font-medium">W/L</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Win Rate</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Avg P/L</th>
+                                <th className="text-center py-1.5 px-2 font-medium">Total P/L</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {simFinalStats.instrumentStats.map((is: any) => (
+                                <tr key={is.instrument} className="border-b border-zinc-800/50" data-testid={`row-instrument-${is.instrument}`}>
+                                  <td className="py-1.5 pr-3 font-mono font-semibold">{is.instrument}</td>
+                                  <td className="text-center py-1.5 px-2">{is.totalTrades}{is.pending > 0 && <span className="text-muted-foreground"> ({is.pending}p)</span>}</td>
+                                  <td className="text-center py-1.5 px-2">
+                                    <span className="text-emerald-400">{is.wins}W</span>
+                                    <span className="text-muted-foreground">/</span>
+                                    <span className="text-red-400">{is.losses}L</span>
+                                  </td>
+                                  <td className="text-center py-1.5 px-2">
+                                    <span className={is.winRate >= 0.5 ? "text-emerald-400" : "text-red-400"}>
+                                      {(is.winRate * 100).toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className={`text-center py-1.5 px-2 font-mono ${is.avgProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                    {is.avgProfitPct >= 0 ? "+" : ""}{is.avgProfitPct.toFixed(2)}%
+                                  </td>
+                                  <td className={`text-center py-1.5 px-2 font-mono font-semibold ${is.totalProfitPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                    {is.totalProfitPct >= 0 ? "+" : ""}{is.totalProfitPct.toFixed(2)}%
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                 </div>
               )}

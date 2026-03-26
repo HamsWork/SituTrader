@@ -31,6 +31,18 @@ export interface SimTradeSyncCall {
   instruments: string[];
   status: "SIMULATED";
   triggerTs: string;
+  outcome?: "hit" | "miss" | "pending";
+}
+
+export interface InstrumentStats {
+  instrument: string;
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  winRate: number;
+  avgProfitPct: number;
+  totalProfitPct: number;
 }
 
 export interface SimBtodStatus {
@@ -309,11 +321,70 @@ export async function runSimulation(
     (s, r) => s + r.activations.filter((a) => a.isBtod).length,
     0,
   );
-  const totalTradeSyncCalls = results.reduce(
-    (s, r) => s + r.tradeSyncCalls.length,
-    0,
-  );
+  const allHitSignalIds = new Set(results.flatMap((r) => r.hits.map((h) => h.signalId)));
+  const allMissSignalIds = new Set(results.flatMap((r) => r.misses.map((m) => m.signalId)));
+  const allTsCalls: SimTradeSyncCall[] = results.flatMap((r) => r.tradeSyncCalls);
+  for (const tc of allTsCalls) {
+    if (allHitSignalIds.has(tc.signalId)) tc.outcome = "hit";
+    else if (allMissSignalIds.has(tc.signalId)) tc.outcome = "miss";
+    else tc.outcome = "pending";
+  }
+
+  const LETF_MULTIPLIER = 2;
+  const instrumentStatsMap = new Map<string, { wins: number; losses: number; pending: number; profitPcts: number[] }>();
+  for (const tc of allTsCalls) {
+    const isLong = tc.direction.includes("up");
+    const entry = tc.entryPrice;
+    const target = tc.targetPrice;
+    const stop = tc.stopPrice ?? entry;
+
+    const underlyingProfitPct = isLong
+      ? ((target - entry) / entry) * 100
+      : ((entry - target) / entry) * 100;
+    const underlyingLossPct = isLong
+      ? ((stop - entry) / entry) * 100
+      : ((entry - stop) / entry) * 100;
+
+    for (const inst of tc.instruments) {
+      if (!instrumentStatsMap.has(inst)) instrumentStatsMap.set(inst, { wins: 0, losses: 0, pending: 0, profitPcts: [] });
+      const bucket = instrumentStatsMap.get(inst)!;
+
+      let multiplier = 1;
+      if (inst === "LETF" || inst === "LETF Options") multiplier = LETF_MULTIPLIER;
+
+      if (tc.outcome === "hit") {
+        bucket.wins++;
+        bucket.profitPcts.push(underlyingProfitPct * multiplier);
+      } else if (tc.outcome === "miss") {
+        bucket.losses++;
+        bucket.profitPcts.push(underlyingLossPct * multiplier);
+      } else {
+        bucket.pending++;
+      }
+    }
+  }
+
+  const instrumentStats: InstrumentStats[] = Array.from(instrumentStatsMap.entries()).map(([inst, data]) => {
+    const resolved = data.wins + data.losses;
+    return {
+      instrument: inst,
+      totalTrades: resolved + data.pending,
+      wins: data.wins,
+      losses: data.losses,
+      pending: data.pending,
+      winRate: resolved > 0 ? data.wins / resolved : 0,
+      avgProfitPct: data.profitPcts.length > 0 ? data.profitPcts.reduce((a, b) => a + b, 0) / data.profitPcts.length : 0,
+      totalProfitPct: data.profitPcts.reduce((a, b) => a + b, 0),
+    };
+  });
+
+  const totalTradeSyncCalls = allTsCalls.length;
   const tradeSyncDays = results.filter((r) => r.tradeSyncCalls.length > 0).length;
+  const tsWins = allTsCalls.filter((tc) => tc.outcome === "hit").length;
+  const tsLosses = allTsCalls.filter((tc) => tc.outcome === "miss").length;
+  const tsResolved = tsWins + tsLosses;
+  const tsWinRate = tsResolved > 0 ? tsWins / tsResolved : 0;
+
   const hitRate =
     totalHitsAll / Math.max(1, totalHitsAll + totalMissesAll) || 0;
 
@@ -326,6 +397,8 @@ export async function runSimulation(
     btodActivations,
     totalTradeSyncCalls,
     tradeSyncDays,
+    tsWinRate,
+    instrumentStats,
     hitRate,
     dayResults: results.map((r) => ({
       date: r.date,
@@ -359,9 +432,15 @@ export async function runSimulation(
     type: "info",
   });
   emit("log", {
-    message: `  TradeSync Calls: ${finalStats.totalTradeSyncCalls} (${finalStats.tradeSyncDays}/${finalStats.totalDays} days)`,
+    message: `  TradeSync Calls: ${finalStats.totalTradeSyncCalls} (${finalStats.tradeSyncDays}/${finalStats.totalDays} days) | Win Rate: ${(tsWinRate * 100).toFixed(1)}% (${tsWins}W/${tsLosses}L)`,
     type: "info",
   });
+  for (const is of instrumentStats) {
+    emit("log", {
+      message: `    ${is.instrument}: ${(is.winRate * 100).toFixed(1)}% WR (${is.wins}W/${is.losses}L) | Avg P/L: ${is.avgProfitPct >= 0 ? "+" : ""}${is.avgProfitPct.toFixed(2)}% | Total: ${is.totalProfitPct >= 0 ? "+" : ""}${is.totalProfitPct.toFixed(2)}%`,
+      type: "info",
+    });
+  }
 
   emit("done", finalStats);
 

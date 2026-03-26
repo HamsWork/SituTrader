@@ -767,6 +767,14 @@ export class SimTickerStepper {
     }
     this.dayResult.summary = { totalPending, totalActive, totalHit, totalMiss };
 
+    const hitSigIds = new Set(this.dayResult.hits.map((h) => h.signalId));
+    const missSigIds = new Set(this.dayResult.misses.map((m) => m.signalId));
+    for (const tc of this.dayResult.tradeSyncCalls) {
+      if (hitSigIds.has(tc.signalId)) tc.outcome = "hit";
+      else if (missSigIds.has(tc.signalId)) tc.outcome = "miss";
+      else tc.outcome = "pending";
+    }
+
     this.dayResult.phases.push(this.captureSnapshot("End of Day"));
 
     this.emit("log", {
