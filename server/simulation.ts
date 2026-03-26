@@ -211,6 +211,8 @@ export interface SimDayContext {
   dayIdx: number;
   totalDays: number;
   btodExecutedToday: boolean;
+  btodSignalIds: Set<number>;
+  dayResult: SimDayResult;
 
 }
 
@@ -268,6 +270,77 @@ export function applyMutationsToCtx(
   }
 }
 
+export function handlePostActivationSim(
+  ctx: SimDayContext,
+  mutations: import("./lib/signalHelper").ActivationMutation[],
+): void {
+  for (const mut of mutations) {
+    const sig = ctx.allSignals.get(mut.signalId);
+    if (!sig) continue;
+
+    switch (mut.type) {
+      case "activated": {
+        const isBtodCandidate = ctx.btodSignalIds.has(sig.id);
+
+        if (isBtodCandidate && !ctx.btodExecutedToday) {
+          ctx.btodExecutedToday = true;
+
+          ctx.dayResult.activations.push({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            setupType: sig.setupType,
+            triggerTs: mut.activatedTs ?? ctx.today,
+            entryPrice: mut.entryPrice ?? 0,
+            isBtod: true,
+          });
+
+          ctx.dayResult.btodStatus.phase = "CLOSED";
+          ctx.dayResult.btodStatus.gateOpen = false;
+          ctx.dayResult.btodStatus.executedSignalId = sig.id;
+          ctx.dayResult.btodStatus.executedTicker = sig.ticker;
+
+          const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
+          const instruments: string[] = ["Shares"];
+          if (tp?.stopDistance) instruments.push("Options");
+          instruments.push("LETF", "LETF Options");
+
+          ctx.dayResult.tradeSyncCalls.push({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            setupType: sig.setupType,
+            direction: sig.direction,
+            entryPrice: mut.entryPrice ?? 0,
+            stopPrice: sig.stopPrice,
+            targetPrice: sig.magnetPrice,
+            instruments,
+            status: "SIMULATED",
+            triggerTs: mut.activatedTs ?? ctx.today,
+          });
+        } else {
+          ctx.dayResult.activations.push({
+            signalId: sig.id,
+            ticker: sig.ticker,
+            setupType: sig.setupType,
+            triggerTs: mut.activatedTs ?? ctx.today,
+            entryPrice: mut.entryPrice ?? 0,
+            isBtod: false,
+          });
+        }
+        break;
+      }
+
+      case "invalidated":
+      case "entry_invalidated":
+        ctx.dayResult.misses.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          reason: mut.message ?? "Entry trigger invalidated",
+        });
+        break;
+    }
+  }
+}
+
 export interface SimDayOutput {
   result: SimDayResult;
   nextSimSignalId: number;
@@ -317,6 +390,20 @@ export async function runSimulation(
   // In simulation, treat the simulated "today" as the only available "current time".
   // So each day we fetch daily bars up to `today`, not up to config.endDate.
 
+  const emptyDayResult: SimDayResult = {
+    date: tradingDays[0],
+    phase: "scan",
+    signalsGenerated: [],
+    btodTop3: [],
+    btodStatus: { phase: "SELECTIVE", gateOpen: true, executedSignalId: null, executedTicker: null, top3Ids: [], eligibleCount: 0 },
+    tradeSyncCalls: [],
+    activations: [],
+    hits: [],
+    misses: [],
+    summary: { totalPending: 0, totalActive: 0, totalHit: 0, totalMiss: 0 },
+    phases: [],
+  };
+
   const currentDayCtx: SimDayContext = {
     config,
     emit,
@@ -330,6 +417,8 @@ export async function runSimulation(
     activeSignals: new Map(),
     currentMin: SIM_BEFORE_PRE_OPEN_CT,
     btodExecutedToday: false,
+    btodSignalIds: new Set(),
+    dayResult: emptyDayResult,
     today: tradingDays[0],
     dayIdx: 0,
     totalDays: tradingDays.length,

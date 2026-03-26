@@ -255,7 +255,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
 }
 
 import { hasLeveragedEtfMapping, selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
-import { SimDayContext, applyMutationsToCtx } from "server/simulation";
+import { SimDayContext, applyMutationsToCtx, handlePostActivationSim } from "server/simulation";
 
 export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null> {
   const letfData = signal.leveragedEtfJson as any;
@@ -350,6 +350,7 @@ export async function runActivationScanForTicker(
 
   if (ctx) {
     applyMutationsToCtx(ctx, mutations, now);
+    handlePostActivationSim(ctx, mutations);
   } else {
     await applyMutationsToDb(mutations);
 

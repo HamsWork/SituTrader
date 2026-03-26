@@ -65,11 +65,12 @@ function formatSimTime(minutesCT: number): string {
 
 export class SimTickerStepper {
   private ctx: SimDayContext;
-  private dayResult: SimDayResult;
   
-  private btodSignalIds = new Set<number>();
   private top3: RankedSimEntry[] = [];
   private simTimeCT: number = SIM_PRE_OPEN_CT;
+
+  private get dayResult() { return this.ctx.dayResult; }
+  private get btodSignalIds() { return this.ctx.btodSignalIds; }
 
   private get config() { return this.ctx.config; }
   private get emit() { return this.ctx.emit; }
@@ -90,7 +91,7 @@ export class SimTickerStepper {
   constructor(ctx: SimDayContext) {
     this.ctx = ctx;
 
-    this.dayResult = {
+    ctx.dayResult = {
       date: this.today,
       phase: "scan",
       signalsGenerated: [],
@@ -110,6 +111,7 @@ export class SimTickerStepper {
       summary: { totalPending: 0, totalActive: 0, totalHit: 0, totalMiss: 0 },
       phases: [],
     };
+    ctx.btodSignalIds = new Set();
   }
 
   
@@ -330,7 +332,7 @@ export class SimTickerStepper {
       rank: r.rank,
     }));
     this.dayResult.btodTop3 = this.top3;
-    this.btodSignalIds = new Set(this.top3.map((r) => r.signalId));
+    this.ctx.btodSignalIds = new Set(this.top3.map((r) => r.signalId));
 
     this.dayResult.btodStatus = {
       phase: btodState.phase as "SELECTIVE" | "CLOSED",
@@ -386,11 +388,6 @@ export class SimTickerStepper {
 
     switch (mut.type) {
       case "invalidated":
-        this.dayResult.misses.push({
-          signalId: sig.id,
-          ticker: sig.ticker,
-          reason: mut.message,
-        });
         this.emit("log", {
           message: `  ✗ INVALIDATED [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} (entry $${(sig.entryPriceAtActivation ?? 0).toFixed(2)})`,
           type: "error",
@@ -413,41 +410,14 @@ export class SimTickerStepper {
 
       case "activated": {
         const isBtodCandidate = this.btodSignalIds.has(sig.id);
+        const lastActivation = this.dayResult.activations[this.dayResult.activations.length - 1];
+        const wasBtod = lastActivation?.signalId === sig.id && lastActivation?.isBtod;
 
-        if (isBtodCandidate && !this.btodExecutedToday) {
-          this.btodExecutedToday = true;
-
-          this.dayResult.activations.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            triggerTs: mut.activatedTs ?? this.today,
-            entryPrice: mut.entryPrice ?? 0,
-            isBtod: true,
-          });
-
-          this.dayResult.btodStatus.phase = "CLOSED";
-          this.dayResult.btodStatus.gateOpen = false;
-          this.dayResult.btodStatus.executedSignalId = sig.id;
-          this.dayResult.btodStatus.executedTicker = sig.ticker;
-
+        if (wasBtod) {
           const tp = sig.tradePlanJson as TradePlan;
           const instruments: string[] = ["Shares"];
           if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
-
-          this.dayResult.tradeSyncCalls.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            direction: sig.direction,
-            entryPrice: mut.entryPrice ?? 0,
-            stopPrice: sig.stopPrice,
-            targetPrice: sig.magnetPrice,
-            instruments,
-            status: "SIMULATED",
-            triggerTs: mut.activatedTs ?? this.today,
-          });
 
           this.emit("log", {
             message: `  ★ BTOD ACTIVATION [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${(mut.entryPrice ?? 0).toFixed(2)} (Rank #${this.top3.find((r) => r.signalId === sig.id)?.rank})`,
@@ -458,15 +428,6 @@ export class SimTickerStepper {
             type: "info",
           });
         } else {
-          this.dayResult.activations.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            triggerTs: mut.activatedTs ?? this.today,
-            entryPrice: mut.entryPrice ?? 0,
-            isBtod: false,
-          });
-
           this.emit("log", {
             message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${(mut.entryPrice ?? 0).toFixed(2)}${isBtodCandidate && this.btodExecutedToday ? " (BTOD gate closed)" : ""}`,
             type: "success",
@@ -476,11 +437,6 @@ export class SimTickerStepper {
       }
 
       case "entry_invalidated":
-        this.dayResult.misses.push({
-          signalId: sig.id,
-          ticker: sig.ticker,
-          reason: "Entry trigger invalidated",
-        });
         break;
     }
   }
