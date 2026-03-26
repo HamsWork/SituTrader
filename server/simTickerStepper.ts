@@ -386,9 +386,6 @@ export class SimTickerStepper {
 
     switch (mut.type) {
       case "invalidated":
-        sig.activationStatus = "INVALIDATED";
-        sig.status = "miss";
-        sig.missReason = mut.message;
         this.dayResult.misses.push({
           signalId: sig.id,
           ticker: sig.ticker,
@@ -401,8 +398,6 @@ export class SimTickerStepper {
         break;
 
       case "stop_to_be":
-        sig.stopStage = "BE";
-        sig.stopPrice = mut.stopPrice ?? sig.entryPriceAtActivation ?? 0;
         this.emit("log", {
           message: `  ⟳ ${mut.message.replace(/^STOP→BE: /, `STOP→BE [${formatSimTime(min)}]: `)}`,
           type: "info",
@@ -410,8 +405,6 @@ export class SimTickerStepper {
         break;
 
       case "time_stop":
-        sig.stopStage = "TIME_TIGHTENED";
-        sig.stopPrice = mut.stopPrice ?? sig.stopPrice;
         this.emit("log", {
           message: `  ⏱ ${mut.message.replace(/^TIME STOP: /, `TIME STOP [${formatSimTime(min)}]: `)}`,
           type: "info",
@@ -419,12 +412,6 @@ export class SimTickerStepper {
         break;
 
       case "activated": {
-        sig.activationStatus = "ACTIVE";
-        sig.activatedTs = mut.activatedTs ?? null;
-        sig.entryPriceAtActivation = mut.entryPrice ?? null;
-        sig.stopPrice = mut.stopPrice ?? null;
-        sig.stopStage = "INITIAL";
-
         const isBtodCandidate = this.btodSignalIds.has(sig.id);
 
         if (isBtodCandidate && !this.btodExecutedToday) {
@@ -489,9 +476,6 @@ export class SimTickerStepper {
       }
 
       case "entry_invalidated":
-        sig.activationStatus = "INVALIDATED";
-        sig.status = "miss";
-        sig.missReason = "Entry trigger invalidated";
         this.dayResult.misses.push({
           signalId: sig.id,
           ticker: sig.ticker,
@@ -565,11 +549,12 @@ export class SimTickerStepper {
     for (const ticker of tickerArr) {
       const pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
-      const tickerHadEvents = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
-      hadEvents = hadEvents || tickerHadEvents;
-    
-      // const tickerHadEvents = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
-      // hadEvents = hadEvents || tickerHadEvents;
+      const result = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
+      hadEvents = hadEvents || result.hadEvents;
+
+      for (const mut of result.mutations) {
+        this.applyActivationMutation(mut, this.ctx.currentMin);
+      }
     }
 
     const pendingCount = Array.from(this.ctx.onDeckSignals.values()).filter(
@@ -579,7 +564,7 @@ export class SimTickerStepper {
       (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
     ).length;
 
-    hadEvents = this.dayResult.activations.length > prevActivations ||
+    hadEvents = hadEvents || this.dayResult.activations.length > prevActivations ||
       this.dayResult.misses.length > prevMisses;
 
     if (pendingCount === 0 && activeCount === 0) {
@@ -853,8 +838,9 @@ export class SimTickerStepper {
       while (this.ctx.currentMin <= SIM_RTH_END_CT) {
         if (this.isAborted()) break;
         if (await this.checkPause()) break;
-        const hadEvents = await this.liveMonitorTick();
+        const { allResolved, hadEvents } = await this.liveMonitorTick();
         if (hadEvents) this.emitDayUpdatePublic();
+        if (allResolved) break;
         this.ctx.currentMin++;
       }
     }
