@@ -675,24 +675,39 @@ export async function fetchStockPriceAtTime(
       const inWindow = data.results.filter(
         (b: any) => b.t >= windowStart && b.t <= windowEnd,
       );
-      if (inWindow.length === 0) return null;
-      let closest = inWindow[0];
-      let minDist = Math.abs(closest.t - timestampMs);
-      for (const bar of inWindow) {
-        const dist = Math.abs(bar.t - timestampMs);
-        if (dist < minDist) {
-          closest = bar;
-          minDist = dist;
+      if (inWindow.length > 0) {
+        let closest = inWindow[0];
+        let minDist = Math.abs(closest.t - timestampMs);
+        for (const bar of inWindow) {
+          const dist = Math.abs(bar.t - timestampMs);
+          if (dist < minDist) {
+            closest = bar;
+            minDist = dist;
+          }
         }
+        const vwap = closest.vw ?? (closest.h + closest.l) / 2;
+        return Math.round(vwap * 100) / 100;
       }
-      const vwap = closest.vw ?? (closest.h + closest.l) / 2;
-      return Math.round(vwap * 100) / 100;
     }
-    return null;
   } catch (err: any) {
-    log(`fetchStockPriceAtTime error for ${ticker}: ${err.message}`, "polygon");
-    return null;
+    log(`fetchStockPriceAtTime 1m error for ${ticker}: ${err.message}`, "polygon");
   }
+
+  try {
+    const dateStr = new Date(timestampMs).toISOString().slice(0, 10);
+    const from = new Date(timestampMs - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const data = await polygonGet(
+      `/v2/aggs/ticker/${ticker}/range/1/day/${from}/${dateStr}`,
+      { adjusted: "true", sort: "desc", limit: "1" },
+    );
+    if (data?.results?.length > 0) {
+      return data.results[0].c ?? null;
+    }
+  } catch (err: any) {
+    log(`fetchStockPriceAtTime daily fallback error for ${ticker}: ${err.message}`, "polygon");
+  }
+
+  return null;
 }
 
 export async function fetchOptionMark(
