@@ -149,6 +149,14 @@ export interface OptionsContract {
   expiration_date: string;
   contract_type: "call" | "put";
   open_interest?: number;
+  bid?: number;
+  ask?: number;
+  mark?: number;
+  implied_volatility?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
 }
 
 export interface OptionsQuote {
@@ -162,9 +170,43 @@ export async function fetchOptionsChainAtTime(
   contractType: "call" | "put",
   minExpDate: string,
   maxExpDate: string,
-  limit: number = 50, 
+  limit: number = 50,
 ): Promise<OptionsContract[]> {
-  return await fetchOptionsChain(ticker, contractType, minExpDate, maxExpDate, limit);
+  const stockPrice = await fetchStockPriceAtTime(ticker, timestampMs);
+  if (stockPrice == null) {
+    log(`fetchOptionsChainAtTime: no stock price for ${ticker} at ${new Date(timestampMs).toISOString()}`, "polygon");
+    return [];
+  }
+
+  const allContracts = await fetchOptionsChain(ticker, contractType, minExpDate, maxExpDate, limit);
+  if (allContracts.length === 0) return [];
+
+  const strikeTolerance = stockPrice * 0.10;
+  const realistic = allContracts.filter(
+    (c) => Math.abs(c.strike_price - stockPrice) <= strikeTolerance,
+  );
+  if (realistic.length === 0) return [];
+
+  realistic.sort(
+    (a, b) => Math.abs(a.strike_price - stockPrice) - Math.abs(b.strike_price - stockPrice),
+  );
+  const candidates = realistic.slice(0, 10);
+
+  const enriched: OptionsContract[] = [];
+  for (const contract of candidates) {
+    const mark = await fetchOptionMarkAtTime(contract.ticker, timestampMs);
+    if (mark == null || mark <= 0) continue;
+
+    const spread = mark * 0.05;
+    enriched.push({
+      ...contract,
+      bid: Math.max(0.01, mark - spread / 2),
+      ask: mark + spread / 2,
+      mark,
+    });
+  }
+
+  return enriched;
 }
 
 export async function fetchOptionsChain(
