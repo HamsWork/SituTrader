@@ -156,7 +156,16 @@ export interface OptionsQuote {
   ask: number | null;
 }
 
-
+export async function fetchOptionsChainAtTime(
+  ticker: string,
+  timestampMs: number = Date.now(),
+  contractType: "call" | "put",
+  minExpDate: string,
+  maxExpDate: string,
+  limit: number = 50, 
+): Promise<OptionsContract[]> {
+  return await fetchOptionsChain(ticker, contractType, minExpDate, maxExpDate, limit);
+}
 
 export async function fetchOptionsChain(
   ticker: string,
