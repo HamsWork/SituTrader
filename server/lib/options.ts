@@ -244,7 +244,8 @@ export async function enrichOptionsJsonForTicker(
   ticker: string, 
   pendingSignals: Signal[], 
   ctx: SimDayContext
-): Promise<void> {
+): Promise<number> {
+  let updated = 0;
 
   const minOI = params.minOI ?? 500;
   const maxSpread = params.maxSpread ?? 0.05;
@@ -283,6 +284,7 @@ export async function enrichOptionsJsonForTicker(
             reasonIfFail: "NO_PRICE",
           },
         };
+        updated++;
         if (ctx){
           signal.optionsJson = optionsData
           ctx.allSignals.set(signal.id, signal);
@@ -305,6 +307,7 @@ export async function enrichOptionsJsonForTicker(
       );
       if (!chain || chain.length === 0) {
         const optionsData: OptionsData = { mode: "AUTO", tradable: false, checks: { oiOk: false, spreadOk: false, openInterest: null, spread: null, bid: null, ask: null, checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(), reasonIfFail: "NO_CONTRACTS" } };
+        updated++;
         if (ctx) {
           signal.optionsJson = optionsData;
           ctx.allSignals.set(signal.id, signal);
@@ -347,6 +350,7 @@ export async function enrichOptionsJsonForTicker(
             reasonIfFail: "NO_ATM_CONTRACT",
           },
         };
+        updated++;
         if (ctx) {
           signal.optionsJson = optionsData;
           ctx.allSignals.set(signal.id, signal);
@@ -392,7 +396,7 @@ export async function enrichOptionsJsonForTicker(
           bid,
           ask,
           checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
-          reasonIfFail: !oiOk ? "LOW_OI" : !spreadOk ? "WIDE_SPREAD" : null,
+          reasonIfFail: !oiOk ? "LOW_OI" : !spreadOk ? "WIDE_SPREAD" : undefined,
         },
       };
 
@@ -406,10 +410,12 @@ export async function enrichOptionsJsonForTicker(
       } else {
         await storage.updateSignalOptions(signal.id, optionsData);
       }
+      updated++;
     } catch (err: any) {
       log(`enrichOptionsJsonForTicker error for ${signal.ticker}/${signal.id}: ${err.message}`, "options");
     }
   }
+  return updated;
 }
 
 export async function enrichPendingSignalsWithOptions(params: EnrichParams = {}): Promise<EnrichResult> {

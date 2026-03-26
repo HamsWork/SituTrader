@@ -838,10 +838,15 @@ export class SimTickerStepper {
     
     if (!noSignals) {
       this.ctx.currentMin = SIM_RTH_START_CT;
-      if (this.isAborted() || await this.checkPause()) {
-      } else {
+      while (this.ctx.currentMin <= SIM_RTH_END_CT) {
+        if (this.isAborted()) break;
+        if (await this.checkPause()) break;
         const { allResolved, hadEvents } = await this.liveMonitorTick();
-        this.emitDayUpdatePublic();
+        if (hadEvents) {
+          this.emitDayUpdatePublic();
+        }
+        if (allResolved) break;
+        this.ctx.currentMin++;
       }
     }
     if (await this.liveMonitorFinalize()) return this.earlyReturn();

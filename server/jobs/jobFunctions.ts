@@ -303,20 +303,25 @@ export async function runLiveMonitorTickForTicker(
   activeSignals: Signal[],
   ctx: SimDayContext, 
 ): Promise<{ hadEvents: boolean; mutations: ActivationMutation[] }> {
+  let hadEvents = false;
   try {
-    await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
+    const updatedCount = await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
+    if (updatedCount > 0) {
+      hadEvents = true;
+    }
   } catch (err: any) {
     log(`Live monitor ticker ${ticker}: options enrichment error: ${err.message}`, "scheduler");
   }
 
   try {
     const { events, mutations } = await runActivationScanForTicker(ticker, pendingSignals, activeSignals, ctx);
-    return { hadEvents: events.length > 0 || mutations.length > 0, mutations };
+    hadEvents = hadEvents || events.length > 0 || mutations.length > 0;
+    return { hadEvents, mutations };
   } catch (err: any) {
     log(`Live monitor ticker ${ticker}: activation scan error: ${err.message}`, "scheduler");
   }
 
-  return { hadEvents: false, mutations: [] };
+  return { hadEvents, mutations: [] };
 }
 
 
