@@ -103,6 +103,7 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   if (!tr.chartBars || tr.chartBars.length === 0) return null;
 
   const bars = tr.chartBars;
+  const isBuy = tr.chartEntry != null && tr.chartStop != null && tr.chartEntry > tr.chartStop;
   const allPrices = bars.flatMap((b) => [b.h, b.l]);
   if (tr.chartEntry != null) allPrices.push(tr.chartEntry);
   if (tr.chartStop != null) allPrices.push(tr.chartStop);
@@ -147,8 +148,42 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
     return `${h}:${String(m).padStart(2, "0")}`;
   };
 
+  let entryBarIdx = -1;
+  let exitBarIdx = -1;
+  if (tr.chartEntry != null) {
+    for (let i = 0; i < bars.length; i++) {
+      if ((isBuy && bars[i].h >= tr.chartEntry) || (!isBuy && bars[i].l <= tr.chartEntry)) {
+        entryBarIdx = i;
+        break;
+      }
+    }
+    if (entryBarIdx === -1) entryBarIdx = 0;
+  }
+  if (tr.exitReason === "stop_loss" && tr.chartStop != null) {
+    for (let i = Math.max(0, entryBarIdx); i < bars.length; i++) {
+      if ((isBuy && bars[i].l <= tr.chartStop) || (!isBuy && bars[i].h >= tr.chartStop)) {
+        exitBarIdx = i;
+        break;
+      }
+    }
+  } else if ((tr.exitReason === "target_hit" || tr.exitReason === "t1_hit") && tr.chartTarget != null) {
+    for (let i = Math.max(0, entryBarIdx); i < bars.length; i++) {
+      if ((isBuy && bars[i].h >= tr.chartTarget) || (!isBuy && bars[i].l <= tr.chartTarget)) {
+        exitBarIdx = i;
+        break;
+      }
+    }
+  } else if (tr.exitReason === "milestone_then_stop" && tr.chartStop != null) {
+    for (let i = Math.max(0, entryBarIdx); i < bars.length; i++) {
+      if ((isBuy && bars[i].l <= tr.chartStop) || (!isBuy && bars[i].h >= tr.chartStop)) {
+        exitBarIdx = i;
+        break;
+      }
+    }
+  }
+
   return (
-    <div className="w-full overflow-x-auto mt-2" data-testid="trade-chart">
+    <div className="w-full overflow-x-auto mt-1" data-testid="trade-chart">
       <svg width={chartW} height={chartH} className="block" style={{ minWidth: 400 }}>
         <rect x={marginL} y={marginT} width={plotW} height={plotH} fill="#09090b" rx={2} />
         {yTicks.map((tick, i) => {
@@ -211,6 +246,35 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
             </g>
           );
         })}
+
+        {entryBarIdx >= 0 && tr.chartEntry != null && (() => {
+          const x = marginL + entryBarIdx * gap + gap / 2;
+          const y = yScale(tr.chartEntry);
+          return (
+            <g>
+              <line x1={x} y1={marginT} x2={x} y2={marginT + plotH} stroke="#3b82f6" strokeWidth={1} strokeDasharray="3 2" opacity={0.6} />
+              <polygon points={`${x},${y - 8} ${x - 4},${y - 14} ${x + 4},${y - 14}`} fill="#3b82f6" />
+              <text x={x} y={y - 16} textAnchor="middle" fill="#3b82f6" fontSize={7} fontFamily="monospace" fontWeight="bold">ENTRY</text>
+            </g>
+          );
+        })()}
+
+        {exitBarIdx >= 0 && (() => {
+          const x = marginL + exitBarIdx * gap + gap / 2;
+          const isStopExit = tr.exitReason === "stop_loss" || tr.exitReason === "milestone_then_stop";
+          const exitPrice = isStopExit ? tr.chartStop : tr.chartTarget;
+          if (exitPrice == null) return null;
+          const y = yScale(exitPrice);
+          const color = isStopExit ? "#ef4444" : "#22c55e";
+          const label = tr.exitReason === "target_hit" || tr.exitReason === "t1_hit" ? "TARGET HIT" : tr.exitReason === "milestone_then_stop" ? "STOPPED" : "STOPPED";
+          return (
+            <g>
+              <line x1={x} y1={marginT} x2={x} y2={marginT + plotH} stroke={color} strokeWidth={1} strokeDasharray="3 2" opacity={0.6} />
+              <circle cx={x} cy={y} r={4} fill={color} stroke="#09090b" strokeWidth={1} />
+              <text x={x} y={y + 14} textAnchor="middle" fill={color} fontSize={7} fontFamily="monospace" fontWeight="bold">{label}</text>
+            </g>
+          );
+        })()}
       </svg>
     </div>
   );
@@ -1748,50 +1812,54 @@ export default function BacktestPage() {
                                                 </tr>
                                               </thead>
                                               <tbody>
-                                                {tc.trackingResults.map((tr, j) => (
-                                                  <tr key={j} className="border-b border-zinc-800/20">
-                                                    <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
-                                                    <td className="py-1 pr-2">
-                                                      <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
-                                                        {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"}
-                                                      </span>
-                                                    </td>
-                                                    <td className="text-center py-1 px-1">
-                                                      {tr.win ? (
-                                                        <span className="text-emerald-400 font-semibold">WIN</span>
-                                                      ) : (
-                                                        <span className="text-red-400 font-semibold">LOSS</span>
+                                                {tc.trackingResults.map((tr, j) => {
+                                                  const hasChart = tr.chartBars && tr.chartBars.length > 0;
+                                                  return (
+                                                    <>
+                                                      <tr key={`row-${j}`} className="border-b border-zinc-800/20">
+                                                        <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
+                                                        <td className="py-1 pr-2">
+                                                          <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
+                                                            {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"}
+                                                          </span>
+                                                        </td>
+                                                        <td className="text-center py-1 px-1">
+                                                          {tr.win ? (
+                                                            <span className="text-emerald-400 font-semibold">WIN</span>
+                                                          ) : (
+                                                            <span className="text-red-400 font-semibold">LOSS</span>
+                                                          )}
+                                                        </td>
+                                                        <td className={`text-center py-1 px-1 font-mono ${tr.profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                          {tr.profitPercent >= 0 ? "+" : ""}{tr.profitPercent.toFixed(2)}%
+                                                        </td>
+                                                        <td className="text-center py-1 px-1 font-mono text-muted-foreground">{tr.durationDays}d</td>
+                                                        <td className="text-right py-1 pl-1">
+                                                          <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                                            tr.exitReason === "target_hit" ? "bg-emerald-500/15 text-emerald-400" :
+                                                            tr.exitReason === "stop_loss" ? "bg-red-500/15 text-red-400" :
+                                                            tr.exitReason === "milestone_then_stop" ? "bg-amber-500/15 text-amber-400" :
+                                                            "bg-zinc-500/15 text-zinc-400"
+                                                          }`}>
+                                                            {tr.exitReason === "target_hit" ? "Target" :
+                                                             tr.exitReason === "stop_loss" ? "Stopped" :
+                                                             tr.exitReason === "milestone_then_stop" ? "Partial" :
+                                                             "EOD"}
+                                                          </span>
+                                                        </td>
+                                                      </tr>
+                                                      {hasChart && (
+                                                        <tr key={`chart-${j}`}>
+                                                          <td colSpan={6} className="py-1">
+                                                            <TradeChart tr={tr} />
+                                                          </td>
+                                                        </tr>
                                                       )}
-                                                    </td>
-                                                    <td className={`text-center py-1 px-1 font-mono ${tr.profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                      {tr.profitPercent >= 0 ? "+" : ""}{tr.profitPercent.toFixed(2)}%
-                                                    </td>
-                                                    <td className="text-center py-1 px-1 font-mono text-muted-foreground">{tr.durationDays}d</td>
-                                                    <td className="text-right py-1 pl-1">
-                                                      <span className={`text-[9px] px-1 py-0.5 rounded ${
-                                                        tr.exitReason === "target_hit" ? "bg-emerald-500/15 text-emerald-400" :
-                                                        tr.exitReason === "stop_loss" ? "bg-red-500/15 text-red-400" :
-                                                        tr.exitReason === "milestone_then_stop" ? "bg-amber-500/15 text-amber-400" :
-                                                        "bg-zinc-500/15 text-zinc-400"
-                                                      }`}>
-                                                        {tr.exitReason === "target_hit" ? "Target" :
-                                                         tr.exitReason === "stop_loss" ? "Stopped" :
-                                                         tr.exitReason === "milestone_then_stop" ? "Partial" :
-                                                         "EOD"}
-                                                      </span>
-                                                    </td>
-                                                  </tr>
-                                                ))}
+                                                    </>
+                                                  );
+                                                })}
                                               </tbody>
                                             </table>
-                                            {tc.trackingResults?.filter((r) => r.chartBars && r.chartBars.length > 0).map((tr, ci) => (
-                                              <div key={ci} className="mt-2 border-t border-zinc-800/30 pt-2">
-                                                <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                                                  {tr.instrument} {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"} — 1m Chart
-                                                </div>
-                                                <TradeChart tr={tr} />
-                                              </div>
-                                            ))}
                                           </div>
                                         </div>
                                       )}
@@ -2073,45 +2141,49 @@ export default function BacktestPage() {
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {tc.trackingResults.map((tr: SimTrackingResult, j: number) => (
-                                            <tr key={j} className="border-b border-zinc-800/20">
-                                              <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
-                                              <td className="py-1 pr-2">
-                                                <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
-                                                  {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"}
-                                                </span>
-                                              </td>
-                                              <td className="text-center py-1 px-1">
-                                                {tr.win ? <span className="text-emerald-400 font-semibold">WIN</span> : <span className="text-red-400 font-semibold">LOSS</span>}
-                                              </td>
-                                              <td className={`text-center py-1 px-1 font-mono ${tr.profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                {tr.profitPercent >= 0 ? "+" : ""}{tr.profitPercent.toFixed(2)}%
-                                              </td>
-                                              <td className="text-center py-1 px-1 font-mono text-muted-foreground">{tr.durationDays}d</td>
-                                              <td className="text-right py-1 pl-1">
-                                                <span className={`text-[9px] px-1 py-0.5 rounded ${
-                                                  tr.exitReason === "target_hit" ? "bg-emerald-500/15 text-emerald-400" :
-                                                  tr.exitReason === "stop_loss" ? "bg-red-500/15 text-red-400" :
-                                                  tr.exitReason === "milestone_then_stop" ? "bg-amber-500/15 text-amber-400" :
-                                                  "bg-zinc-500/15 text-zinc-400"
-                                                }`}>
-                                                  {tr.exitReason === "target_hit" ? "Target" :
-                                                   tr.exitReason === "stop_loss" ? "Stopped" :
-                                                   tr.exitReason === "milestone_then_stop" ? "Partial" : "EOD"}
-                                                </span>
-                                              </td>
-                                            </tr>
-                                          ))}
+                                          {tc.trackingResults.map((tr: SimTrackingResult, j: number) => {
+                                            const hasChart = tr.chartBars && tr.chartBars.length > 0;
+                                            return (
+                                              <>
+                                                <tr key={`row-${j}`} className="border-b border-zinc-800/20">
+                                                  <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
+                                                  <td className="py-1 pr-2">
+                                                    <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
+                                                      {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"}
+                                                    </span>
+                                                  </td>
+                                                  <td className="text-center py-1 px-1">
+                                                    {tr.win ? <span className="text-emerald-400 font-semibold">WIN</span> : <span className="text-red-400 font-semibold">LOSS</span>}
+                                                  </td>
+                                                  <td className={`text-center py-1 px-1 font-mono ${tr.profitPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                    {tr.profitPercent >= 0 ? "+" : ""}{tr.profitPercent.toFixed(2)}%
+                                                  </td>
+                                                  <td className="text-center py-1 px-1 font-mono text-muted-foreground">{tr.durationDays}d</td>
+                                                  <td className="text-right py-1 pl-1">
+                                                    <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                                      tr.exitReason === "target_hit" ? "bg-emerald-500/15 text-emerald-400" :
+                                                      tr.exitReason === "stop_loss" ? "bg-red-500/15 text-red-400" :
+                                                      tr.exitReason === "milestone_then_stop" ? "bg-amber-500/15 text-amber-400" :
+                                                      "bg-zinc-500/15 text-zinc-400"
+                                                    }`}>
+                                                      {tr.exitReason === "target_hit" ? "Target" :
+                                                       tr.exitReason === "stop_loss" ? "Stopped" :
+                                                       tr.exitReason === "milestone_then_stop" ? "Partial" : "EOD"}
+                                                    </span>
+                                                  </td>
+                                                </tr>
+                                                {hasChart && (
+                                                  <tr key={`chart-${j}`}>
+                                                    <td colSpan={6} className="py-1">
+                                                      <TradeChart tr={tr} />
+                                                    </td>
+                                                  </tr>
+                                                )}
+                                              </>
+                                            );
+                                          })}
                                         </tbody>
                                       </table>
-                                      {tc.trackingResults?.filter((r: SimTrackingResult) => r.chartBars && r.chartBars.length > 0).map((tr: SimTrackingResult, ci: number) => (
-                                        <div key={ci} className="mt-2 border-t border-zinc-800/30 pt-2">
-                                          <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                                            {tr.instrument} {tr.tradeType === "ten_percent" ? "10%" : "T1/T2"} — 1m Chart
-                                          </div>
-                                          <TradeChart tr={tr} />
-                                        </div>
-                                      ))}
                                     </div>
                                   </div>
                                 )}
