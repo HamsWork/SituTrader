@@ -234,6 +234,8 @@ export async function fetchOptionsChainAtTime(
     maxExpDate,
     limit,
   );
+  console.log("All contracts", allContracts);
+
   if (allContracts.length === 0) return [];
 
   const strikeTolerance = stockPrice * 0.1;
