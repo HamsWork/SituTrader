@@ -7,6 +7,7 @@ import {
   fetchOptionMarkAtTime,
   fetchStockPriceAtTime,
   fetchStockPrice,
+  fetchOptionsChainAtTime,
 } from "./polygon";
 import {
   selectBestLeveragedEtf,
@@ -294,22 +295,16 @@ export async function enrichOptionsJsonForTicker(
       
       const minExpDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const maxExpDate = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const chain = await fetchOptionsChain(ticker, right === "C" ? "call" : "put", minExpDate, maxExpDate, 250);
+      const chain = await fetchOptionsChainAtTime(
+        ticker, 
+        now.valueOf(), 
+        right === "C" ? "call" : "put", 
+        minExpDate, 
+        maxExpDate, 
+        250,
+      );
       if (!chain || chain.length === 0) {
-        const optionsData: OptionsData = {
-          mode: "AUTO",
-          tradable: false,
-          checks: {
-            oiOk: false,
-            spreadOk: false,
-            openInterest: null,
-            spread: null,
-            bid: null,
-            ask: null,
-            checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
-            reasonIfFail: "NO_CONTRACTS",
-          },
-        };
+        const optionsData: OptionsData = { mode: "AUTO", tradable: false, checks: { oiOk: false, spreadOk: false, openInterest: null, spread: null, bid: null, ask: null, checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(), reasonIfFail: "NO_CONTRACTS" } };
         if (ctx) {
           signal.optionsJson = optionsData;
           ctx.allSignals.set(signal.id, signal);
@@ -320,6 +315,7 @@ export async function enrichOptionsJsonForTicker(
         continue;
       }
 
+      log(`Options chain for ${ticker} at ${new Date(now.valueOf()).toISOString()}: ${chain.length} contracts`, "options");
       const nearATM = [...chain]
         .filter(c => Math.abs(c.strike_price - currentTickerPrice!) / currentTickerPrice! < 0.03)
         .sort((a, b) => {
