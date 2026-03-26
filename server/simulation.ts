@@ -42,6 +42,7 @@ export interface SimTrackingResult {
   chartEntry?: number;
   chartStop?: number;
   chartTarget?: number;
+  chartMilestones?: { pct: number; price: number }[];
 }
 
 export interface SimTradeSyncCall {
@@ -543,6 +544,17 @@ function runTenPercentTrack(
   let lastMilestone = 0;
   const entryBarTs = bars.length > 0 ? bars[0].t : undefined;
 
+  const buildMilestones = (ms: number) => {
+    const arr: { pct: number; price: number }[] = [];
+    for (let p = 10; p <= ms; p += 10) {
+      const price = isBuy
+        ? entryPrice * (1 + p / 100)
+        : entryPrice * (1 - p / 100);
+      arr.push({ pct: p, price: parseFloat(price.toFixed(4)) });
+    }
+    return arr;
+  };
+
   for (const bar of bars) {
 
     const favorablePct = isBuy
@@ -568,6 +580,7 @@ function runTenPercentTrack(
           exitReason: "milestone_then_stop",
           entryBarTs, exitBarTs: bar.t,
           chartEntry: entryPrice, chartStop: stopPrice,
+          chartMilestones: buildMilestones(lastMilestone),
         };
       }
     }
@@ -587,6 +600,7 @@ function runTenPercentTrack(
     lastMilestone, durationDays: endDays, exitReason: "end_of_data",
     entryBarTs, exitBarTs: lastTs,
     chartEntry: entryPrice, chartStop: stopPrice,
+    chartMilestones: lastMilestone > 0 ? buildMilestones(lastMilestone) : undefined,
   };
 }
 

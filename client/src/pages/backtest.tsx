@@ -108,6 +108,7 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   if (tr.chartEntry != null) allPrices.push(tr.chartEntry);
   if (tr.chartStop != null) allPrices.push(tr.chartStop);
   if (tr.chartTarget != null) allPrices.push(tr.chartTarget);
+  if (tr.chartMilestones) tr.chartMilestones.forEach(m => allPrices.push(m.price));
   const minP = Math.min(...allPrices);
   const maxP = Math.max(...allPrices);
   const rangePad = (maxP - minP) * 0.1 || 1;
@@ -119,7 +120,7 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   const chartW = Math.min(dynamicW, 900);
   const chartH = 170;
   const marginL = 55;
-  const marginR = 70;
+  const marginR = 85;
   const marginT = 8;
   const marginB = 24;
   const plotW = chartW - marginL - marginR;
@@ -223,6 +224,17 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
             </g>
           );
         })()}
+        {tr.chartMilestones && tr.chartMilestones.map((ms, mi) => {
+          const y = yScale(ms.price);
+          const colors = ["#a78bfa", "#c084fc", "#e879f9", "#f0abfc", "#d946ef", "#a855f7"];
+          const color = colors[mi % colors.length];
+          return (
+            <g key={`ms-${mi}`}>
+              <line x1={marginL} y1={y} x2={marginL + plotW} y2={y} stroke={color} strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
+              <text x={marginL + plotW + 3} y={y + 3} fill={color} fontSize={8} fontFamily="monospace">{ms.pct}% ${ms.price.toFixed(2)}</text>
+            </g>
+          );
+        })}
 
         {bars.map((b, i) => {
           const x = marginL + i * gap + gap / 2;
@@ -419,6 +431,7 @@ export default function BacktestPage() {
     chartEntry?: number;
     chartStop?: number;
     chartTarget?: number;
+    chartMilestones?: { pct: number; price: number }[];
   }
 
   interface SimTradeSyncCall {
