@@ -5,6 +5,7 @@ import {
 import { storage } from "./storage";
 import { SimTickerStepper } from "./simTickerStepper";
 import type { Signal } from "@shared/schema";
+import { buildTradeSyncPayloadFromSignal } from "./lib/tradesync";
 
 export const SIM_BEFORE_PRE_OPEN_CT = 8 * 60 + 15;
 export const SIM_PRE_OPEN_CT = 8 * 60 + 20;
@@ -304,6 +305,7 @@ export function handlePostActivationSim(
           if (tp?.stopDistance) instruments.push("Options");
           instruments.push("LETF", "LETF Options");
 
+          const trackingResult = await trackTradeSyncCallSimulation(sig, ctx)
           ctx.dayResult.tradeSyncCalls.push({
             signalId: sig.id,
             ticker: sig.ticker,
@@ -340,6 +342,35 @@ export function handlePostActivationSim(
     }
   }
 }
+
+async function trackTradeSyncCallSimulation(sig: Signal, ctx: SimDayContext): Promise<void> {
+  const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
+  const instruments: string[] = ["Shares"];
+  const tradeTypes: "ten_percent" | "normal"[] = ["ten_percent"];
+  
+  const results: {
+    instrument: string;
+    trade_type: "ten_percent" | "normal";
+    win: boolean; 
+    profitPercent: number;
+  }[] = [];
+
+  for (const tradeType of tradeTypes) {
+    for (const instrument of instruments) {
+      const payload = buildTradeSyncPayloadFromSignal(sig, instrument, tp.stopDistance, ctx.today);
+      const result = await trackTradeSyncCallSimulationForInstrument(payload, ctx);
+      results.push(result);
+    }
+  }
+
+  return results;
+}
+
+async function trackTradeSyncCallSimulationForInstrument(payload: TradeSyncSignalData, ctx: SimDayContext): Promise<void> {
+  // TODO
+}
+
+
 
 export interface SimDayOutput {
   result: SimDayResult;
