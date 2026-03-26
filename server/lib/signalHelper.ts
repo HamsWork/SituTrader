@@ -40,10 +40,11 @@ export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals?: 
 
 
 export function inferBias(signal: Signal): "BUY" | "SELL" {
+  const dir = signal.direction.toLowerCase();
+  if (dir.includes("up")) return "BUY";
+  if (dir.includes("down")) return "SELL";
   const tp = signal.tradePlanJson as TradePlan | null;
   if (tp?.bias) return tp.bias;
-  const dir = signal.direction.toLowerCase();
-  if (dir.includes("down") || dir === "sell") return "SELL";
   return "BUY";
 }
 
