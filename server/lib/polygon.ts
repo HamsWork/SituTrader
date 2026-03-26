@@ -19,12 +19,16 @@ async function rateLimitWait(): Promise<void> {
   const now = Date.now();
   const elapsed = now - lastRequestTs;
   if (elapsed < MIN_REQUEST_INTERVAL_MS) {
-    await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
+    await new Promise((r) => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
   }
   lastRequestTs = Date.now();
 }
 
-async function polygonGet(path: string, params: Record<string, string> = {}, cacheTtl: number = CACHE_TTL): Promise<any> {
+async function polygonGet(
+  path: string,
+  params: Record<string, string> = {},
+  cacheTtl: number = CACHE_TTL,
+): Promise<any> {
   if (!API_KEY) throw new Error("POLYGON_API_KEY not set");
 
   const url = new URL(`${POLYGON_BASE}${path}`);
@@ -45,15 +49,21 @@ async function polygonGet(path: string, params: Record<string, string> = {}, cac
 
     if (res.status === 429) {
       const backoff = Math.min(1000 * Math.pow(2, attempt + 1), 30000);
-      log(`Polygon rate limited, backing off ${backoff}ms (attempt ${attempt + 1})`, "polygon");
-      await new Promise(r => setTimeout(r, backoff));
+      log(
+        `Polygon rate limited, backing off ${backoff}ms (attempt ${attempt + 1})`,
+        "polygon",
+      );
+      await new Promise((r) => setTimeout(r, backoff));
       continue;
     }
 
     if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
       const backoff = 2000 * (attempt + 1);
-      log(`Polygon server error ${res.status}, retrying in ${backoff}ms`, "polygon");
-      await new Promise(r => setTimeout(r, backoff));
+      log(
+        `Polygon server error ${res.status}, retrying in ${backoff}ms`,
+        "polygon",
+      );
+      await new Promise((r) => setTimeout(r, backoff));
       continue;
     }
 
@@ -84,12 +94,12 @@ export interface PolygonBar {
 export async function fetchDailyBars(
   ticker: string,
   from: string,
-  to: string
+  to: string,
 ): Promise<PolygonBar[]> {
   try {
     const data = await polygonGet(
       `/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}`,
-      { adjusted: "true", sort: "asc", limit: "5000" }
+      { adjusted: "true", sort: "asc", limit: "5000" },
     );
     return data.results ?? [];
   } catch (err: any) {
@@ -102,16 +112,19 @@ export async function fetchIntradayBars(
   ticker: string,
   from: string,
   to: string,
-  timeframe: string = "5"
+  timeframe: string = "5",
 ): Promise<PolygonBar[]> {
   try {
     const data = await polygonGet(
       `/v2/aggs/ticker/${ticker}/range/${timeframe}/minute/${from}/${to}`,
-      { adjusted: "true", sort: "asc", limit: "50000" }
+      { adjusted: "true", sort: "asc", limit: "50000" },
     );
     return data.results ?? [];
   } catch (err: any) {
-    log(`Error fetching intraday bars for ${ticker}: ${err.message}`, "polygon");
+    log(
+      `Error fetching intraday bars for ${ticker}: ${err.message}`,
+      "polygon",
+    );
     return [];
   }
 }
@@ -124,7 +137,7 @@ export async function fetchGroupedDaily(date: string): Promise<GroupedBar[]> {
   try {
     const data = await polygonGet(
       `/v2/aggs/grouped/locale/us/market/stocks/${date}`,
-      { adjusted: "true" }
+      { adjusted: "true" },
     );
     return (data.results ?? []).map((r: any) => ({
       o: r.o,
@@ -164,6 +177,39 @@ export interface OptionsQuote {
   ask: number | null;
 }
 
+export async function fetchOptionsChain(
+  ticker: string,
+  contractType: "call" | "put",
+  minExpDate: string,
+  maxExpDate: string,
+  limit: number = 50,
+): Promise<OptionsContract[]> {
+  try {
+    const data = await polygonGet(`/v3/reference/options/contracts`, {
+      underlying_ticker: ticker,
+      contract_type: contractType,
+      "expiration_date.gte": minExpDate,
+      "expiration_date.lte": maxExpDate,
+      order: "asc",
+      sort: "expiration_date",
+      limit: String(limit),
+    });
+    return (data.results ?? []).map((r: any) => ({
+      ticker: r.ticker,
+      strike_price: r.strike_price,
+      expiration_date: r.expiration_date,
+      contract_type: r.contract_type,
+      open_interest: r.open_interest ?? undefined,
+    }));
+  } catch (err: any) {
+    log(
+      `Error fetching options chain for ${ticker}: ${err.message}`,
+      "polygon",
+    );
+    return [];
+  }
+}
+
 export async function fetchOptionsChainAtTime(
   ticker: string,
   timestampMs: number = Date.now(),
@@ -174,21 +220,32 @@ export async function fetchOptionsChainAtTime(
 ): Promise<OptionsContract[]> {
   const stockPrice = await fetchStockPriceAtTime(ticker, timestampMs);
   if (stockPrice == null) {
-    log(`fetchOptionsChainAtTime: no stock price for ${ticker} at ${new Date(timestampMs).toISOString()}`, "polygon");
+    log(
+      `fetchOptionsChainAtTime: no stock price for ${ticker} at ${new Date(timestampMs).toISOString()}`,
+      "polygon",
+    );
     return [];
   }
 
-  const allContracts = await fetchOptionsChain(ticker, contractType, minExpDate, maxExpDate, limit);
+  const allContracts = await fetchOptionsChainManually(
+    ticker,
+    contractType,
+    minExpDate,
+    maxExpDate,
+    limit,
+  );
   if (allContracts.length === 0) return [];
 
-  const strikeTolerance = stockPrice * 0.10;
+  const strikeTolerance = stockPrice * 0.1;
   const realistic = allContracts.filter(
     (c) => Math.abs(c.strike_price - stockPrice) <= strikeTolerance,
   );
   if (realistic.length === 0) return [];
 
   realistic.sort(
-    (a, b) => Math.abs(a.strike_price - stockPrice) - Math.abs(b.strike_price - stockPrice),
+    (a, b) =>
+      Math.abs(a.strike_price - stockPrice) -
+      Math.abs(b.strike_price - stockPrice),
   );
   const candidates = realistic.slice(0, 10);
 
@@ -209,7 +266,12 @@ export async function fetchOptionsChainAtTime(
   return enriched;
 }
 
-function buildOccSymbol(ticker: string, expDate: string, right: "C" | "P", strike: number): string {
+function buildOccSymbol(
+  ticker: string,
+  expDate: string,
+  right: "C" | "P",
+  strike: number,
+): string {
   const yy = expDate.slice(2, 4);
   const mm = expDate.slice(5, 7);
   const dd = expDate.slice(8, 10);
@@ -241,7 +303,7 @@ function generateFridaysBetween(minDate: string, maxDate: string): string[] {
   return dates;
 }
 
-export async function fetchOptionsChain(
+export async function fetchOptionsChainManually(
   ticker: string,
   contractType: "call" | "put",
   minExpDate: string,
@@ -249,16 +311,19 @@ export async function fetchOptionsChain(
   limit: number = 50,
   stockPrice?: number | null,
 ): Promise<OptionsContract[]> {
-  const price = stockPrice ?? await fetchStockPrice(ticker);
+  const price = stockPrice ?? (await fetchStockPrice(ticker));
   if (price == null || price <= 0) {
-    log(`fetchOptionsChain: no stock price for ${ticker}, can't generate symbols`, "polygon");
+    log(
+      `fetchOptionsChain: no stock price for ${ticker}, can't generate symbols`,
+      "polygon",
+    );
     return [];
   }
 
   const right: "C" | "P" = contractType === "call" ? "C" : "P";
   const inc = getStrikeIncrement(price);
 
-  const tolerance = price * 0.10;
+  const tolerance = price * 0.1;
   const minStrike = Math.floor((price - tolerance) / inc) * inc;
   const maxStrike = Math.ceil((price + tolerance) / inc) * inc;
 
@@ -269,7 +334,10 @@ export async function fetchOptionsChain(
 
   const expirations = generateFridaysBetween(minExpDate, maxExpDate);
   if (expirations.length === 0) {
-    log(`fetchOptionsChain: no fridays between ${minExpDate} and ${maxExpDate}`, "polygon");
+    log(
+      `fetchOptionsChain: no fridays between ${minExpDate} and ${maxExpDate}`,
+      "polygon",
+    );
     return [];
   }
 
@@ -288,27 +356,43 @@ export async function fetchOptionsChain(
     if (contracts.length >= limit) break;
   }
 
-  log(`fetchOptionsChain: generated ${contracts.length} symbols for ${ticker} (${contractType}) ${minExpDate}..${maxExpDate}, price=$${price.toFixed(2)}, inc=$${inc}`, "polygon");
+  log(
+    `fetchOptionsChain: generated ${contracts.length} symbols for ${ticker} (${contractType}) ${minExpDate}..${maxExpDate}, price=$${price.toFixed(2)}, inc=$${inc}`,
+    "polygon",
+  );
   return contracts;
 }
 
-export async function fetchOptionContractDetails(contractSymbol: string): Promise<{
+export async function fetchOptionContractDetails(
+  contractSymbol: string,
+): Promise<{
   openInterest: number | null;
 } | null> {
   try {
-    const data = await polygonGet(`/v3/reference/options/contracts/${contractSymbol}`);
+    const data = await polygonGet(
+      `/v3/reference/options/contracts/${contractSymbol}`,
+    );
     const r = data.results;
     if (!r) return null;
     return { openInterest: r.open_interest ?? null };
   } catch (err: any) {
-    log(`Error fetching option contract details for ${contractSymbol}: ${err.message}`, "polygon");
+    log(
+      `Error fetching option contract details for ${contractSymbol}: ${err.message}`,
+      "polygon",
+    );
     return null;
   }
 }
 
-export async function fetchOptionQuote(contractSymbol: string): Promise<OptionsQuote | null> {
+export async function fetchOptionQuote(
+  contractSymbol: string,
+): Promise<OptionsQuote | null> {
   try {
-    const data = await polygonGet(`/v3/quotes/${contractSymbol}`, { limit: "1", order: "desc", sort: "timestamp" });
+    const data = await polygonGet(`/v3/quotes/${contractSymbol}`, {
+      limit: "1",
+      order: "desc",
+      sort: "timestamp",
+    });
     const results = data.results ?? [];
     if (results.length === 0) return null;
     const q = results[0];
@@ -317,12 +401,18 @@ export async function fetchOptionQuote(contractSymbol: string): Promise<OptionsQ
       ask: q.ask_price ?? null,
     };
   } catch (err: any) {
-    log(`Error fetching option quote for ${contractSymbol}: ${err.message}`, "polygon");
+    log(
+      `Error fetching option quote for ${contractSymbol}: ${err.message}`,
+      "polygon",
+    );
     return null;
   }
 }
 
-export async function fetchOptionSnapshot(underlyingTicker: string, contractSymbol: string): Promise<{
+export async function fetchOptionSnapshot(
+  underlyingTicker: string,
+  contractSymbol: string,
+): Promise<{
   openInterest: number | null;
   bid: number | null;
   ask: number | null;
@@ -332,7 +422,9 @@ export async function fetchOptionSnapshot(underlyingTicker: string, contractSymb
 } | null> {
   try {
     const encoded = encodeURIComponent(contractSymbol);
-    const data = await polygonGet(`/v3/snapshot/options/${underlyingTicker}/${encoded}`);
+    const data = await polygonGet(
+      `/v3/snapshot/options/${underlyingTicker}/${encoded}`,
+    );
     const r = data.results;
     if (!r) return null;
     return {
@@ -344,16 +436,19 @@ export async function fetchOptionSnapshot(underlyingTicker: string, contractSymb
       delta: r.greeks?.delta ?? null,
     };
   } catch (err: any) {
-    log(`Error fetching option snapshot for ${contractSymbol}: ${err.message}`, "polygon");
+    log(
+      `Error fetching option snapshot for ${contractSymbol}: ${err.message}`,
+      "polygon",
+    );
     return null;
   }
 }
 
-
-
 export async function fetchStockPrice(ticker: string): Promise<number | null> {
   try {
-    const data = await polygonGet(`/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`);
+    const data = await polygonGet(
+      `/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`,
+    );
     const t = data.ticker;
     if (!t) return null;
     return t.lastTrade?.p ?? t.day?.c ?? 0;
@@ -369,7 +464,9 @@ export async function fetchSnapshot(ticker: string): Promise<{
   changePercent: number;
 } | null> {
   try {
-    const data = await polygonGet(`/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`);
+    const data = await polygonGet(
+      `/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`,
+    );
     const t = data.ticker;
     if (!t) return null;
     return {
@@ -395,10 +492,18 @@ export interface OptionMarkResult {
   delta: number | null;
 }
 
-export async function fetchOptionNbbo(contractTicker: string): Promise<OptionMarkResult | null> {
+export async function fetchOptionNbbo(
+  contractTicker: string,
+): Promise<OptionMarkResult | null> {
   try {
-    const normalized = contractTicker.startsWith("o:") ? "O:" + contractTicker.slice(2) : contractTicker;
-    const data = await polygonGet(`/v3/quotes/${encodeURIComponent(normalized)}`, { limit: "1", order: "desc", sort: "timestamp" }, LIVE_CACHE_TTL);
+    const normalized = contractTicker.startsWith("o:")
+      ? "O:" + contractTicker.slice(2)
+      : contractTicker;
+    const data = await polygonGet(
+      `/v3/quotes/${encodeURIComponent(normalized)}`,
+      { limit: "1", order: "desc", sort: "timestamp" },
+      LIVE_CACHE_TTL,
+    );
     const results = data.results ?? [];
     if (results.length === 0) return null;
     const q = results[0];
@@ -408,7 +513,7 @@ export async function fetchOptionNbbo(contractTicker: string): Promise<OptionMar
     let mark: number | null = null;
     let stale = false;
     if (bid != null && bid > 0 && ask != null && ask > 0) {
-      mark = Math.round((bid + ask) / 2 * 100) / 100;
+      mark = Math.round(((bid + ask) / 2) * 100) / 100;
     } else if (ask != null && ask > 0) {
       mark = ask;
       stale = true;
@@ -417,10 +522,16 @@ export async function fetchOptionNbbo(contractTicker: string): Promise<OptionMar
       stale = true;
     }
 
-    const spread = (bid != null && ask != null && bid > 0) ? Math.round((ask - bid) * 100) / 100 : null;
+    const spread =
+      bid != null && ask != null && bid > 0
+        ? Math.round((ask - bid) * 100) / 100
+        : null;
 
     return {
-      bid, ask, mark, spread,
+      bid,
+      ask,
+      mark,
+      spread,
       ts: q.sip_timestamp ? Math.floor(q.sip_timestamp / 1e6) : Date.now(),
       stale,
       openInterest: null,
@@ -434,10 +545,18 @@ export async function fetchOptionNbbo(contractTicker: string): Promise<OptionMar
   }
 }
 
-export async function fetchOptionLastTrade(contractTicker: string): Promise<OptionMarkResult | null> {
+export async function fetchOptionLastTrade(
+  contractTicker: string,
+): Promise<OptionMarkResult | null> {
   try {
-    const normalized = contractTicker.startsWith("o:") ? "O:" + contractTicker.slice(2) : contractTicker;
-    const data = await polygonGet(`/v2/last/trade/${encodeURIComponent(normalized)}`, {}, LIVE_CACHE_TTL);
+    const normalized = contractTicker.startsWith("o:")
+      ? "O:" + contractTicker.slice(2)
+      : contractTicker;
+    const data = await polygonGet(
+      `/v2/last/trade/${encodeURIComponent(normalized)}`,
+      {},
+      LIVE_CACHE_TTL,
+    );
     const r = data.results;
     if (!r || !r.p) return null;
     return {
@@ -453,20 +572,29 @@ export async function fetchOptionLastTrade(contractTicker: string): Promise<Opti
       delta: null,
     };
   } catch (err: any) {
-    log(`Last trade fetch error for ${contractTicker}: ${err.message}`, "polygon");
+    log(
+      `Last trade fetch error for ${contractTicker}: ${err.message}`,
+      "polygon",
+    );
     return null;
   }
 }
 
-export async function fetchOptionMarkAtTime(contractTicker: string, timestampMs: number): Promise<number | null> {
+export async function fetchOptionMarkAtTime(
+  contractTicker: string,
+  timestampMs: number,
+): Promise<number | null> {
   try {
     const windowStart = timestampMs - 5 * 60 * 1000;
     const windowEnd = timestampMs + 5 * 60 * 1000;
-    const data = await polygonGet(`/v2/aggs/ticker/${contractTicker}/range/1/minute/${windowStart}/${windowEnd}`, {
-      adjusted: "true",
-      sort: "asc",
-      limit: "20",
-    });
+    const data = await polygonGet(
+      `/v2/aggs/ticker/${contractTicker}/range/1/minute/${windowStart}/${windowEnd}`,
+      {
+        adjusted: "true",
+        sort: "asc",
+        limit: "20",
+      },
+    );
     if (data?.results && data.results.length > 0) {
       let closest = data.results[0];
       let minDist = Math.abs(closest.t - timestampMs);
@@ -477,7 +605,7 @@ export async function fetchOptionMarkAtTime(contractTicker: string, timestampMs:
           minDist = dist;
         }
       }
-      const vwap = closest.vw ?? ((closest.h + closest.l) / 2);
+      const vwap = closest.vw ?? (closest.h + closest.l) / 2;
       return Math.round(vwap * 100) / 100;
     }
 
@@ -493,22 +621,33 @@ export async function fetchOptionMarkAtTime(contractTicker: string, timestampMs:
     }
     return null;
   } catch (err: any) {
-    log(`fetchOptionMarkAtTime error for ${contractTicker}: ${err.message}`, "polygon");
+    log(
+      `fetchOptionMarkAtTime error for ${contractTicker}: ${err.message}`,
+      "polygon",
+    );
     return null;
   }
 }
 
-export async function fetchStockPriceAtTime(ticker: string, timestampMs: number): Promise<number | null> {
+export async function fetchStockPriceAtTime(
+  ticker: string,
+  timestampMs: number,
+): Promise<number | null> {
   try {
     const windowStart = timestampMs - 5 * 60 * 1000;
     const windowEnd = timestampMs + 5 * 60 * 1000;
-    const data = await polygonGet(`/v2/aggs/ticker/${ticker}/range/1/minute/${windowStart}/${windowEnd}`, {
-      adjusted: "true",
-      sort: "asc",
-      limit: "20",
-    });
+    const data = await polygonGet(
+      `/v2/aggs/ticker/${ticker}/range/1/minute/${windowStart}/${windowEnd}`,
+      {
+        adjusted: "true",
+        sort: "asc",
+        limit: "20",
+      },
+    );
     if (data?.results && data.results.length > 0) {
-      const inWindow = data.results.filter((b: any) => b.t >= windowStart && b.t <= windowEnd);
+      const inWindow = data.results.filter(
+        (b: any) => b.t >= windowStart && b.t <= windowEnd,
+      );
       if (inWindow.length === 0) return null;
       let closest = inWindow[0];
       let minDist = Math.abs(closest.t - timestampMs);
@@ -519,7 +658,7 @@ export async function fetchStockPriceAtTime(ticker: string, timestampMs: number)
           minDist = dist;
         }
       }
-      const vwap = closest.vw ?? ((closest.h + closest.l) / 2);
+      const vwap = closest.vw ?? (closest.h + closest.l) / 2;
       return Math.round(vwap * 100) / 100;
     }
     return null;
@@ -529,12 +668,18 @@ export async function fetchStockPriceAtTime(ticker: string, timestampMs: number)
   }
 }
 
-export async function fetchOptionMark(contractTicker: string, underlyingTicker?: string): Promise<OptionMarkResult | null> {
+export async function fetchOptionMark(
+  contractTicker: string,
+  underlyingTicker?: string,
+): Promise<OptionMarkResult | null> {
   let result = await fetchOptionNbbo(contractTicker);
   if (result && result.mark != null) {
     if (underlyingTicker) {
       try {
-        const snap = await fetchOptionSnapshot(underlyingTicker, contractTicker);
+        const snap = await fetchOptionSnapshot(
+          underlyingTicker,
+          contractTicker,
+        );
         if (snap) {
           result.openInterest = snap.openInterest;
           result.volume = snap.volume;
@@ -550,7 +695,10 @@ export async function fetchOptionMark(contractTicker: string, underlyingTicker?:
   if (fallback) {
     if (underlyingTicker) {
       try {
-        const snap = await fetchOptionSnapshot(underlyingTicker, contractTicker);
+        const snap = await fetchOptionSnapshot(
+          underlyingTicker,
+          contractTicker,
+        );
         if (snap) {
           fallback.openInterest = snap.openInterest;
           fallback.volume = snap.volume;
@@ -571,7 +719,7 @@ export async function fetchOptionMark(contractTicker: string, underlyingTicker?:
         let mark: number | null = null;
         let stale = false;
         if (bid != null && bid > 0 && ask != null && ask > 0) {
-          mark = Math.round((bid + ask) / 2 * 100) / 100;
+          mark = Math.round(((bid + ask) / 2) * 100) / 100;
         } else if (ask != null && ask > 0) {
           mark = ask;
           stale = true;
@@ -581,8 +729,13 @@ export async function fetchOptionMark(contractTicker: string, underlyingTicker?:
         }
         if (mark != null) {
           return {
-            bid, ask, mark,
-            spread: (bid != null && ask != null && bid > 0) ? Math.round((ask - bid) * 100) / 100 : null,
+            bid,
+            ask,
+            mark,
+            spread:
+              bid != null && ask != null && bid > 0
+                ? Math.round((ask - bid) * 100) / 100
+                : null,
             ts: Date.now(),
             stale,
             openInterest: snap.openInterest,
@@ -629,28 +782,29 @@ function barToPolygonBar(b: Bar): PolygonBar {
 }
 
 export async function fetchDailyBarsFromPolygon(
-  ticker: string, 
+  ticker: string,
   from: string,
   to: string,
 ): Promise<DailyBar[]> {
   const fromDate = new Date(from).toISOString().slice(0, 10);
   const toDate = new Date(to).toISOString().slice(0, 10);
   const raw = await fetchDailyBars(ticker, fromDate, toDate);
-  return raw.map(bar => ({
-    id: 0,
-    ticker,
-    date: formatDate(new Date(bar.t)),
-    open: bar.o,
-    high: bar.h,
-    low: bar.l,
-    close: bar.c,
-    volume: bar.v,
-    vwap: bar.vw ?? null,
-    source: "polygon",
-  } as DailyBar));
+  return raw.map(
+    (bar) =>
+      ({
+        id: 0,
+        ticker,
+        date: formatDate(new Date(bar.t)),
+        open: bar.o,
+        high: bar.h,
+        low: bar.l,
+        close: bar.c,
+        volume: bar.v,
+        vwap: bar.vw ?? null,
+        source: "polygon",
+      }) as DailyBar,
+  );
 }
-
-
 
 export async function fetchDailyBarsCached(
   ticker: string,
