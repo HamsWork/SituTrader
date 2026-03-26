@@ -117,7 +117,7 @@ export interface IStorage {
   updateIbkrTrade(id: number, updates: Partial<IbkrTrade>): Promise<IbkrTrade | null>;
   getActiveIbkrTrades(): Promise<IbkrTrade[]>;
   getAllIbkrTrades(): Promise<IbkrTrade[]>;
-  /** Trades created on the given ET calendar day (YYYY-MM-DD). Used for 1-per-day cap. */
+  /** Trades created on the given CT calendar day (YYYY-MM-DD). Used for 1-per-day cap. */
   getIbkrTradesCreatedOnEtDate(etDateYmd: string): Promise<IbkrTrade[]>;
   getIbkrState(): Promise<IbkrState | null>;
   updateIbkrState(updates: Partial<IbkrState>): Promise<void>;
@@ -941,15 +941,17 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(ibkrTrades).orderBy(desc(ibkrTrades.id));
   }
 
-  /** Trades created on the given ET calendar day (YYYY-MM-DD). Uses EST offset for day bounds. */
-  async getIbkrTradesCreatedOnEtDate(etDateYmd: string): Promise<IbkrTrade[]> {
-    const startEt = new Date(`${etDateYmd}T00:00:00-05:00`);
-    const endEt = new Date(startEt);
-    endEt.setUTCDate(endEt.getUTCDate() + 1);
+  /** Trades created on the given CT calendar day (YYYY-MM-DD). Uses CT offset for day bounds. */
+  async getIbkrTradesCreatedOnEtDate(ctDateYmd: string): Promise<IbkrTrade[]> {
+    const probe = new Date(`${ctDateYmd}T12:00:00Z`);
+    const ctNoon = new Date(probe.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+    const offsetMs = probe.getTime() - ctNoon.getTime();
+    const dayStart = new Date(new Date(`${ctDateYmd}T00:00:00Z`).getTime() - offsetMs);
+    const dayEnd = new Date(dayStart.getTime() + 86400000);
     return db
       .select()
       .from(ibkrTrades)
-      .where(and(gte(ibkrTrades.createdAt, startEt), lt(ibkrTrades.createdAt, endEt)))
+      .where(and(gte(ibkrTrades.createdAt, dayStart), lt(ibkrTrades.createdAt, dayEnd)))
       .orderBy(desc(ibkrTrades.id));
   }
 

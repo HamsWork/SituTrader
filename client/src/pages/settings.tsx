@@ -118,8 +118,8 @@ export default function SettingsPage() {
     gapThreshold: settings?.gapThreshold ?? "0.30",
     entryMode: settings?.entryMode ?? "conservative",
     stopMode: settings?.stopMode ?? "atr",
-    sessionStart: settings?.sessionStart ?? "09:30",
-    sessionEnd: settings?.sessionEnd ?? "16:00",
+    sessionStart: settings?.sessionStart ?? "08:30",
+    sessionEnd: settings?.sessionEnd ?? "15:00",
     watchlistPriority: settings?.watchlistPriority ?? "SPY,QQQ,NVDA,TSLA",
     alertTierAplus: settings?.alertTierAplus ?? "in-app",
     alertTierA: settings?.alertTierA ?? "in-app",
@@ -571,20 +571,20 @@ export default function SettingsPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label className="text-xs">RTH Start (ET)</Label>
+              <Label className="text-xs">RTH Start (CT)</Label>
               <Input
                 value={currentSettings.sessionStart}
                 onChange={(e) => saveSetting.mutate({ key: "sessionStart", value: e.target.value })}
-                placeholder="09:30"
+                placeholder="08:30"
                 data-testid="input-session-start"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs">RTH End (ET)</Label>
+              <Label className="text-xs">RTH End (CT)</Label>
               <Input
                 value={currentSettings.sessionEnd}
                 onChange={(e) => saveSetting.mutate({ key: "sessionEnd", value: e.target.value })}
-                placeholder="16:00"
+                placeholder="15:00"
                 data-testid="input-session-end"
               />
             </div>

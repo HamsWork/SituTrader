@@ -346,7 +346,7 @@ export function checkEntryTrigger(
         for (const bar of rthBars) {
             const barET = timestampToET(bar.ts);
             const totalMin = barET.getHours() * 60 + barET.getMinutes();
-            if (totalMin < 575) continue;
+            if (totalMin < 515) continue;
 
             if (isSell && bar.close < bar.open) {
                 return {

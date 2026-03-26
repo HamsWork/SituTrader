@@ -78,7 +78,7 @@ export function AppSidebar() {
             <div className="px-2 py-1">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <LineChart className="w-3 h-3" />
-                <span>RTH: 09:30 - 16:00 ET</span>
+                <span>RTH: 08:30 - 15:00 CT</span>
               </div>
             </div>
           </SidebarGroupContent>

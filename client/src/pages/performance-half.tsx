@@ -635,7 +635,7 @@ export default function PerformanceHalfPage() {
               <>
                 <div className="flex items-center gap-3 pt-2">
                   <div className="h-px flex-1 bg-border" />
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Market Hours Only — 9:30 AM – 4:00 PM ET</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Market Hours Only — 8:30 AM – 3:00 PM CT</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
 
@@ -766,7 +766,7 @@ export default function PerformanceHalfPage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">Market Hours Equity Curve</CardTitle>
                     <p className="text-xs text-muted-foreground">
-                      RTH trades only (9:30–16:00 ET): <span className="text-emerald-500">T1-Only</span> vs <span className="text-purple-500">Split ½</span>
+                      RTH trades only (8:30–15:00 CT): <span className="text-emerald-500">T1-Only</span> vs <span className="text-purple-500">Split ½</span>
                     </p>
                   </CardHeader>
                   <CardContent className="p-2">

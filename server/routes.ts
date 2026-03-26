@@ -1972,8 +1972,8 @@ export async function registerRoutes(
 
       const results: any[] = [];
 
-      const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-      const tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayEt);
+      const todayCt = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+      const tradesCreatedToday = await storage.getIbkrTradesCreatedOnEtDate(todayCt);
       const hasOptionToday = tradesCreatedToday.some(t => t.instrumentType === "OPTION");
       const hasLetfToday = tradesCreatedToday.some(t => t.instrumentType === "LEVERAGED_ETF");
 
@@ -2082,7 +2082,7 @@ export async function registerRoutes(
 
       res.json({
         dryRun,
-        todayEt,
+        todayCt,
         existingTradesToday: { option: hasOptionToday, letf: hasLetfToday },
         candidatesAbove80: above80.length,
         results,

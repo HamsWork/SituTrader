@@ -2,8 +2,8 @@ import type { IntradayBar } from "@shared/schema";
 
 export function filterRTHBars(
   bars: Array<{ ts: string; open: number; high: number; low: number; close: number; volume: number }>,
-  sessionStart: string = "09:30",
-  sessionEnd: string = "16:00"
+  sessionStart: string = "08:30",
+  sessionEnd: string = "15:00"
 ): typeof bars {
   const [startH, startM] = sessionStart.split(":").map(Number);
   const [endH, endM] = sessionEnd.split(":").map(Number);
@@ -12,25 +12,27 @@ export function filterRTHBars(
 
   return bars.filter((bar) => {
     const ts = new Date(bar.ts);
-    const etStr = ts.toLocaleString("en-US", { timeZone: "America/New_York" });
-    const et = new Date(etStr);
-    const totalMin = et.getHours() * 60 + et.getMinutes();
+    const ctStr = ts.toLocaleString("en-US", { timeZone: "America/Chicago" });
+    const ct = new Date(ctStr);
+    const totalMin = ct.getHours() * 60 + ct.getMinutes();
     return totalMin >= startMin && totalMin < endMin;
   });
 }
 
-export function timestampToET(ts: string | number): Date {
+export function timestampToCT(ts: string | number): Date {
   const d = typeof ts === "number" ? new Date(ts) : new Date(ts);
-  const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York" });
-  return new Date(etStr);
+  const ctStr = d.toLocaleString("en-US", { timeZone: "America/Chicago" });
+  return new Date(ctStr);
 }
+
+export const timestampToET = timestampToCT;
 
 export function validateMagnetTouch(
   intradayBars: Array<{ ts: string; high: number; low: number }>,
   magnetPrice: number,
   direction: string,
-  sessionStart: string = "09:30",
-  sessionEnd: string = "16:00"
+  sessionStart: string = "08:30",
+  sessionEnd: string = "15:00"
 ): { hit: boolean; hitTs?: string; timeToHitMin?: number } {
   const rthBars = filterRTHBars(intradayBars as any, sessionStart, sessionEnd);
 
@@ -60,8 +62,8 @@ export function computeMAEMFE(
   intradayBars: Array<{ ts: string; high: number; low: number; open: number; close: number }>,
   entryPrice: number,
   direction: string,
-  sessionStart: string = "09:30",
-  sessionEnd: string = "16:00"
+  sessionStart: string = "08:30",
+  sessionEnd: string = "15:00"
 ): { mae: number; mfe: number } {
   const rthBars = filterRTHBars(intradayBars as any, sessionStart, sessionEnd);
   let mae = 0;

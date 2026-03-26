@@ -33,11 +33,11 @@ const TIER_SETTING_KEYS: Record<string, string> = {
 
 function isWithinRTH(): boolean {
   const now = new Date();
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const hours = et.getHours();
-  const minutes = et.getMinutes();
+  const ct = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const hours = ct.getHours();
+  const minutes = ct.getMinutes();
   const totalMinutes = hours * 60 + minutes;
-  return totalMinutes >= 570 && totalMinutes <= 960;
+  return totalMinutes >= 510 && totalMinutes <= 900;
 }
 
 function rateLimitMinutes(tier: string): number {

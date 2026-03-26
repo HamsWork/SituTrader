@@ -120,11 +120,11 @@ export async function executeTradeForSignal(
 
   const instrumentType = signal.instrumentType || "OPTION";
 
-  const todayEt = new Date().toLocaleDateString("en-CA", {
-    timeZone: "America/New_York",
+  const todayCt = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/Chicago",
   });
   const tradesCreatedToday =
-    await storage.getIbkrTradesCreatedOnEtDate(todayEt);
+    await storage.getIbkrTradesCreatedOnEtDate(todayCt);
   const hasOptionToday = tradesCreatedToday.some(
     (t) => t.instrumentType === "OPTION",
   );
@@ -136,17 +136,17 @@ export async function executeTradeForSignal(
   );
   if (instrumentType === "OPTION" && hasOptionToday) {
     throw new Error(
-      `Already 1 OPTION trade created today (ET); only one IBKR option trade per day`,
+      `Already 1 OPTION trade created today (CT); only one IBKR option trade per day`,
     );
   }
   if (instrumentType === "LEVERAGED_ETF" && hasLetfToday) {
     throw new Error(
-      `Already 1 LEVERAGED_ETF trade created today (ET); only one IBKR LETF trade per day`,
+      `Already 1 LEVERAGED_ETF trade created today (CT); only one IBKR LETF trade per day`,
     );
   }
   if (instrumentType === "SHARES" && hasSharesToday) {
     throw new Error(
-      `Already 1 SHARES trade created today (ET); only one IBKR shares trade per day`,
+      `Already 1 SHARES trade created today (CT); only one IBKR shares trade per day`,
     );
   }
 

@@ -794,7 +794,7 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           {signal.activatedTs && (
             <span className="flex items-center gap-0.5">
               <Clock className="w-2.5 h-2.5" />
-              {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ET
+              {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" })} CT
             </span>
           )}
           {signal.pHit60 != null && (
@@ -1005,9 +1005,9 @@ function BtodStatusPanel() {
   };
 
   const now = new Date();
-  const etHour = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
-  const etMin = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }));
-  const minutesToEleven = Math.max(0, 11 * 60 - (etHour * 60 + etMin));
+  const ctHour = parseInt(now.toLocaleString("en-US", { timeZone: "America/Chicago", hour: "numeric", hour12: false }));
+  const ctMin = parseInt(now.toLocaleString("en-US", { timeZone: "America/Chicago", minute: "numeric" }));
+  const minutesToTen = Math.max(0, 10 * 60 - (ctHour * 60 + ctMin));
 
   return (
     <Card data-testid="card-btod-status">
@@ -1055,10 +1055,10 @@ function BtodStatusPanel() {
               <span className="text-xs text-muted-foreground" data-testid="text-btod-trades-count">
                 Trades: {data.tradesExecuted}/2
               </span>
-              {data.phase === "SELECTIVE" && minutesToEleven > 0 && (
+              {data.phase === "SELECTIVE" && minutesToTen > 0 && (
                 <span className="text-xs text-muted-foreground">
                   <Timer className="w-3 h-3 inline mr-0.5" />
-                  {Math.floor(minutesToEleven / 60)}h {minutesToEleven % 60}m to Open Phase
+                  {Math.floor(minutesToTen / 60)}h {minutesToTen % 60}m to Open Phase
                 </span>
               )}
             </div>

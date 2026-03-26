@@ -10,7 +10,7 @@ import { getOnDeckSignals } from "./signalHelper";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const ET = "America/New_York";
+const CT = "America/Chicago";
 
 
 
@@ -37,20 +37,20 @@ export type RankableSignalLike = {
   activationStatus?: string;
 };
 
-function nowET() {
-  return dayjs().tz(ET);
+function nowCT() {
+  return dayjs().tz(CT);
 }
 
-function todayET(): string {
-  return nowET().format("YYYY-MM-DD");
+function todayCT(): string {
+  return nowCT().format("YYYY-MM-DD");
 }
 
-function minutesSinceMidnightET(): number {
-  const now = nowET();
+function minutesSinceMidnightCT(): number {
+  const now = nowCT();
   return now.hour() * 60 + now.minute();
 }
 
-const SELECTIVE_END_MINUTES = 11 * 60;
+const SELECTIVE_END_MINUTES = 10 * 60;
 
 export function rankOnDeckSignals(
   signals: RankableSignalLike[],
@@ -100,7 +100,7 @@ export function getBtodRankedQueueAndTop3Ids(
 
 
 export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodState> {
-  const tradeDate = ctx?.today || todayET();
+  const tradeDate = ctx?.today || todayCT();
   const allowedSetups = ctx?.config?.btodSetupTypes;
 
   if (!ctx) {
@@ -160,7 +160,7 @@ export async function shouldExecuteActivation(
   signalId: number,
   activationTs?: Date | string,
 ): Promise<BtodDecision> {
-  const tradeDate = todayET();
+  const tradeDate = todayCT();
   const state = await storage.getBtodState(tradeDate);
 
   if (!state) {
@@ -198,14 +198,14 @@ export async function shouldExecuteActivation(
 
   if (state.phase === "OPEN") {
     if (activationTs) {
-      const triggerTime = dayjs(activationTs).tz(ET);
+      const triggerTime = dayjs(activationTs).tz(CT);
       const triggerMinutes = triggerTime.hour() * 60 + triggerTime.minute();
       if (triggerMinutes < SELECTIVE_END_MINUTES) {
         log(
-          `BTOD: Rejecting stale activation for signal ${signalId} (${entry?.ticker ?? "?"}) — activated at ${triggerTime.format("HH:mm")} ET (before 11am)`,
+          `BTOD: Rejecting stale activation for signal ${signalId} (${entry?.ticker ?? "?"}) — activated at ${triggerTime.format("HH:mm")} CT (before 10am)`,
           "btod",
         );
-        return { execute: false, reason: "stale_activation_before_11am", rank };
+        return { execute: false, reason: "stale_activation_before_10am_ct", rank };
       }
     }
 
@@ -236,7 +236,7 @@ export async function shouldExecuteActivation(
 }
 
 export async function onBtodTradeExecuted(signalId: number): Promise<void> {
-  const tradeDate = todayET();
+  const tradeDate = todayCT();
   const state = await storage.getBtodState(tradeDate);
   if (!state) return;
 
@@ -264,7 +264,7 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
 }
 
 export async function transitionToOpenPhase(): Promise<void> {
-  const tradeDate = todayET();
+  const tradeDate = todayCT();
   const state = await storage.getBtodState(tradeDate);
   if (!state) {
     log("BTOD: No state found for transition to OPEN phase", "btod");
@@ -273,7 +273,7 @@ export async function transitionToOpenPhase(): Promise<void> {
 
   if (state.selectedSignalId) {
     log(
-      "BTOD: Trade already selected before 11am, skipping transition",
+      "BTOD: Trade already selected before 10am CT, skipping transition",
       "btod",
     );
     return;
@@ -291,13 +291,13 @@ export async function transitionToOpenPhase(): Promise<void> {
   });
 
   log(
-    "BTOD: Transitioned to OPEN phase at 11:00am ET — waiting for first fresh activation",
+    "BTOD: Transitioned to OPEN phase at 10:00am CT — waiting for first fresh activation",
     "btod",
   );
 }
 
 export async function onTradeClose(): Promise<void> {
-  const tradeDate = todayET();
+  const tradeDate = todayCT();
   const state = await storage.getBtodState(tradeDate);
   if (!state) return;
 
@@ -319,11 +319,11 @@ export async function onTradeClose(): Promise<void> {
 }
 
 export function isSelectivePhaseOver(): boolean {
-  return minutesSinceMidnightET() >= SELECTIVE_END_MINUTES;
+  return minutesSinceMidnightCT() >= SELECTIVE_END_MINUTES;
 }
 
 export async function getBtodStatus(): Promise<BtodState | null> {
-  return storage.getBtodState(todayET());
+  return storage.getBtodState(todayCT());
 }
 
 export interface LetfOptionContractResult {

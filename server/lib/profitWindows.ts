@@ -98,11 +98,11 @@ function getLiquidityTier(symbol: string): LiquidityTier {
 
 function isRTH(epochSec: number): boolean {
   const d = new Date(epochSec * 1000);
-  const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const h = et.getHours();
-  const m = et.getMinutes();
+  const ct = new Date(d.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const h = ct.getHours();
+  const m = ct.getMinutes();
   const totalMin = h * 60 + m;
-  return totalMin >= 570 && totalMin <= 960;
+  return totalMin >= 510 && totalMin <= 900;
 }
 
 function isDailyTimeframe(tf: string): boolean {

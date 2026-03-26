@@ -29,7 +29,7 @@ The application follows a full-stack architecture.
 - **Alert Engine:** Manages alerts for various signal lifecycle events with tier-based routing and rate limiting.
 - **Activation Engine:** Scans intraday bars for entry triggers, managing trade states and advanced stop management. Integrates with BTOD gate check.
 - **Best Trade of the Day (BTOD):** Automated trade selection system guaranteeing one high-quality trade per day. Features pre-market ranking, dual-phase architecture (SELECTIVE/OPEN), and spawns up to 4 simultaneous IBKR trades (Shares, Options, LETF, LETF Options). LETF Options uses ATM option contracts on the selected LETF ticker with delta-based stop/target premium conversion.
-- **RTH Validation:** All trade validation and calculations are strictly confined to Regular Trading Hours (09:30-16:00 ET).
+- **RTH Validation:** All trade validation and calculations are strictly confined to Regular Trading Hours (08:30-15:00 CT). All timestamps and timezone references throughout the codebase use Central Time (America/Chicago).
 - **Optimization Engine:** Intelligence dashboard that identifies top-performing stocks, grades underperformers, ranks setup effectiveness, and provides time-to-hit distribution insights.
 - **Performance Dashboard:** Capital risk analysis and P&L tracking, simulating trade outcomes with configurable position sizing.
 - **ROI Insights:** Dedicated backtest edge analysis page showing setup rankings, instrument comparison with overlay equity curves, and P&L simulation.

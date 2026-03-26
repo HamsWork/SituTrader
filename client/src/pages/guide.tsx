@@ -178,7 +178,7 @@ const concepts = [
     title: "Hit vs Miss",
     icon: AlertTriangle,
     description:
-      "A 'hit' means price reached the magnet/target level during Regular Trading Hours (9:30 AM–4:00 PM ET). A 'miss' means the session ended without reaching the target. Both are final states — only 'pending' signals are still active.",
+      "A 'hit' means price reached the magnet/target level during Regular Trading Hours (8:30 AM–3:00 PM CT). A 'miss' means the session ended without reaching the target. Both are final states — only 'pending' signals are still active.",
   },
 ];
 

@@ -15,7 +15,7 @@ export function generateTradePlan(
 
   let entryTrigger: string;
   if (entryMode === "aggressive") {
-    entryTrigger = `Enter on first 5-min close ${bias === "SELL" ? "below" : "above"} prior bar after 09:35 ET`;
+    entryTrigger = `Enter on first 5-min close ${bias === "SELL" ? "below" : "above"} prior bar after 08:35 CT`;
   } else {
     entryTrigger = `Enter after 5-min close breaks ${bias === "SELL" ? "below support" : "above resistance"} in magnet direction AND retests without reclaiming`;
   }
