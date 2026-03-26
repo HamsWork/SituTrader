@@ -309,6 +309,11 @@ export async function runSimulation(
     (s, r) => s + r.activations.filter((a) => a.isBtod).length,
     0,
   );
+  const totalTradeSyncCalls = results.reduce(
+    (s, r) => s + r.tradeSyncCalls.length,
+    0,
+  );
+  const tradeSyncDays = results.filter((r) => r.tradeSyncCalls.length > 0).length;
   const hitRate =
     totalHitsAll / Math.max(1, totalHitsAll + totalMissesAll) || 0;
 
@@ -319,6 +324,8 @@ export async function runSimulation(
     totalHits: totalHitsAll,
     totalMisses: totalMissesAll,
     btodActivations,
+    totalTradeSyncCalls,
+    tradeSyncDays,
     hitRate,
     dayResults: results.map((r) => ({
       date: r.date,
@@ -349,6 +356,10 @@ export async function runSimulation(
   });
   emit("log", {
     message: `  BTOD Activations: ${finalStats.btodActivations}`,
+    type: "info",
+  });
+  emit("log", {
+    message: `  TradeSync Calls: ${finalStats.totalTradeSyncCalls} (${finalStats.tradeSyncDays}/${finalStats.totalDays} days)`,
     type: "info",
   });
 

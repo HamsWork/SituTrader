@@ -1078,6 +1078,15 @@ export default function BacktestPage() {
                                 <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
                                   {summary.totalHit} hits
                                 </Badge>
+                                {eff.tradeSyncCalls && eff.tradeSyncCalls.length > 0 ? (
+                                  <Badge variant="outline" className="text-[10px] bg-indigo-500/10 text-indigo-400 border-indigo-500/20" data-testid="badge-tradesync-day">
+                                    TS {eff.tradeSyncCalls.length}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[10px] bg-zinc-500/10 text-zinc-500 border-zinc-500/20" data-testid="badge-no-tradesync-day">
+                                    No TS
+                                  </Badge>
+                                )}
                               </div>
                             );
                           })()}
@@ -1436,7 +1445,7 @@ export default function BacktestPage() {
 
               {simFinalStats && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <Card>
                       <CardContent className="pt-3 pb-3 px-4 text-center">
                         <div className="text-xl font-bold" data-testid="text-sim-total-signals">{simFinalStats.totalSignalsGenerated}</div>
@@ -1459,6 +1468,12 @@ export default function BacktestPage() {
                       <CardContent className="pt-3 pb-3 px-4 text-center">
                         <div className="text-xl font-bold text-violet-500" data-testid="text-sim-btod">{simFinalStats.btodActivations}</div>
                         <div className="text-[10px] text-muted-foreground">BTOD Activations</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-3 pb-3 px-4 text-center">
+                        <div className="text-xl font-bold text-indigo-400" data-testid="text-sim-tradesync">{simFinalStats.totalTradeSyncCalls ?? 0}</div>
+                        <div className="text-[10px] text-muted-foreground">TradeSync Calls ({simFinalStats.tradeSyncDays ?? 0}/{simFinalStats.totalDays} days)</div>
                       </CardContent>
                     </Card>
                   </div>
