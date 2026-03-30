@@ -368,7 +368,7 @@ export class SimTickerStepper {
   }
 
 
-  liveMonitorStart(): boolean {
+  async liveMonitorStart(): Promise<boolean> {
     this.emit("progress", {
       completed: this.dayIdx,
       total: this.totalDays,
@@ -385,9 +385,62 @@ export class SimTickerStepper {
       return true;
     }
 
-    this.emit("log", { message: `  Monitoring ${this.ctx.onDeckSignals.size} on-deck + ${this.ctx.activeSignals.size} active signals`, type: "info" });
+    const monitorBtodOnly = this.config.monitorBtodOnly;
+    if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
+      const btodTickers = new Set<string>();
+      for (const id of this.ctx.btodSignalIds) {
+        const sig = this.allSignals.get(id);
+        if (sig) btodTickers.add(sig.ticker);
+      }
+      this.emit("log", { message: `  BTOD-Only mode: monitoring ${btodTickers.size} BTOD ticker(s) [${Array.from(btodTickers).join(", ")}]`, type: "info" });
+    } else {
+      this.emit("log", { message: `  Monitoring ${this.ctx.onDeckSignals.size} on-deck + ${this.ctx.activeSignals.size} active signals`, type: "info" });
+    }
+
+    await this.prefetchDayBars();
 
     return false;
+  }
+
+  private async prefetchDayBars(): Promise<void> {
+    const monitorBtodOnly = this.config.monitorBtodOnly;
+    let tickersToFetch: string[];
+
+    if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
+      const btodTickers = new Set<string>();
+      for (const id of this.ctx.btodSignalIds) {
+        const sig = this.allSignals.get(id);
+        if (sig) btodTickers.add(sig.ticker);
+      }
+      for (const sig of this.ctx.activeSignals.values()) {
+        btodTickers.add(sig.ticker);
+      }
+      tickersToFetch = Array.from(btodTickers);
+    } else {
+      const allTickers = new Set<string>();
+      for (const sig of this.ctx.onDeckSignals.values()) allTickers.add(sig.ticker);
+      for (const sig of this.ctx.activeSignals.values()) allTickers.add(sig.ticker);
+      tickersToFetch = Array.from(allTickers);
+    }
+
+    if (tickersToFetch.length === 0) return;
+
+    this.emit("log", { message: `  Pre-fetching 1m bars for ${tickersToFetch.length} ticker(s)...`, type: "info" });
+    this.ctx.prefetchedBars = new Map();
+
+    let failed = 0;
+    for (const ticker of tickersToFetch) {
+      if (this.isAborted()) break;
+      try {
+        const bars = await fetchIntradayBarsCached(ticker, this.today, this.today, "1");
+        this.ctx.prefetchedBars.set(ticker, bars);
+      } catch (err: any) {
+        failed++;
+        this.emit("log", { message: `  Pre-fetch failed for ${ticker}: ${err.message}`, type: "error" });
+      }
+    }
+
+    this.emit("log", { message: `  Pre-fetched bars for ${this.ctx.prefetchedBars.size} ticker(s)${failed > 0 ? ` (${failed} failed, will fallback)` : ""}`, type: "info" });
   }
 
   private applyActivationMutation(mut: ActivationMutation, min: number): void {
@@ -504,7 +557,16 @@ export class SimTickerStepper {
     const prevMisses = this.dayResult.misses.length;
 
     let hadEvents = false;
-    const monitorSignals = Array.from(this.ctx.onDeckSignals.values()).concat(Array.from(this.ctx.activeSignals.values()));
+    const monitorBtodOnly = this.config.monitorBtodOnly;
+
+    let monitorSignals: Signal[];
+    if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
+      const btodOnDeck = Array.from(this.ctx.onDeckSignals.values()).filter(s => this.ctx.btodSignalIds.has(s.id));
+      const activeArr = Array.from(this.ctx.activeSignals.values());
+      monitorSignals = btodOnDeck.concat(activeArr);
+    } else {
+      monitorSignals = Array.from(this.ctx.onDeckSignals.values()).concat(Array.from(this.ctx.activeSignals.values()));
+    }
     const tickerArr = Array.from(new Set(monitorSignals.map(s => s.ticker)));
     if (tickerArr.length === 0) {
       this.emit("log", { message: `  All signals resolved by ${formatSimTime(this.ctx.currentMin)}`, type: "info" });
@@ -513,7 +575,12 @@ export class SimTickerStepper {
 
     for (const ticker of tickerArr) {
       if (this.isAborted()) break;
-      const pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
+      let pendingSignals: Signal[];
+      if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
+        pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker && this.ctx.btodSignalIds.has(s.id));
+      } else {
+        pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
+      }
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
       const result = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
       hadEvents = hadEvents || result.hadEvents;
@@ -523,9 +590,16 @@ export class SimTickerStepper {
       }
     }
 
-    const pendingCount = Array.from(this.ctx.onDeckSignals.values()).filter(
-      (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
-    ).length;
+    let pendingCount: number;
+    if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
+      pendingCount = Array.from(this.ctx.onDeckSignals.values()).filter(
+        (s) => this.ctx.btodSignalIds.has(s.id) && s.status === "pending" && s.activationStatus !== "INVALIDATED",
+      ).length;
+    } else {
+      pendingCount = Array.from(this.ctx.onDeckSignals.values()).filter(
+        (s) => s.status === "pending" && s.activationStatus !== "INVALIDATED",
+      ).length;
+    }
     const activeCount = Array.from(this.ctx.activeSignals.values()).filter(
       (s) => s.activationStatus === "ACTIVE" && s.status === "pending",
     ).length;
@@ -804,7 +878,7 @@ export class SimTickerStepper {
     if (await this.preOpenScan()) return this.earlyReturn();
     this.emitDayUpdatePublic();
 
-    const noSignals = this.liveMonitorStart();
+    const noSignals = await this.liveMonitorStart();
     
     if (!noSignals) {
       this.ctx.currentMin = SIM_RTH_START_CT;

@@ -193,6 +193,7 @@ export interface SimConfig {
   gapThreshold: number;
   phaseDelayMs: number;
   btodSetupTypes: string[];
+  monitorBtodOnly: boolean;
 }
 
 export type SimEventCallback = (
@@ -251,6 +252,7 @@ export interface SimDayContext {
   btodExecutedToday: boolean;
   btodSignalIds: Set<number>;
   dayResult: SimDayResult;
+  prefetchedBars: Map<string, import("./lib/polygon").PolygonBar[]>;
 
 }
 
@@ -783,6 +785,7 @@ export async function runSimulation(
     today: tradingDays[0],
     dayIdx: 0,
     totalDays: tradingDays.length,
+    prefetchedBars: new Map(),
   };
 
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
@@ -801,6 +804,7 @@ export async function runSimulation(
     currentDayCtx.dayIdx = dayIdx;
     currentDayCtx.totalDays = tradingDays.length;
     currentDayCtx.btodExecutedToday = false;
+    currentDayCtx.prefetchedBars = new Map();
 
     currentDayCtx.currentMin = SIM_BEFORE_PRE_OPEN_CT;
 

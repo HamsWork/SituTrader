@@ -252,10 +252,24 @@ export async function enrichOptionsJsonForTicker(
   const force = params.force ?? false;
 
   const now = ctx ? new Date(Date.parse(ctx.today) + ctx.currentMin * 60 * 1000) : new Date();
+  const nowMs = now.getTime();
 
-  const currentTickerPrice = ctx
-    ? await fetchStockPriceAtTime(ticker, now.valueOf())
-    : await fetchStockPrice(ticker);
+  let currentTickerPrice: number | null;
+  const prefetched = ctx?.prefetchedBars?.get(ticker);
+  if (ctx && prefetched) {
+    const barsUpToNow = prefetched.filter((b: any) => b.t <= nowMs);
+    if (barsUpToNow.length > 0) {
+      const lastBar = barsUpToNow[barsUpToNow.length - 1];
+      currentTickerPrice = lastBar.vw ?? (lastBar.h + lastBar.l) / 2;
+      currentTickerPrice = Math.round(currentTickerPrice * 100) / 100;
+    } else {
+      currentTickerPrice = await fetchStockPriceAtTime(ticker, nowMs);
+    }
+  } else if (ctx) {
+    currentTickerPrice = await fetchStockPriceAtTime(ticker, nowMs);
+  } else {
+    currentTickerPrice = await fetchStockPrice(ticker);
+  }
 
 
   for (const signal of pendingSignals) {

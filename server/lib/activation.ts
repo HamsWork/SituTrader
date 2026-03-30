@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { fetchSnapshot, fetchIntradayBars, fetchStockPriceAtTime, fetchStockPrice } from "./polygon";
+import { fetchSnapshot, fetchIntradayBars, fetchIntradayBarsCached, fetchStockPriceAtTime, fetchStockPrice } from "./polygon";
 import { log } from "../index";
 import { enrichOptionData } from "./options";
 import {
@@ -298,14 +298,31 @@ export async function runActivationScanForTicker(
   const timeframe = settings.intradayTimeframe || "5";
   const stopCfg = getStopConfig(settings);
 
-  const currentPrice = ctx ? 
-    await fetchStockPriceAtTime(ticker, now.valueOf())
-    : await fetchStockPrice(ticker);
+  const nowMs = now.getTime();
+
+  let currentPrice: number | null;
+
+  const prefetched1m = ctx?.prefetchedBars?.get(ticker);
+  if (ctx && prefetched1m) {
+    const barsUpToNow = prefetched1m.filter((b) => b.t <= nowMs);
+    if (barsUpToNow.length > 0) {
+      const lastBar = barsUpToNow[barsUpToNow.length - 1];
+      currentPrice = lastBar.vw ?? (lastBar.h + lastBar.l) / 2;
+      currentPrice = Math.round(currentPrice * 100) / 100;
+    } else {
+      currentPrice = await fetchStockPriceAtTime(ticker, nowMs);
+    }
+  } else if (ctx) {
+    currentPrice = await fetchStockPriceAtTime(ticker, nowMs);
+  } else {
+    currentPrice = await fetchStockPrice(ticker);
+  }
 
   const allSignals = [...pendingSignals, ...activeSignals];
 
-  const freshBarsRaw = await fetchIntradayBars(ticker, today, today, timeframe);
-  const nowMs = now.getTime();
+  const freshBarsRaw = ctx
+    ? await fetchIntradayBarsCached(ticker, today, today, timeframe)
+    : await fetchIntradayBars(ticker, today, today, timeframe);
   const filteredBars = ctx
     ? freshBarsRaw.filter((b) => b.t <= nowMs)
     : freshBarsRaw;
