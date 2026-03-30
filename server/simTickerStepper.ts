@@ -388,10 +388,11 @@ export class SimTickerStepper {
     const monitorBtodOnly = this.config.monitorBtodOnly;
     if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
       const btodTickers = new Set<string>();
-      for (const id of this.ctx.btodSignalIds) {
+      // Avoid `for..of` over `Set` for older TS targets (requires downlevelIteration/es2015+).
+      this.ctx.btodSignalIds.forEach((id) => {
         const sig = this.allSignals.get(id);
         if (sig) btodTickers.add(sig.ticker);
-      }
+      });
       this.emit("log", { message: `  BTOD-Only mode: monitoring ${btodTickers.size} BTOD ticker(s) [${Array.from(btodTickers).join(", ")}]`, type: "info" });
     } else {
       this.emit("log", { message: `  Monitoring ${this.ctx.onDeckSignals.size} on-deck + ${this.ctx.activeSignals.size} active signals`, type: "info" });
@@ -408,18 +409,26 @@ export class SimTickerStepper {
 
     if (monitorBtodOnly && this.ctx.btodSignalIds.size > 0) {
       const btodTickers = new Set<string>();
-      for (const id of this.ctx.btodSignalIds) {
+      // Avoid `for..of` over `Set` for older TS targets (requires downlevelIteration/es2015+).
+      this.ctx.btodSignalIds.forEach((id) => {
         const sig = this.allSignals.get(id);
         if (sig) btodTickers.add(sig.ticker);
-      }
-      for (const sig of this.ctx.activeSignals.values()) {
+      });
+      // Avoid `for..of` over `Map` for older TS targets (requires downlevelIteration/es2015+).
+      this.ctx.activeSignals.forEach((sig) => {
         btodTickers.add(sig.ticker);
-      }
+      });
       tickersToFetch = Array.from(btodTickers);
     } else {
       const allTickers = new Set<string>();
-      for (const sig of this.ctx.onDeckSignals.values()) allTickers.add(sig.ticker);
-      for (const sig of this.ctx.activeSignals.values()) allTickers.add(sig.ticker);
+      // Avoid `for..of` over `Map` for older TS targets (requires downlevelIteration/es2015+).
+      this.ctx.onDeckSignals.forEach((sig) => {
+        allTickers.add(sig.ticker);
+      });
+      // Avoid `for..of` over `Map` for older TS targets (requires downlevelIteration/es2015+).
+      this.ctx.activeSignals.forEach((sig) => {
+        allTickers.add(sig.ticker);
+      });
       tickersToFetch = Array.from(allTickers);
     }
 
