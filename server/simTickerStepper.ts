@@ -326,6 +326,16 @@ export class SimTickerStepper {
       }
     }
 
+    // remove expired signals
+    for (const sig of Array.from(this.ctx.allSignals.values())) {
+      if (sig.status !== "pending") continue;
+      if (sig.targetDate < this.today) {
+        this.ctx.allSignals.delete(sig.id);
+        this.ctx.onDeckSignals.delete(sig.id);
+        this.dayResult.signalsGenerated.splice(this.dayResult.signalsGenerated.indexOf(sig), 1);
+        this.dayResult.summary.totalPending--;
+      }
+    }
 
     // initialize btod for day
     const btodState = await initializeBtodForDay(this.ctx);
