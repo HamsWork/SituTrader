@@ -642,8 +642,8 @@ export async function fetchOptionMarkAtTime(
           minDist = dist;
         }
       }
-      const vwap = closest.vw ?? (closest.h + closest.l) / 2;
-      return Math.round(vwap * 100) / 100;
+      const price = closest.c ?? closest.vw ?? (closest.h + closest.l) / 2;
+      return Math.round(price * 100) / 100;
     }
 
     return null;

@@ -627,10 +627,28 @@ export async function executeBtodMultiInstrument(
       } else if (inst.type === "OPTION" && inst.ticker) {
         instrumentEntry = signal.optionEntryMark ?? 0;
         try {
-          const { fetchOptionSnapshot } = await import("./polygon");
+          const { fetchOptionLastTrade, fetchOptionMark, fetchOptionSnapshot } = await import("./polygon");
+          const MAX_LAST_TRADE_AGE_MS = 5 * 60 * 1000;
+          const lastTrade = await fetchOptionLastTrade(inst.ticker);
+          const tradeIsRecent = lastTrade && lastTrade.mark != null && lastTrade.mark > 0 &&
+            lastTrade.ts != null && (Date.now() - lastTrade.ts) < MAX_LAST_TRADE_AGE_MS;
+          if (tradeIsRecent) {
+            instrumentEntry = lastTrade!.mark!;
+            log(`BTOD: Fresh option last trade for ${inst.ticker}: $${instrumentEntry}`, "btod");
+          } else {
+            const liveQuote = await fetchOptionMark(inst.ticker, signal.ticker);
+            if (liveQuote && liveQuote.mark != null && liveQuote.mark > 0) {
+              instrumentEntry = liveQuote.mark;
+              log(`BTOD: Fresh option NBBO mark for ${inst.ticker}: $${instrumentEntry}`, "btod");
+            } else {
+              log(`BTOD: No fresh option price for ${inst.ticker}, using cached entry mark $${instrumentEntry}`, "btod");
+            }
+          }
+          await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: instrumentEntry });
           const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
           delta = optSnap?.delta ?? null;
-        } catch {
+        } catch (err: any) {
+          log(`BTOD: Error fetching fresh option price for ${inst.ticker}: ${err.message}`, "btod");
           delta = isBuy ? 0.5 : -0.5;
         }
       } else if (inst.type === "LEVERAGED_ETF") {
@@ -638,6 +656,28 @@ export async function executeBtodMultiInstrument(
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
         instrumentEntry = letfOptionContract.markPrice;
+        try {
+          const { fetchOptionLastTrade, fetchOptionMark } = await import("./polygon");
+          const MAX_LAST_TRADE_AGE_MS = 5 * 60 * 1000;
+          const ltContract = letfOptionContract.contractTicker;
+          const lastTrade = await fetchOptionLastTrade(ltContract);
+          const tradeIsRecent = lastTrade && lastTrade.mark != null && lastTrade.mark > 0 &&
+            lastTrade.ts != null && (Date.now() - lastTrade.ts) < MAX_LAST_TRADE_AGE_MS;
+          if (tradeIsRecent) {
+            instrumentEntry = lastTrade!.mark!;
+            log(`BTOD: Fresh LETF option last trade for ${ltContract}: $${instrumentEntry}`, "btod");
+          } else {
+            const liveQuote = await fetchOptionMark(ltContract);
+            if (liveQuote && liveQuote.mark != null && liveQuote.mark > 0) {
+              instrumentEntry = liveQuote.mark;
+              log(`BTOD: Fresh LETF option NBBO mark for ${ltContract}: $${instrumentEntry}`, "btod");
+            } else {
+              log(`BTOD: No fresh LETF option price for ${ltContract}, using cached $${instrumentEntry}`, "btod");
+            }
+          }
+        } catch (err: any) {
+          log(`BTOD: Error fetching fresh LETF option price: ${err.message}`, "btod");
+        }
         delta =
           letfOptionContract.delta ??
           (letfOptionContract.right === "P" ? -0.5 : 0.5);
