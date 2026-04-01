@@ -46,30 +46,40 @@ async function polygonGet(
     return cached.data;
   }
 
+  let lastError: Error | null = null;
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     await rateLimitWait();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let res: Response;
     try {
       res = await fetch(url.toString(), { signal: controller.signal });
     } catch (err: any) {
-      clearTimeout(timeout);
+      clearTimeout(timer);
+      lastError = err;
+      const backoff = Math.min(2000 * Math.pow(2, attempt), 15000);
       if (err.name === "AbortError") {
         if (attempt < MAX_RETRIES - 1) {
-          log(`Polygon request timed out after ${FETCH_TIMEOUT_MS}ms, retrying (attempt ${attempt + 1})`, "polygon");
+          log(`Polygon request timed out after ${FETCH_TIMEOUT_MS}ms, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`, "polygon");
+          await new Promise((r) => setTimeout(r, backoff));
           continue;
         }
         throw new Error(`Polygon API timed out after ${MAX_RETRIES} attempts: ${path}`);
       }
+      if (attempt < MAX_RETRIES - 1) {
+        log(`Polygon fetch error: ${err.message}, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`, "polygon");
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
       throw err;
     }
-    clearTimeout(timeout);
+    clearTimeout(timer);
 
     if (res.status === 429) {
       const backoff = Math.min(1000 * Math.pow(2, attempt + 1), 30000);
       log(
-        `Polygon rate limited, backing off ${backoff}ms (attempt ${attempt + 1})`,
+        `Polygon rate limited, backing off ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
         "polygon",
       );
       await new Promise((r) => setTimeout(r, backoff));
@@ -79,7 +89,7 @@ async function polygonGet(
     if (res.status >= 500 && attempt < MAX_RETRIES - 1) {
       const backoff = 2000 * (attempt + 1);
       log(
-        `Polygon server error ${res.status}, retrying in ${backoff}ms`,
+        `Polygon server error ${res.status}, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
         "polygon",
       );
       await new Promise((r) => setTimeout(r, backoff));
@@ -96,7 +106,7 @@ async function polygonGet(
     return data;
   }
 
-  throw new Error(`Polygon API failed after ${MAX_RETRIES} retries`);
+  throw lastError ?? new Error(`Polygon API failed after ${MAX_RETRIES} retries`);
 }
 
 export interface PolygonBar {
