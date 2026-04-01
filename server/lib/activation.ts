@@ -90,7 +90,7 @@ async function handlePostActivation(
     if (btodEnabled) {
       btodActive = true;
       const { shouldExecuteActivation } = await import("./btod");
-      const btodDecision = await shouldExecuteActivation(sig.id, new Date());
+      const btodDecision = await shouldExecuteActivation(sig.id, mut.activatedTs);
       if (!btodDecision.execute) {
         btodAllowed = false;
         log(
@@ -109,7 +109,7 @@ async function handlePostActivation(
   if (btodActive && btodAllowed) {
     try {
       const { executeBtodMultiInstrument, onBtodTradeExecuted, shouldExecuteActivation } = await import("./btod");
-      const recheck = await shouldExecuteActivation(sig.id, new Date());
+      const recheck = await shouldExecuteActivation(sig.id, mut.activatedTs);
       if (!recheck.execute) {
         log(
           `BTOD: Re-check blocked signal ${sig.id} (${sig.ticker}) — reason: ${recheck.reason} (race prevented)`,

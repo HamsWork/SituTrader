@@ -24,6 +24,8 @@ async function rateLimitWait(): Promise<void> {
   lastRequestTs = Date.now();
 }
 
+const FETCH_TIMEOUT_MS = 20_000;
+
 async function polygonGet(
   path: string,
   params: Record<string, string> = {},
@@ -46,7 +48,23 @@ async function polygonGet(
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     await rateLimitWait();
-    const res = await fetch(url.toString());
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), { signal: controller.signal });
+    } catch (err: any) {
+      clearTimeout(timeout);
+      if (err.name === "AbortError") {
+        if (attempt < MAX_RETRIES - 1) {
+          log(`Polygon request timed out after ${FETCH_TIMEOUT_MS}ms, retrying (attempt ${attempt + 1})`, "polygon");
+          continue;
+        }
+        throw new Error(`Polygon API timed out after ${MAX_RETRIES} attempts: ${path}`);
+      }
+      throw err;
+    }
+    clearTimeout(timeout);
 
     if (res.status === 429) {
       const backoff = Math.min(1000 * Math.pow(2, attempt + 1), 30000);

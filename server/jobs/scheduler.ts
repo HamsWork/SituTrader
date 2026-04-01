@@ -147,13 +147,22 @@ export async function initScheduler() {
   let lastOptionReEnrichMs = 0;
   const OPTION_REENRICH_INTERVAL = 60 * 60 * 1000;
   let liveMonitorRunning = false;
+  let liveMonitorStartedAt = 0;
+  const LIVE_MONITOR_STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 
   liveMonitorJob = cron.schedule("* * * * *", async () => {
     if (liveMonitorRunning) {
-      log("Live monitor tick skipped — previous tick still running", "scheduler");
-      return;
+      const stuckMs = Date.now() - liveMonitorStartedAt;
+      if (stuckMs > LIVE_MONITOR_STUCK_THRESHOLD_MS) {
+        log(`Live monitor stuck for ${Math.round(stuckMs / 1000)}s — force-resetting flag`, "scheduler");
+        liveMonitorRunning = false;
+      } else {
+        log("Live monitor tick skipped — previous tick still running", "scheduler");
+        return;
+      }
     }
     liveMonitorRunning = true;
+    liveMonitorStartedAt = Date.now();
     try {
       const st = await storage.getSchedulerState();
       if (!st.authorModeEnabled) { liveMonitorRunning = false; return; }
