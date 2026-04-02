@@ -407,7 +407,8 @@ export async function runActivationScanForTicker(
   const mutations = [...activationMutations, ...monitorMutations];
 
   if (ctx) {
-    applyMutationsToCtx(ctx, mutations, now);
+    const nonActivationMutsSim = mutations.filter((m) => m.type !== "activated");
+    applyMutationsToCtx(ctx, nonActivationMutsSim, now);
     await handlePostActivationSim(ctx, mutations);
   } else {
     const nonActivationMuts = mutations.filter((m) => m.type !== "activated");

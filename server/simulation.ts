@@ -256,6 +256,22 @@ export interface SimDayContext {
 
 }
 
+function applyActivationToCtx(
+  ctx: SimDayContext,
+  mut: import("./lib/signalHelper").ActivationMutation,
+): void {
+  const sig = ctx.onDeckSignals.get(mut.signalId) ?? ctx.activeSignals.get(mut.signalId);
+  if (!sig) return;
+  sig.activationStatus = "ACTIVE";
+  sig.activatedTs = mut.activatedTs ?? null;
+  sig.entryPriceAtActivation = mut.entryPrice ?? null;
+  sig.stopPrice = mut.stopPrice ?? null;
+  sig.stopStage = "INITIAL";
+  ctx.onDeckSignals.delete(sig.id);
+  ctx.activeSignals.set(sig.id, sig);
+  ctx.allSignals.set(sig.id, sig);
+}
+
 export function applyMutationsToCtx(
   ctx: SimDayContext,
   mutations: import("./lib/signalHelper").ActivationMutation[],
@@ -266,16 +282,6 @@ export function applyMutationsToCtx(
     if (!sig) continue;
 
     switch (mut.type) {
-      case "activated":
-        sig.activationStatus = "ACTIVE";
-        sig.activatedTs = mut.activatedTs ?? null;
-        sig.entryPriceAtActivation = mut.entryPrice ?? null;
-        sig.stopPrice = mut.stopPrice ?? null;
-        sig.stopStage = "INITIAL";
-        ctx.onDeckSignals.delete(sig.id);
-        ctx.activeSignals.set(sig.id, sig);
-        ctx.allSignals.set(sig.id, sig);
-        break;
       case "invalidated":
         sig.activationStatus = "INVALIDATED";
         sig.status = "miss";
@@ -315,80 +321,83 @@ export async function handlePostActivationSim(
   mutations: import("./lib/signalHelper").ActivationMutation[],
 ): Promise<void> {
   for (const mut of mutations) {
-    const sig = ctx.allSignals.get(mut.signalId);
-    if (!sig) continue;
+    if (mut.type === "activated") {
+      const sig = ctx.onDeckSignals.get(mut.signalId) ?? ctx.allSignals.get(mut.signalId);
+      if (!sig) continue;
 
-    switch (mut.type) {
-      case "activated": {
-        const isBtodCandidate = ctx.btodSignalIds.has(sig.id);
+      const isBtodCandidate = ctx.btodSignalIds.has(sig.id);
 
-        if (isBtodCandidate && !ctx.btodExecutedToday) {
-          ctx.btodExecutedToday = true;
+      if (isBtodCandidate && !ctx.btodExecutedToday) {
+        ctx.btodExecutedToday = true;
 
-          ctx.dayResult.activations.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            triggerTs: mut.activatedTs ?? ctx.today,
-            entryPrice: mut.entryPrice ?? 0,
-            isBtod: true,
-          });
+        applyActivationToCtx(ctx, mut);
 
-          ctx.dayResult.btodStatus.phase = "CLOSED";
-          ctx.dayResult.btodStatus.gateOpen = false;
-          ctx.dayResult.btodStatus.executedSignalId = sig.id;
-          ctx.dayResult.btodStatus.executedTicker = sig.ticker;
-
-          const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
-          const instruments: string[] = ["Shares"];
-          if (tp?.stopDistance) instruments.push("Options");
-          instruments.push("LETF", "LETF Options");
-
-          const activationEntry = mut.entryPrice ?? 0;
-          const stopDist = tp?.stopDistance ?? 0;
-          const isBuy = sig.direction?.includes("up");
-          const effectiveStop = isBuy
-            ? activationEntry - stopDist
-            : activationEntry + stopDist;
-
-          const trackingResults = await simulateAllTradeTracking(sig, ctx);
-
-          const anyWin = trackingResults.some((r) => r.win);
-          ctx.dayResult.tradeSyncCalls.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            direction: sig.direction,
-            entryPrice: activationEntry,
-            stopPrice: effectiveStop,
-            targetPrice: sig.magnetPrice,
-            instruments,
-            status: "SIMULATED",
-            triggerTs: mut.activatedTs ?? ctx.today,
-            outcome: anyWin ? "hit" : "miss",
-            trackingResults,
-          });
-        } else {
-          ctx.dayResult.activations.push({
-            signalId: sig.id,
-            ticker: sig.ticker,
-            setupType: sig.setupType,
-            triggerTs: mut.activatedTs ?? ctx.today,
-            entryPrice: mut.entryPrice ?? 0,
-            isBtod: false,
-          });
-        }
-        break;
-      }
-
-      case "invalidated":
-      case "entry_invalidated":
-        ctx.dayResult.misses.push({
+        ctx.dayResult.activations.push({
           signalId: sig.id,
           ticker: sig.ticker,
-          reason: mut.message ?? "Entry trigger invalidated",
+          setupType: sig.setupType,
+          triggerTs: mut.activatedTs ?? ctx.today,
+          entryPrice: mut.entryPrice ?? 0,
+          isBtod: true,
         });
-        break;
+
+        ctx.dayResult.btodStatus.phase = "CLOSED";
+        ctx.dayResult.btodStatus.gateOpen = false;
+        ctx.dayResult.btodStatus.executedSignalId = sig.id;
+        ctx.dayResult.btodStatus.executedTicker = sig.ticker;
+
+        const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
+        const instruments: string[] = ["Shares"];
+        if (tp?.stopDistance) instruments.push("Options");
+        instruments.push("LETF", "LETF Options");
+
+        const activationEntry = mut.entryPrice ?? 0;
+        const stopDist = tp?.stopDistance ?? 0;
+        const isBuy = sig.direction?.includes("up");
+        const effectiveStop = isBuy
+          ? activationEntry - stopDist
+          : activationEntry + stopDist;
+
+        const trackingResults = await simulateAllTradeTracking(sig, ctx);
+
+        const anyWin = trackingResults.some((r) => r.win);
+        ctx.dayResult.tradeSyncCalls.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          setupType: sig.setupType,
+          direction: sig.direction,
+          entryPrice: activationEntry,
+          stopPrice: effectiveStop,
+          targetPrice: sig.magnetPrice,
+          instruments,
+          status: "SIMULATED",
+          triggerTs: mut.activatedTs ?? ctx.today,
+          outcome: anyWin ? "hit" : "miss",
+          trackingResults,
+        });
+      } else {
+        applyActivationToCtx(ctx, mut);
+
+        ctx.dayResult.activations.push({
+          signalId: sig.id,
+          ticker: sig.ticker,
+          setupType: sig.setupType,
+          triggerTs: mut.activatedTs ?? ctx.today,
+          entryPrice: mut.entryPrice ?? 0,
+          isBtod: false,
+        });
+      }
+      continue;
+    }
+
+    if (mut.type === "invalidated" || mut.type === "entry_invalidated") {
+      const sig = ctx.allSignals.get(mut.signalId);
+      if (!sig) continue;
+      ctx.dayResult.misses.push({
+        signalId: sig.id,
+        ticker: sig.ticker,
+        reason: mut.message ?? "Entry trigger invalidated",
+      });
     }
   }
 }
