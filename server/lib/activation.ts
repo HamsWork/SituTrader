@@ -16,6 +16,31 @@ import type { Signal, TradePlan, IntradayBar } from "@shared/schema";
 export type { ActivationEvent };
 export { checkEntryTrigger };
 
+let btodMutexLocked = false;
+const btodMutexQueue: Array<() => void> = [];
+
+async function acquireBtodMutex(): Promise<void> {
+  if (!btodMutexLocked) {
+    btodMutexLocked = true;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    btodMutexQueue.push(() => {
+      btodMutexLocked = true;
+      resolve();
+    });
+  });
+}
+
+function releaseBtodMutex(): void {
+  if (btodMutexQueue.length > 0) {
+    const next = btodMutexQueue.shift()!;
+    next();
+  } else {
+    btodMutexLocked = false;
+  }
+}
+
 interface StopConfig {
   stopMode: string;
   beProgressThreshold: number;
@@ -68,6 +93,17 @@ async function applyMutationsToDb(mutations: ActivationMutation[]): Promise<void
   }
 }
 
+async function persistActivationToDb(mut: ActivationMutation): Promise<void> {
+  await storage.updateSignalActivation(
+    mut.signalId,
+    "ACTIVE",
+    mut.activatedTs,
+    mut.entryPrice,
+    mut.stopPrice,
+    mut.entryTriggerPrice,
+  );
+}
+
 async function handlePostActivation(
   sig: Signal,
   tp: TradePlan,
@@ -84,6 +120,8 @@ async function handlePostActivation(
 
   let btodActive = false;
   let btodAllowed = true;
+
+  await acquireBtodMutex();
   try {
     const btodEnabled =
       (await storage.getSetting("btodEnabled")) !== "false";
@@ -99,23 +137,13 @@ async function handlePostActivation(
         );
       }
     }
-  } catch (btodErr: any) {
-    log(
-      `BTOD: error checking signal ${sig.id}, allowing execution as fallback: ${btodErr.message}`,
-      "activation",
-    );
-  }
 
-  if (btodActive && btodAllowed) {
-    try {
-      const { executeBtodMultiInstrument, onBtodTradeExecuted, shouldExecuteActivation } = await import("./btod");
-      const recheck = await shouldExecuteActivation(sig.id, mut.activatedTs);
-      if (!recheck.execute) {
-        log(
-          `BTOD: Re-check blocked signal ${sig.id} (${sig.ticker}) — reason: ${recheck.reason} (race prevented)`,
-          "activation",
-        );
-      } else {
+    await persistActivationToDb(mut);
+
+    if (btodActive && btodAllowed) {
+      try {
+        const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
+
         const qty =
           parseInt(
             (await storage.getSetting("ibkrDefaultQuantity")) || "1",
@@ -128,20 +156,28 @@ async function handlePostActivation(
         );
 
         await onBtodTradeExecuted(sig.id);
+      } catch (btodExecErr: any) {
+        log(
+          `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,
+          "activation",
+        );
       }
-    } catch (btodExecErr: any) {
+    } else if (!btodActive) {
+      // Non-BTOD path
+    } else {
       log(
-        `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,
+        `Skip execution for signal ${sig.id}: BTOD gate blocked`,
         "activation",
       );
     }
-  } else if (!btodActive) {
-    // Non-BTOD path (commented out in original)
-  } else {
+  } catch (err: any) {
     log(
-      `Skip execution for signal ${sig.id}: BTOD gate blocked`,
+      `BTOD: error in handlePostActivation for signal ${sig.id}: ${err.message}`,
       "activation",
     );
+    await persistActivationToDb(mut);
+  } finally {
+    releaseBtodMutex();
   }
 }
 
@@ -235,18 +271,23 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
     scanConfig,
   );
 
-  await applyMutationsToDb(mutations);
+  const nonActivationMutations = mutations.filter((m) => m.type !== "activated");
+  const activationMutations = mutations.filter((m) => m.type === "activated");
+
+  await applyMutationsToDb(nonActivationMutations);
 
   const signalById = new Map(activeSignals.map((s) => [s.id, s]));
-  for (const mut of mutations) {
-    if (mut.type === "activated") {
-      const sig = signalById.get(mut.signalId);
-      if (sig) {
-        const tp = sig.tradePlanJson as TradePlan | null;
-        if (tp) {
-          await handlePostActivation(sig, tp, mut);
-        }
+  for (const mut of activationMutations) {
+    const sig = signalById.get(mut.signalId);
+    if (sig) {
+      const tp = sig.tradePlanJson as TradePlan | null;
+      if (tp) {
+        await handlePostActivation(sig, tp, mut);
+      } else {
+        await persistActivationToDb(mut);
       }
+    } else {
+      await persistActivationToDb(mut);
     }
   }
 
@@ -369,18 +410,23 @@ export async function runActivationScanForTicker(
     applyMutationsToCtx(ctx, mutations, now);
     await handlePostActivationSim(ctx, mutations);
   } else {
-    await applyMutationsToDb(mutations);
+    const nonActivationMuts = mutations.filter((m) => m.type !== "activated");
+    const activationMuts = mutations.filter((m) => m.type === "activated");
+
+    await applyMutationsToDb(nonActivationMuts);
 
     const signalById = new Map(allSignals.map((s) => [s.id, s]));
-    for (const mut of mutations) {
-      if (mut.type === "activated") {
-        const sig = signalById.get(mut.signalId);
-        if (sig) {
-          const tp = sig.tradePlanJson as TradePlan | null;
-          if (tp) {
-            await handlePostActivation(sig, tp, mut);
-          }
+    for (const mut of activationMuts) {
+      const sig = signalById.get(mut.signalId);
+      if (sig) {
+        const tp = sig.tradePlanJson as TradePlan | null;
+        if (tp) {
+          await handlePostActivation(sig, tp, mut);
+        } else {
+          await persistActivationToDb(mut);
         }
+      } else {
+        await persistActivationToDb(mut);
       }
     }
   }
