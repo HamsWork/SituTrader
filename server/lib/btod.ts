@@ -505,6 +505,20 @@ export async function executeBtodMultiInstrument(
   const isBuy = tp.bias === "BUY";
   const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
+  if (!signal.optionContractTicker && !(signal.optionsJson as any)?.candidate?.contractSymbol) {
+    try {
+      const { enrichOptionData } = await import("./options");
+      await enrichOptionData(signal.ticker, signal, tp, signal.activatedTs ?? undefined);
+      const refreshed = (await storage.getSignals(undefined, 5000)).find(s => s.id === signalId);
+      if (refreshed) {
+        Object.assign(signal, refreshed);
+      }
+      log(`BTOD: Re-enriched option/LETF data for signal ${signalId}`, "btod");
+    } catch (err: any) {
+      log(`BTOD: Re-enrichment failed for signal ${signalId}: ${err.message}`, "btod");
+    }
+  }
+
   let optionTicker =
     signal.optionContractTicker ||
     (signal.optionsJson as any)?.candidate?.contractSymbol;
@@ -623,6 +637,18 @@ export async function executeBtodMultiInstrument(
 
       if (inst.type === "SHARES") {
         instrumentEntry = stockEntry;
+        try {
+          const { fetchSnapshot } = await import("./polygon");
+          const snap = await fetchSnapshot(signal.ticker);
+          if (snap?.lastPrice && snap.lastPrice > 0) {
+            instrumentEntry = snap.lastPrice;
+            log(`BTOD: Fresh stock price for ${signal.ticker}: $${instrumentEntry.toFixed(2)}`, "btod");
+          } else {
+            log(`BTOD: No fresh stock price for ${signal.ticker}, using activation price $${instrumentEntry}`, "btod");
+          }
+        } catch (err: any) {
+          log(`BTOD: Error fetching fresh stock price for ${signal.ticker}: ${err.message}`, "btod");
+        }
       } else if (inst.type === "OPTION" && inst.ticker) {
         instrumentEntry = signal.optionEntryMark ?? 0;
         try {
@@ -653,6 +679,19 @@ export async function executeBtodMultiInstrument(
       } else if (inst.type === "LEVERAGED_ETF") {
         instrumentEntry = signal.instrumentEntryPrice ?? 0;
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
+        try {
+          const { fetchSnapshot } = await import("./polygon");
+          const letfSnap = await fetchSnapshot(inst.ticker!);
+          if (letfSnap?.lastPrice && letfSnap.lastPrice > 0) {
+            instrumentEntry = letfSnap.lastPrice;
+            log(`BTOD: Fresh LETF price for ${inst.ticker}: $${instrumentEntry.toFixed(2)}`, "btod");
+            await storage.updateSignalInstrument(signal.id, "LEVERAGED_ETF", inst.ticker!, instrumentEntry);
+          } else {
+            log(`BTOD: No fresh LETF price for ${inst.ticker}, using cached $${instrumentEntry}`, "btod");
+          }
+        } catch (err: any) {
+          log(`BTOD: Error fetching fresh LETF price for ${inst.ticker}: ${err.message}`, "btod");
+        }
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
         instrumentEntry = letfOptionContract.markPrice;
         try {
