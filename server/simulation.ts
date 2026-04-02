@@ -437,13 +437,7 @@ export async function simulateAllTradeTracking(
     results.push(runNormalTrack("Shares", entryPrice, stopPrice, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars, actTs));
   }
 
-  const optionEntryMark = sig.optionEntryMark;
-  if (optionEntryMark && optionEntryMark > 0) {
-    const delta = 0.5;
-    const optStopPrice = Math.max(0, optionEntryMark - delta * stopDist);
-    const optT1Price = optionEntryMark + delta * Math.abs((tp?.t1 ?? sig.magnetPrice) - entryPrice);
-    const optT2 = tp?.t2 != null ? optionEntryMark + delta * Math.abs(tp.t2 - entryPrice) : null;
-
+  {
     let optBars: import("./lib/polygon").PolygonBar[] = [];
     const optContractTicker = sig.optionContractTicker;
     if (optContractTicker) {
@@ -463,20 +457,49 @@ export async function simulateAllTradeTracking(
       optBars = await fetchIntradayBars(occSymbol, activationDate, ctx.config.endDate, "1");
     }
     if (optBars.length > 0) {
+      let optionEntryMark = sig.optionEntryMark;
+      if (!optionEntryMark || optionEntryMark <= 0) {
+        const entryBar = actTs
+          ? optBars.find(b => b.t >= actTs) ?? optBars[0]
+          : optBars[0];
+        optionEntryMark = (entryBar.o + entryBar.c) / 2;
+      }
+      const delta = 0.5;
+      const optStopPrice = Math.max(0, optionEntryMark - delta * stopDist);
+      const optT1Price = optionEntryMark + delta * Math.abs((tp?.t1 ?? sig.magnetPrice) - entryPrice);
+      const optT2 = tp?.t2 != null ? optionEntryMark + delta * Math.abs(tp.t2 - entryPrice) : null;
+
       barSources["Options"] = optBars;
       results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars, actTs));
       results.push(runNormalTrack("Options", optionEntryMark, optStopPrice, optT1Price, optT2, true, optBars, actTs));
     }
   }
 
+  const { hasLeveragedEtfMapping, selectBestLeveragedEtf } = await import("./lib/leveragedEtf");
   const letfJson = sig.leveragedEtfJson as import("@shared/schema").LeveragedEtfSuggestion | null;
-  const letfTicker = sig.instrumentTicker ?? letfJson?.ticker;
-  const letfEntryPrice = sig.instrumentEntryPrice;
-  if (letfTicker && letfEntryPrice && letfEntryPrice > 0) {
+  let letfTicker = sig.instrumentTicker ?? letfJson?.ticker ?? null;
+  let letfLeverage = letfJson?.leverage ?? null;
+  let letfEntryPrice = sig.instrumentEntryPrice ?? null;
+
+  if (!letfTicker && hasLeveragedEtfMapping(sig.ticker)) {
+    const suggestion = await selectBestLeveragedEtf(sig.ticker, isBuy ? "BUY" : "SELL");
+    if (suggestion) {
+      letfTicker = suggestion.ticker;
+      letfLeverage = suggestion.leverage;
+    }
+  }
+
+  if (letfTicker) {
     const letfBars = await fetchIntradayBars(letfTicker, activationDate, ctx.config.endDate, "1");
     if (letfBars.length > 0) {
+      if (!letfEntryPrice || letfEntryPrice <= 0) {
+        const entryBar = actTs
+          ? letfBars.find(b => b.t >= actTs) ?? letfBars[0]
+          : letfBars[0];
+        letfEntryPrice = (entryBar.o + entryBar.c) / 2;
+      }
       barSources["LETF"] = letfBars;
-      const leverage = letfJson?.leverage ?? 1;
+      const leverage = letfLeverage ?? 1;
       const letfIsBuy = leverage < 0 ? !isBuy : isBuy;
       const letfStopPct = Math.abs(stopDist / entryPrice);
       const letfStop = letfIsBuy
