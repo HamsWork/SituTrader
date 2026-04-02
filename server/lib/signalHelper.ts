@@ -122,6 +122,7 @@ export async function scanTickerSetups(
         close: bar.c,
         volume: bar.v,
         ts: new Date(bar.t).toISOString(),
+        timeframe: "5",
         source: "polygon",
     }));
     const setups = detectAllSetups(recentBars, recentIntradayBars, config.setups, config.gapThreshold)
