@@ -418,7 +418,6 @@ export async function simulateAllTradeTracking(
     ? sig.activatedTs.slice(0, 10)
     : ctx.today;
 
-  const stopDist = tp?.stopDistance ?? Math.abs(entryPrice - stopPrice);
   const actTs = sig.activatedTs ? new Date(sig.activatedTs).getTime() : undefined;
 
   const sharesBars = await fetchIntradayBars(
@@ -428,13 +427,25 @@ export async function simulateAllTradeTracking(
     "1",
   );
 
+  let sharesEntryPrice = entryPrice;
+  if (sharesBars.length > 0 && actTs) {
+    const entryBar = sharesBars.find(b => b.t >= actTs);
+    if (entryBar) {
+      sharesEntryPrice = entryBar.c;
+    }
+  }
+  const stopDist = tp?.stopDistance ?? Math.abs(sharesEntryPrice - stopPrice);
+  const adjustedStop = isBuy
+    ? sharesEntryPrice - stopDist
+    : sharesEntryPrice + stopDist;
+
   const results: SimTrackingResult[] = [];
   const barSources: Record<string, import("./lib/polygon").PolygonBar[]> = {};
 
   if (sharesBars.length > 0) {
     barSources["Shares"] = sharesBars;
-    results.push(runTenPercentTrack("Shares", entryPrice, stopPrice, isBuy, sharesBars, actTs));
-    results.push(runNormalTrack("Shares", entryPrice, stopPrice, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars, actTs));
+    results.push(runTenPercentTrack("Shares", sharesEntryPrice, adjustedStop, isBuy, sharesBars, actTs));
+    results.push(runNormalTrack("Shares", sharesEntryPrice, adjustedStop, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars, actTs));
   }
 
   {
@@ -496,7 +507,7 @@ export async function simulateAllTradeTracking(
         const entryBar = actTs
           ? letfBars.find(b => b.t >= actTs) ?? letfBars[0]
           : letfBars[0];
-        letfEntryPrice = (entryBar.o + entryBar.c) / 2;
+        letfEntryPrice = entryBar.c;
       }
       barSources["LETF"] = letfBars;
       const leverage = letfLeverage ?? 1;
