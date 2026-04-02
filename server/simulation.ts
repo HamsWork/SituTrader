@@ -448,7 +448,7 @@ export async function simulateAllTradeTracking(
     results.push(runNormalTrack("Shares", sharesEntryPrice, adjustedStop, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars, actTs));
   }
 
-  {
+  if (sharesBars.length > 0) {
     let optBars: import("./lib/polygon").PolygonBar[] = [];
     const optContractTicker = sig.optionContractTicker;
     if (optContractTicker) {
@@ -467,18 +467,34 @@ export async function simulateAllTradeTracking(
       const occSymbol = buildOccSymbol(sig.ticker, expDate, right, atmStrike);
       optBars = await fetchIntradayBars(occSymbol, activationDate, ctx.config.endDate, "1");
     }
+
+    const delta = 0.5;
+    let optionEntryMark = sig.optionEntryMark;
+
+    if (optBars.length === 0 && sharesBars.length > 0) {
+      if (!optionEntryMark || optionEntryMark <= 0) {
+        optionEntryMark = sharesEntryPrice * 0.02;
+      }
+      optBars = sharesBars.map(b => ({
+        t: b.t,
+        o: optionEntryMark! + delta * (b.o - sharesEntryPrice),
+        h: optionEntryMark! + delta * (b.h - sharesEntryPrice),
+        l: optionEntryMark! + delta * (b.l - sharesEntryPrice),
+        c: optionEntryMark! + delta * (b.c - sharesEntryPrice),
+        v: b.v,
+      }));
+    }
+
     if (optBars.length > 0) {
-      let optionEntryMark = sig.optionEntryMark;
       if (!optionEntryMark || optionEntryMark <= 0) {
         const entryBar = actTs
           ? optBars.find(b => b.t >= actTs) ?? optBars[0]
           : optBars[0];
         optionEntryMark = (entryBar.o + entryBar.c) / 2;
       }
-      const delta = 0.5;
       const optStopPrice = Math.max(0, optionEntryMark - delta * stopDist);
-      const optT1Price = optionEntryMark + delta * Math.abs((tp?.t1 ?? sig.magnetPrice) - entryPrice);
-      const optT2 = tp?.t2 != null ? optionEntryMark + delta * Math.abs(tp.t2 - entryPrice) : null;
+      const optT1Price = optionEntryMark + delta * Math.abs((tp?.t1 ?? sig.magnetPrice) - sharesEntryPrice);
+      const optT2 = tp?.t2 != null ? optionEntryMark + delta * Math.abs(tp.t2 - sharesEntryPrice) : null;
 
       barSources["Options"] = optBars;
       results.push(runTenPercentTrack("Options", optionEntryMark, optStopPrice, true, optBars, actTs));
@@ -545,7 +561,19 @@ export async function simulateAllTradeTracking(
       const letfFridays = generateFridaysBetween(letfMinExp, letfMaxExp);
       const letfExpDate = letfFridays.length > 0 ? letfFridays[0] : letfMaxExp;
       const letfOccSymbol = buildOccSymbol(letfTicker, letfExpDate, letfRight, letfAtmStrike);
-      const letfOptBars = await fetchIntradayBars(letfOccSymbol, activationDate, ctx.config.endDate, "1");
+      let letfOptBars = await fetchIntradayBars(letfOccSymbol, activationDate, ctx.config.endDate, "1");
+
+      if (letfOptBars.length === 0 && letfBars.length > 0) {
+        letfOptBars = letfBars.map(b => ({
+          t: b.t,
+          o: letfOptEntry + letfOptDelta * (b.o - letfEntryPrice),
+          h: letfOptEntry + letfOptDelta * (b.h - letfEntryPrice),
+          l: letfOptEntry + letfOptDelta * (b.l - letfEntryPrice),
+          c: letfOptEntry + letfOptDelta * (b.c - letfEntryPrice),
+          v: b.v,
+        }));
+      }
+
       if (letfOptBars.length > 0) {
         barSources["LETF Options"] = letfOptBars;
         results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars, actTs));
