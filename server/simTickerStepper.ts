@@ -4,6 +4,7 @@ import {
   fetchDailyBarsCached,
   fetchOptionsChain,
   fetchOptionMarkAtTime,
+  fetchIntradayBars,
 } from "./lib/polygon";
 import {
   formatDate,
@@ -38,6 +39,7 @@ import {
   type ActivationMutation,
 } from "./lib/signalHelper";
 import { runLiveMonitorTickForTicker } from "./jobs/jobFunctions";
+import { getStopConfig } from "./lib/activation";
 
 type IBar = { ts: string; open: number; high: number; low: number; close: number; volume: number };
 
@@ -450,7 +452,7 @@ export class SimTickerStepper {
     for (const ticker of tickersToFetch) {
       if (this.isAborted()) break;
       try {
-        const bars = await fetchIntradayBarsCached(ticker, this.today, this.today, "1");
+        const bars = await fetchIntradayBars(ticker, Date.parse(this.today), Date.parse(this.today) + 1000 * 60 * 60 * 24, "5");
         this.ctx.prefetchedBars.set(ticker, bars);
       } catch (err: any) {
         failed++;
@@ -571,6 +573,14 @@ export class SimTickerStepper {
       simTimeCT: this.ctx.currentMin,
     });
 
+    const now = new Date(Date.parse(this.today) + this.ctx.currentMin * 60 * 1000);
+    const today = this.ctx.today;
+    
+    const settings = await storage.getAllSettings();
+    const entryMode = settings.entryMode || "conservative";
+    const timeframe = settings.intradayTimeframe || "5";
+    const stopCfg = getStopConfig(settings);
+
     const prevActivations = this.dayResult.activations.length;
     const prevMisses = this.dayResult.misses.length;
 
@@ -600,7 +610,8 @@ export class SimTickerStepper {
         pendingSignals = Array.from(this.ctx.onDeckSignals.values()).filter(s => s.ticker === ticker);
       }
       const activeSignals = Array.from(this.ctx.activeSignals.values()).filter(s => s.ticker === ticker);
-      const result = await runLiveMonitorTickForTicker(ticker, pendingSignals, activeSignals, this.ctx);
+      const result = await runLiveMonitorTickForTicker(
+        ticker, pendingSignals, activeSignals, now, today, entryMode, timeframe, stopCfg, this.ctx);
       hadEvents = hadEvents || result.hadEvents;
 
       for (const mut of result.mutations) {
@@ -895,6 +906,7 @@ export class SimTickerStepper {
     if (await this.preOpenScan()) return this.earlyReturn();
     this.emitDayUpdatePublic();
 
+    //TODO need to check
     const noSignals = await this.liveMonitorStart();
     
     if (!noSignals) {
@@ -920,3 +932,5 @@ export class SimTickerStepper {
     return await this.endOfDay();
   }
 }
+
+

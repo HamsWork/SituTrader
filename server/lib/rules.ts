@@ -1,4 +1,4 @@
-import type { DailyBar } from "@shared/schema";
+import type { DailyBar, IntradayBar } from "@shared/schema";
 import { getDayOfWeek, nextTradingDay } from "./calendar";
 
 export interface SetupResult {
@@ -59,27 +59,28 @@ export function detectSetupB(bars: DailyBar[]): SetupResult[] {
 
 export function detectSetupC(
   bars: DailyBar[],
+  intradayBars: IntradayBar[],
   gapThreshold: number = 0.003
 ): SetupResult[] {
   const results: SetupResult[] = [];
-  for (let i = 1; i < bars.length; i++) {
-    const today = bars[i];
-    const prev = bars[i - 1];
-
-    const gapPercent = (today.open - prev.close) / prev.close;
-    if (Math.abs(gapPercent) < gapThreshold) continue;
-
-    const direction = gapPercent > 0 ? "down-to-magnet" : "up-to-magnet";
-
-    results.push({
-      setupType: "C",
-      asofDate: today.date,
-      targetDate: today.date,
-      magnetPrice: prev.close,
-      direction,
-      triggerMargin: Math.abs(today.open - prev.close),
-    });
-  }
+  const lastIntradayBar = intradayBars[intradayBars.length - 1];
+  if (!lastIntradayBar) return results;
+  const lastIntradayBarDate = new Date(lastIntradayBar.ts).toISOString().slice(0, 10);
+  const lastDailyBar = bars[bars.length - 1];
+  if (!lastDailyBar) return results;
+  const lastDailyBarDate = new Date(lastDailyBar.date).toISOString().slice(0, 10);
+  if (lastDailyBarDate > lastIntradayBarDate) return results;
+  const gapPercent = (lastIntradayBar.close - lastDailyBar.close) / lastDailyBar.close;
+  if (Math.abs(gapPercent) < gapThreshold) return results;
+  const direction = gapPercent > 0 ? "down-to-magnet" : "up-to-magnet";
+  results.push({
+    setupType: "C",
+    asofDate: lastIntradayBarDate,
+    targetDate: lastIntradayBarDate,
+    magnetPrice: lastDailyBar.close,
+    direction,
+    triggerMargin: Math.abs(lastDailyBar.close - lastIntradayBar.close),
+  });
   return results;
 }
 
@@ -165,13 +166,14 @@ export function detectSetupF(bars: DailyBar[]): SetupResult[] {
 
 export function detectAllSetups(
   bars: DailyBar[],
+  intradayBars: IntradayBar[],
   enabledSetups: string[] = ["A", "B", "C", "D", "E", "F"],
   gapThreshold: number = 0.003
 ): SetupResult[] {
   const all: SetupResult[] = [];
   if (enabledSetups.includes("A")) all.push(...detectSetupA(bars));
   if (enabledSetups.includes("B")) all.push(...detectSetupB(bars));
-  if (enabledSetups.includes("C")) all.push(...detectSetupC(bars, gapThreshold));
+  if (enabledSetups.includes("C")) all.push(...detectSetupC(bars, intradayBars, gapThreshold));
   if (enabledSetups.includes("D")) all.push(...detectSetupD(bars));
   if (enabledSetups.includes("E")) all.push(...detectSetupE(bars));
   if (enabledSetups.includes("F")) all.push(...detectSetupF(bars));

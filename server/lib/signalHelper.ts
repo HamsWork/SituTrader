@@ -5,7 +5,7 @@ import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
 import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
-import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBarsCached, PolygonBar } from "./polygon";
+import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar } from "./polygon";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 
@@ -22,8 +22,6 @@ export function inferBias(signal: Signal): "BUY" | "SELL" {
   const dir = signal.direction.toLowerCase();
   if (dir.includes("up")) return "BUY";
   if (dir.includes("down")) return "SELL";
-  const tp = signal.tradePlanJson as TradePlan | null;
-  if (tp?.bias) return tp.bias;
   return "BUY";
 }
 
@@ -114,7 +112,18 @@ export async function scanTickerSetups(
     if (dailyBars.length < 5) return [];
 
     const recentBars = dailyBars.slice(-30);
-    const setups = detectAllSetups(recentBars, config.setups, config.gapThreshold)
+    const recentIntradayBars: IntradayBar[] = await fetchIntradayBars(ticker, Date.parse(today), Date.parse(today) + 1000 * 60 * 60 * 24, "5").map(bar => ({
+        id: 0,
+        ticker,
+        open: bar.o,
+        high: bar.h,
+        low: bar.l,
+        close: bar.c,
+        volume: bar.v,
+        ts: bar.t,
+        source: "polygon",
+    }));
+    const setups = detectAllSetups(recentBars, recentIntradayBars, config.setups, config.gapThreshold)
         .filter(setup => isPreOpen ? setup.targetDate >= today : setup.targetDate > today);
 
 

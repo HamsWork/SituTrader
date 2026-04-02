@@ -8,6 +8,7 @@ import {
   fetchStockPriceAtTime,
   fetchStockPrice,
   fetchOptionsChainAtTime,
+  OptionsContract,
 } from "./polygon";
 import {
   selectBestLeveragedEtf,
@@ -39,19 +40,18 @@ function buildContractSymbol(ticker: string, expDate: string, right: "C" | "P", 
   return `O:${ticker}${yymmdd}${right}${strikePadded}`;
 }
 
-function computeDTE(expDate: string): number {
-  const now = new Date();
+function computeDTE(expDate: string, now: Date = new Date()): number {
   const exp = new Date(expDate + "T16:00:00");
   return Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 
-function isOptionContractExpired(contractTicker: string): boolean {
+function isOptionContractExpired(contractTicker: string, now: Date = new Date()): boolean {
   const m = contractTicker.match(/(\d{6})[PC]/);
   if (!m) return false;
   const raw = m[1];
   const expiry = new Date(`20${raw.slice(0, 2)}-${raw.slice(2, 4)}-${raw.slice(4, 6)}T23:59:59`);
-  return expiry.getTime() < Date.now();
+  return expiry.getTime() < now.getTime();
 }
 
 function getSignalContractTicker(signal: Signal): string | null {
@@ -243,7 +243,8 @@ export async function enrichOptionsJsonForTicker(
   params: EnrichParams, 
   ticker: string, 
   pendingSignals: Signal[], 
-  ctx: SimDayContext
+  now: Date,
+  ctx?: SimDayContext
 ): Promise<number> {
   let updated = 0;
 
@@ -251,10 +252,9 @@ export async function enrichOptionsJsonForTicker(
   const maxSpread = params.maxSpread ?? 0.05;
   const force = params.force ?? false;
 
-  const now = ctx ? new Date(Date.parse(ctx.today) + ctx.currentMin * 60 * 1000) : new Date();
   const nowMs = now.getTime();
 
-  let currentTickerPrice: number | null;
+  let currentTickerPrice: number | null = null;
   const prefetched = ctx?.prefetchedBars?.get(ticker);
   if (ctx && prefetched) {
     const barsUpToNow = prefetched.filter((b: any) => b.t <= nowMs);
@@ -262,26 +262,43 @@ export async function enrichOptionsJsonForTicker(
       const lastBar = barsUpToNow[barsUpToNow.length - 1];
       currentTickerPrice = lastBar.vw ?? (lastBar.h + lastBar.l) / 2;
       currentTickerPrice = Math.round(currentTickerPrice * 100) / 100;
-    } else {
-      currentTickerPrice = await fetchStockPriceAtTime(ticker, nowMs);
     }
-  } else if (ctx) {
-    currentTickerPrice = await fetchStockPriceAtTime(ticker, nowMs);
-  } else {
-    currentTickerPrice = await fetchStockPrice(ticker);
   }
 
+  let optionChain: OptionsContract[] = [];
 
   for (const signal of pendingSignals) {
     if (signal.ticker !== ticker) continue;
     try {
       const oldOptionJson = signal.optionsJson as OptionsData | null;
+      
       if (oldOptionJson?.mode === "AUTO" && !force) {
-        continue;
+        const ct = getSignalContractTicker(signal);
+        if (ct && isOptionContractExpired(ct, now)) {
+          if (ctx){
+            signal.optionsJson = null;
+            ctx.allSignals.set(signal.id, signal);
+            if (ctx.onDeckSignals.has(signal.id)) ctx.onDeckSignals.set(signal.id, signal);
+            if (ctx.activeSignals.has(signal.id)) ctx.activeSignals.set(signal.id, signal);
+          } else {
+            await storage.updateSignalOptions(signal.id, null);
+            await storage.updateSignalOptionTracking(signal.id, { optionContractTicker: null });
+          }
+        } else {
+          continue;
+        }
       }
 
       const bias = inferBias(signal);
       const right: "C" | "P" = bias === "BUY" ? "C" : "P";
+
+      if (currentTickerPrice == null){
+        if (ctx){
+          currentTickerPrice = await fetchStockPriceAtTime(ticker, nowMs);
+        } else {
+          currentTickerPrice = await fetchStockPrice(ticker);
+        }
+      }
 
       if (currentTickerPrice == null) {
         const optionsData: OptionsData = {
@@ -298,41 +315,57 @@ export async function enrichOptionsJsonForTicker(
             reasonIfFail: "NO_PRICE",
           },
         };
-        updated++;
         if (ctx){
           signal.optionsJson = optionsData
           ctx.allSignals.set(signal.id, signal);
-          ctx.onDeckSignals.set(signal.id, signal);
+          if (ctx.onDeckSignals.has(signal.id)) ctx.onDeckSignals.set(signal.id, signal);
+          if (ctx.activeSignals.has(signal.id)) ctx.activeSignals.set(signal.id, signal);
         } else {
           await storage.updateSignalOptions(signal.id, optionsData);
         }
+        updated++;
         continue;
       }
       
       const minExpDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const maxExpDate = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const chain = await fetchOptionsChainAtTime(
-        ticker, 
-        now.valueOf(), 
-        right === "C" ? "call" : "put", 
-        minExpDate, 
-        maxExpDate, 
-        250,
-      );
-      if (!chain || chain.length === 0) {
-        const optionsData: OptionsData = { mode: "AUTO", tradable: false, checks: { oiOk: false, spreadOk: false, openInterest: null, spread: null, bid: null, ask: null, checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(), reasonIfFail: "NO_CONTRACTS" } };
-        updated++;
+      
+      if (!optionChain || optionChain.length === 0) {
+        if (ctx){
+          optionChain = await fetchOptionsChainAtTime(ticker, nowMs, right === "C" ? "call" : "put", minExpDate, maxExpDate, 250);
+        } else {
+          optionChain = await fetchOptionsChain(ticker, right === "C" ? "call" : "put", minExpDate, maxExpDate, 250);
+        }
+      }
+
+      if (!optionChain || optionChain.length === 0) {
+        const optionsData: OptionsData = { 
+          mode: "AUTO", 
+          tradable: false, 
+          checks: {
+            oiOk: false,
+            spreadOk: false,
+            openInterest: null,
+            spread: null,
+            bid: null,
+            ask: null,
+            checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
+            reasonIfFail: "NO_CONTRACTS",
+          },
+        };
         if (ctx) {
           signal.optionsJson = optionsData;
           ctx.allSignals.set(signal.id, signal);
-          ctx.onDeckSignals.set(signal.id, signal);
+          if (ctx.onDeckSignals.has(signal.id)) ctx.onDeckSignals.set(signal.id, signal);
+          if (ctx.activeSignals.has(signal.id)) ctx.activeSignals.set(signal.id, signal);
         } else {
           await storage.updateSignalOptions(signal.id, optionsData);
         }
+        updated++;
         continue;
       }
 
-      const nearATM = [...chain]
+      const nearATM = [...optionChain]
         .filter(c => Math.abs(c.strike_price - currentTickerPrice!) / currentTickerPrice! < 0.03)
         .sort((a, b) => {
           const distA = Math.abs(a.strike_price - currentTickerPrice!);
@@ -342,7 +375,7 @@ export async function enrichOptionsJsonForTicker(
         });
 
       if (nearATM.length === 0) {
-        nearATM.push(...[...chain].sort((a, b) => {
+        nearATM.push(...[...optionChain].sort((a, b) => {
           const distA = Math.abs(a.strike_price - currentTickerPrice!);
           const distB = Math.abs(b.strike_price - currentTickerPrice!);
           return distA - distB;
@@ -364,65 +397,164 @@ export async function enrichOptionsJsonForTicker(
             reasonIfFail: "NO_ATM_CONTRACT",
           },
         };
-        updated++;
         if (ctx) {
           signal.optionsJson = optionsData;
           ctx.allSignals.set(signal.id, signal);
-          ctx.onDeckSignals.set(signal.id, signal);
+          if (ctx.onDeckSignals.has(signal.id)) ctx.onDeckSignals.set(signal.id, signal);
+          if (ctx.activeSignals.has(signal.id)) ctx.activeSignals.set(signal.id, signal);
         } else {
           await storage.updateSignalOptions(signal.id, optionsData);
         }
+        updated++;
         continue;
       }
 
-      const best = nearATM[0];
-      const oi = best.open_interest ?? 0;
-      const bid = best.bid ?? 0;
-      const ask = best.ask ?? 0;
-      const spread = ask > 0 ? (ask - bid) / ask : 1;
-      const oiOk = oi >= minOI;
-      const spreadOk = spread <= maxSpread;
-      const tradable = oiOk && spreadOk;
+      const uniqueExpiries = Array.from(new Set(nearATM.map(c => c.expiration_date))).sort();
+      const uniqueStrikes = Array.from(new Set(nearATM.map(c => c.strike_price)))
+        .sort((a, b) => Math.abs(a - currentTickerPrice!) - Math.abs(b - currentTickerPrice!))
+        .slice(0, 3);
+      const candidateContracts: typeof nearATM = [];
+      for (const exp of uniqueExpiries) {
+        for (const strike of uniqueStrikes) {
+          const match = nearATM.find(c => c.expiration_date === exp && c.strike_price === strike);
+          if (match) candidateContracts.push(match);
+        }
+      }
+      if (candidateContracts.length === 0) candidateContracts.push(nearATM[0]);
+
+      let bestResult: {
+        contract: typeof nearATM[0];
+        contractSymbol: string;
+        dte: number;
+        openInterest: number | null;
+        bid: number | null;
+        ask: number | null;
+        oiOk: boolean;
+        spreadOk: boolean;
+        spreadVal: number | null;
+        tradable: boolean;
+        reasonIfFail?: string;
+      } | null = null;
+
+      for (const contract of candidateContracts) {
+        const sym = contract.ticker || buildContractSymbol(ticker, contract.expiration_date, right, contract.strike_price);
+        const cdte = computeDTE(contract.expiration_date, now);
+        let oi: number | null = contract.open_interest ?? null;
+        let cbid: number | null = null;
+        let cask: number | null = null;
+
+        if(ctx){
+          oi = contract.open_interest ?? 0;
+          cbid = contract.bid ?? 0;
+          cask = contract.ask ?? 0;
+        } else {
+          const snap = await fetchOptionSnapshot(ticker, sym);
+          if (snap) {
+            if (oi == null) oi = snap.openInterest;
+            cbid = snap.bid;
+            cask = snap.ask;
+          }
+        }
+        
+
+        const coiOk = oi != null && oi >= minOI;
+        let cspreadOk = false;
+        let cspreadVal: number | null = null;
+        let creason: string | undefined;
+
+        if (cbid != null && cask != null && cbid > 0) {
+          cspreadVal = (cask - cbid) / cbid;
+          cspreadOk = cspreadVal <= maxSpread;
+          if (!cspreadOk) creason = "SPREAD_TOO_WIDE";
+        } else {
+          creason = "NO_QUOTE";
+        }
+
+        if (!coiOk && !creason) creason = "OI_TOO_LOW";
+        else if (!coiOk && creason) creason = `OI_TOO_LOW,${creason}`;
+
+        const ctradable = coiOk && cspreadOk;
+
+        const result = {
+          contract,
+          contractSymbol: sym,
+          dte: cdte,
+          openInterest: oi,
+          bid: cbid,
+          ask: cask,
+          oiOk: coiOk,
+          spreadOk: cspreadOk,
+          spreadVal: cspreadVal,
+          tradable: ctradable,
+          reasonIfFail: ctradable ? undefined : creason,
+        };
+
+        if (ctradable) {
+          bestResult = result;
+          break;
+        }
+
+        if (!bestResult || (oi ?? 0) > (bestResult.openInterest ?? 0)) {
+          bestResult = result;
+        }
+      }
+
+      if (!bestResult) {
+        bestResult = {
+          contract: candidateContracts[0],
+          contractSymbol: candidateContracts[0].ticker || buildContractSymbol(ticker, candidateContracts[0].expiration_date, right, candidateContracts[0].strike_price),
+          dte: computeDTE(candidateContracts[0].expiration_date),
+          openInterest: null,
+          bid: null,
+          ask: null,
+          oiOk: false,
+          spreadOk: false,
+          spreadVal: null,
+          tradable: false,
+          reasonIfFail: "NO_QUOTE",
+        };
+      }
+      const candidate: OptionsCandidate = {
+        contractSymbol: bestResult.contractSymbol,
+        expiry: bestResult.contract.expiration_date.replace(/-/g, ""),
+        strike: bestResult.contract.strike_price,
+        right,
+        dte: bestResult.dte,
+      };
+      const { openInterest, bid, ask, oiOk, spreadOk, tradable } = bestResult;
+      const spreadVal = bestResult.spreadVal;
+      let reasonIfFail = bestResult.reasonIfFail;
+
+      const checks: OptionsChecks = {
+        oiOk,
+        spreadOk,
+        openInterest,
+        spread: spreadVal,
+        bid,
+        ask,
+        checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
+        reasonIfFail: tradable ? undefined : reasonIfFail,
+      };
 
       const optionsData: OptionsData = {
         mode: "AUTO",
         tradable,
-        contract: {
-          ticker: best.ticker,
-          strike: best.strike_price,
-          expiration: best.expiration_date,
-          right,
-          bid,
-          ask,
-          mark: (bid + ask) / 2,
-          openInterest: oi,
-          impliedVol: best.implied_volatility ?? null,
-          delta: best.delta ?? null,
-          gamma: best.gamma ?? null,
-          theta: best.theta ?? null,
-          vega: best.vega ?? null,
-        },
-        checks: {
-          oiOk,
-          spreadOk,
-          openInterest: oi,
-          spread,
-          bid,
-          ask,
-          checkedAt: ctx ? ctx.today + " " + ctx.currentMin : new Date().toISOString(),
-          reasonIfFail: !oiOk ? "LOW_OI" : !spreadOk ? "WIDE_SPREAD" : undefined,
-        },
+        candidate,
+        checks,
       };
+
 
 
       if (ctx) {
         signal.optionsJson = optionsData;
-        signal.optionContractTicker = best.ticker;
-        signal.optionEntryMark = (bid + ask) / 2;
+        signal.optionContractTicker = candidate.contractSymbol;
+        signal.optionEntryMark = (checks.bid ?? 0 + (checks.ask ?? 0)) / 2;
         ctx.allSignals.set(signal.id, signal);
-        ctx.onDeckSignals.set(signal.id, signal);
+        if (ctx.onDeckSignals.has(signal.id)) ctx.onDeckSignals.set(signal.id, signal);
+        if (ctx.activeSignals.has(signal.id)) ctx.activeSignals.set(signal.id, signal);
       } else {
         await storage.updateSignalOptions(signal.id, optionsData);
+        await storage.updateSignalOptionTracking(signal.id, { optionContractTicker: candidate.contractSymbol });
       }
       updated++;
     } catch (err: any) {

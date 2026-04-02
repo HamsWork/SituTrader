@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { fetchIntradayBars, fetchIntradayBarsCached, fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
-import { runActivationScan, runActivationScanForTicker, type ActivationEvent } from "../lib/activation";
+import { runActivationScan, runActivationScanForTicker, StopConfig, type ActivationEvent } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions, enrichOptionsJsonForTicker } from "../lib/options";
@@ -375,7 +375,12 @@ export async function runLiveMonitorTickForTicker(
   ticker: string, 
   pendingSignals: Signal[], 
   activeSignals: Signal[],
-  ctx: SimDayContext, 
+  now: Date,
+  today: string,
+  entryMode: string,
+  timeframe: string,
+  stopCfg: StopConfig,
+  ctx?: SimDayContext,
 ): Promise<{ hadEvents: boolean; mutations: ActivationMutation[] }> {
   let hadEvents = false;
   try {
@@ -388,7 +393,7 @@ export async function runLiveMonitorTickForTicker(
   }
 
   try {
-    const { events, mutations } = await runActivationScanForTicker(ticker, pendingSignals, activeSignals, ctx);
+    const { events, mutations } = await runActivationScanForTicker(ticker, pendingSignals, activeSignals, now, today, entryMode, timeframe, stopCfg, ctx);
     hadEvents = hadEvents || events.length > 0 || mutations.length > 0;
     return { hadEvents, mutations };
   } catch (err: any) {

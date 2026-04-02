@@ -139,8 +139,8 @@ export async function fetchDailyBars(
 
 export async function fetchIntradayBars(
   ticker: string,
-  from: string,
-  to: string,
+  from: string | number,
+  to: string | number,
   timeframe: string = "5",
 ): Promise<PolygonBar[]> {
   try {
@@ -495,28 +495,12 @@ export async function fetchStockPrice(ticker: string): Promise<number | null> {
     );
     const t = data.ticker;
     if (t) {
-      const price = t.lastTrade?.p ?? t.day?.c ?? t.prevDay?.c ?? null;
+      const price = t.lastTrade?.p ?? t.day?.c ?? null;
       if (price != null && price > 0) return price;
     }
   } catch (err: any) {
-    log(`Snapshot error for ${ticker}: ${err.message}`, "polygon");
+    log(`fetchStockPrice error for ${ticker}: ${err.message}`, "polygon");
   }
-
-  try {
-    const today = new Date();
-    const to = today.toISOString().slice(0, 10);
-    const from = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const data = await polygonGet(
-      `/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}`,
-      { adjusted: "true", sort: "desc", limit: "1" },
-    );
-    if (data?.results?.length > 0) {
-      return data.results[0].c ?? null;
-    }
-  } catch (err: any) {
-    log(`Daily bar fallback error for ${ticker}: ${err.message}`, "polygon");
-  }
-
   return null;
 }
 
@@ -713,26 +697,12 @@ export async function fetchStockPriceAtTime(
             minDist = dist;
           }
         }
-        const vwap = closest.vw ?? (closest.h + closest.l) / 2;
-        return Math.round(vwap * 100) / 100;
+        const price = closest.vw ?? (closest.h + closest.l) / 2;
+        if (price > 0 && price != null) return price;
       }
     }
   } catch (err: any) {
     log(`fetchStockPriceAtTime 1m error for ${ticker}: ${err.message}`, "polygon");
-  }
-
-  try {
-    const dateStr = new Date(timestampMs).toISOString().slice(0, 10);
-    const from = new Date(timestampMs - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const data = await polygonGet(
-      `/v2/aggs/ticker/${ticker}/range/1/day/${from}/${dateStr}`,
-      { adjusted: "true", sort: "desc", limit: "1" },
-    );
-    if (data?.results?.length > 0) {
-      return data.results[0].c ?? null;
-    }
-  } catch (err: any) {
-    log(`fetchStockPriceAtTime daily fallback error for ${ticker}: ${err.message}`, "polygon");
   }
 
   return null;

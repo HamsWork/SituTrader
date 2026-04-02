@@ -41,7 +41,7 @@ function releaseBtodMutex(): void {
   }
 }
 
-interface StopConfig {
+export interface StopConfig {
   stopMode: string;
   beProgressThreshold: number;
   beRThreshold: number;
@@ -50,7 +50,7 @@ interface StopConfig {
   timeStopTightenFactor: number;
 }
 
-function getStopConfig(settings: Record<string, string>): StopConfig {
+export function getStopConfig(settings: Record<string, string>): StopConfig {
   return {
     stopMode: settings.stopManagementMode || "VOLATILITY_ONLY",
     beProgressThreshold: parseFloat(settings.beProgressThreshold || "0.25"),
@@ -329,23 +329,21 @@ export async function runActivationScanForTicker(
   ticker: string, 
   pendingSignals: Signal[], 
   activeSignals: Signal[], 
-  ctx?: SimDayContext
+  now: Date,
+  today: string,
+  entryMode: string,
+  timeframe: string ,
+  stopCfg: StopConfig,
+  ctx?: SimDayContext,
 ): Promise<{ events: ActivationEvent[]; mutations: ActivationMutation[] }> {
-  const now = ctx ? new Date(Date.parse(ctx.today) + ctx.currentMin * 60 * 1000) : new Date();
-  const today = ctx ? ctx.today : now.toISOString().slice(0, 10);
-
-  const settings = await storage.getAllSettings();
-  const entryMode = settings.entryMode || "conservative";
-  const timeframe = settings.intradayTimeframe || "5";
-  const stopCfg = getStopConfig(settings);
 
   const nowMs = now.getTime();
 
   let currentPrice: number | null;
 
-  const prefetched1m = ctx?.prefetchedBars?.get(ticker);
-  if (ctx && prefetched1m) {
-    const barsUpToNow = prefetched1m.filter((b) => b.t <= nowMs);
+  const prefetched = ctx?.prefetchedBars?.get(ticker);
+  if (ctx && prefetched) {
+    const barsUpToNow = prefetched.filter((b) => b.t <= nowMs);
     if (barsUpToNow.length > 0) {
       const lastBar = barsUpToNow[barsUpToNow.length - 1];
       currentPrice = lastBar.vw ?? (lastBar.h + lastBar.l) / 2;
@@ -361,12 +359,9 @@ export async function runActivationScanForTicker(
 
   const allSignals = [...pendingSignals, ...activeSignals];
 
-  const freshBarsRaw = ctx
-    ? await fetchIntradayBarsCached(ticker, today, today, timeframe)
-    : await fetchIntradayBars(ticker, today, today, timeframe);
-  const filteredBars = ctx
-    ? freshBarsRaw.filter((b) => b.t <= nowMs)
-    : freshBarsRaw;
+
+  const freshBarsRaw = prefetched ? prefetched : await fetchIntradayBars(ticker, Date.parse(today), nowMs, timeframe);
+  const filteredBars = freshBarsRaw.filter((b) => b.t <= nowMs);
   const freshBars: IntradayBar[] = filteredBars.map((b, i) => ({
     id: i,
     ticker,
@@ -377,7 +372,7 @@ export async function runActivationScanForTicker(
     close: b.c,
     volume: b.v,
     timeframe,
-    source: "polygon",
+    source: prefetched ? "prefetched" : "polygon",
   }));
 
   const activationScanConfig: ActivationScanConfig = {
