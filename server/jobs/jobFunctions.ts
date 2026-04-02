@@ -1,11 +1,11 @@
 import { storage } from "../storage";
-import { fetchIntradayBars, fetchSnapshot } from "../lib/polygon";
+import { fetchIntradayBars, fetchIntradayBarsCached, fetchSnapshot } from "../lib/polygon";
 import { formatDate, getTradingDaysBack, nextTradingDay, isTradingDay } from "../lib/calendar";
 import { runActivationScan, runActivationScanForTicker, type ActivationEvent } from "../lib/activation";
 import { runAlerts } from "../lib/alerts";
 import { rebuildUniverse } from "../lib/universe";
 import { enrichPendingSignalsWithOptions, reEnrichExpiredOptions, enrichOptionsJsonForTicker } from "../lib/options";
-import { getOnDeckSignals, processDetectSetups, type ScanTickerConfig, type ActivationMutation } from "../lib/signalHelper";
+import { processDetectSetups, type ScanTickerConfig, type ActivationMutation } from "../lib/signalHelper";
 import { log } from "../index";
 import { validateMagnetTouch } from "../lib/validate";
 import { SimDayContext } from "server/simulation";
@@ -63,9 +63,9 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
     log(`AfterClose: Scanning ${tickersToScan.length} tickers...`, "scheduler");
 
     // validate hit or miss
-    const onDeckSignals = await getOnDeckSignals();
+    const onDeckSignals = await storage.getOnDeckSignals();
     for (const sig of onDeckSignals) {
-      const intradayBars = await fetchIntradayBars(sig.ticker, sig.targetDate, timeframe);
+      const intradayBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
       const validateResult = validateMagnetTouch(
         intradayBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l })),
         sig.magnetPrice,
@@ -81,7 +81,7 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
     }
 
     const scanConfig: ScanTickerConfig = {
-      setups: ["A", "B", "C", "D", "E", "F"],
+      setups: ["A", "B", "D", "E", "F"],
       gapThreshold,
       timePriorityMode: (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND",
       entryMode: settings.entryMode || "conservative",
@@ -172,36 +172,109 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
   const summary: ScanSummary = { tickersScanned: 0, signalsGenerated: 0, byTier: {}, bySetup: {}, errors: 0, durationMs: 0 };
 
   try {
+    // detect setup C
     const settings = await storage.getAllSettings();
-    const signals = await storage.getSignals(undefined, 200);
-    const todayStr = formatDate(new Date());
+    const universeMode = settings.universeMode || "HYBRID";
+    const scanMaxTickers = parseInt(settings.scanMaxTickers || "200", 10);
+    const alertGateEnabled = settings.alertLiquidityGateEnabled !== "false";
+    const liquidityFloor = parseFloat(settings.liquidityThreshold || "1000000000");
+    const scanList= await storage.getScanList(universeMode);
+    const tickersToScan = scanList.slice(0, scanMaxTickers);
+    summary.tickersScanned = tickersToScan.length;
+    const scanConfig: ScanTickerConfig = {
+      setups: ["C"],
+      gapThreshold: parseFloat(settings.gapThreshold || "0.30") / 100,
+      timePriorityMode: (settings.timePriorityMode || "BLEND") as "EARLY" | "SAME_DAY" | "BLEND",
+      entryMode: settings.entryMode || "conservative",
+      stopMode: settings.stopMode || "atr",
+      atrMultiplier: parseFloat(settings.stopAtrMultiplier || "0.25") || 0.25,
+      alertGateEnabled,
+      liquidityFloor,
+    };
 
-    const staleSignals = signals.filter(s =>
-      s.status === "pending" &&
-      s.activationStatus === "NOT_ACTIVE" &&
-      s.targetDate < todayStr
-    );
-    if (staleSignals.length > 0) {
-      log(`PreOpen: Expiring ${staleSignals.length} stale signal(s) with past target dates`, "scheduler");
-      for (const sig of staleSignals) {
+    const today = formatDate(new Date());
+    const from200 = getTradingDaysBack(today, 200);
+    const from15 = getTradingDaysBack(today, 15);
+    const watchlist = await storage.getWatchlistSymbols();
+    const watchlistSet = new Set(watchlist.map(s => s.ticker));
+
+    for (const ticker of tickersToScan) {
+      try {
+        const processed = await processDetectSetups({
+          ticker,
+          config: scanConfig,
+          isOnWatchlist: watchlistSet.has(ticker),
+          today,
+          from200,
+        });
+        for (const scored of processed) {
+          await storage.upsertSignal({
+            ticker,
+            setupType: scored.setupType,
+            asofDate: scored.asofDate,
+            targetDate: scored.targetDate,
+            targetDate2: null,
+            targetDate3: null,
+            magnetPrice: scored.magnetPrice,
+            magnetPrice2: scored.magnetPrice2,
+            direction: scored.direction,
+            confidence: scored.confidence,
+            status: scored.status,
+            hitTs: scored.hitTs,
+            timeToHitMin: null,
+            missReason: scored.missReason,
+            tradePlanJson: scored.tradePlan as any,
+            confidenceBreakdown: scored.confidenceBreakdown,
+            qualityScore: scored.qualityScore,
+            tier: scored.tier,
+            alertState: "new",
+            nextAlertEligibleAt: null,
+            qualityBreakdown: scored.qualityBreakdown,
+            pHit60: scored.sigP60,
+            pHit120: scored.sigP120,
+            pHit390: scored.sigP390,
+            timeScore: scored.timeScore,
+            universePass: scored.universePass,
+            activationStatus: "NOT_ACTIVE",
+            activatedTs: null,
+            entryPriceAtActivation: null,
+            stopPrice: scored.stopPrice,
+            entryTriggerPrice: null,
+            invalidationTs: null,
+            stopStage: "INITIAL",
+            stopMovedToBeTs: null,
+            timeStopTriggeredTs: null,
+            optionsJson: null,
+            optionContractTicker: null,
+            optionEntryMark: null,
+            instrumentType: "OPTION",
+            instrumentTicker: null,
+            instrumentEntryPrice: null,
+            leveragedEtfJson: null,
+          });
+
+          summary.signalsGenerated++;
+          summary.byTier[scored.tier] = (summary.byTier[scored.tier] || 0) + 1;
+          summary.bySetup[scored.setupType] = (summary.bySetup[scored.setupType] || 0) + 1;
+        }
+      } catch (err: any) {
+        summary.errors++;
+        log(`PreOpen: Error scanning ${ticker}: ${err.message}`, "scheduler");
+      }
+    }
+
+    
+    
+    // remove expired signals
+    const onDeckSignals = await storage.getOnDeckSignals();
+    for (const sig of onDeckSignals) {
+      if (sig.targetDate < today) {
         await storage.updateSignalStatus(sig.id, "miss", undefined, "TARGET_DATE_EXPIRED");
         log(`PreOpen: Expired signal #${sig.id} ${sig.ticker} ${sig.setupType} (target ${sig.targetDate})`, "scheduler");
       }
     }
 
-    const pendingSignals = signals.filter(s => s.status === "pending" && s.targetDate >= todayStr);
-    const tickerList = Array.from(new Set(pendingSignals.map(s => s.ticker)));
-    summary.tickersScanned = tickerList.length;
-
-    // TODO: dose it need?
-    for (const ticker of tickerList) {
-      try {
-        const snap = await fetchSnapshot(ticker);
-        if (!snap || snap.lastPrice <= 0) continue;
-      } catch (err: any) {
-        summary.errors++;
-      }
-    }
+    
 
     // try {
     //   await enrichPendingSignalsWithOptions();
@@ -245,9 +318,8 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
   const summary: LiveSummary = { activeTickers: 0, activeSignals: 0, activationEvents: 0, alertEvents: 0, durationMs: 0 };
 
   try {
-    const { getOnDeckSignals } = await import("../lib/signalHelper");
     const activeSignals = await storage.getActiveSignals();
-    const pendingSignals = await getOnDeckSignals();
+    const pendingSignals = await storage.getOnDeckSignals();
 
     const monitorSignals = [...activeSignals, ...pendingSignals];
     summary.activeSignals = activeSignals.length;
@@ -261,6 +333,7 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
       return summary;
     }
 
+    //TODO need to check
     try {
       const reEnrichResult = await reEnrichExpiredOptions();
       if (reEnrichResult.checked > 0) {
@@ -270,6 +343,7 @@ export async function runLiveMonitorTick(): Promise<LiveSummary> {
       log(`Live monitor: Expired option re-enrichment error: ${err.message}`, "scheduler");
     }
 
+    // TODO need to check
     try {
       await enrichPendingSignalsWithOptions();
     } catch (err: any) {

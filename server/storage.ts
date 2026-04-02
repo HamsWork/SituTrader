@@ -299,6 +299,12 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getOnDeckSignals(): Promise<Signal[]> {
+    return db.select().from(signals)
+      .where(and(eq(signals.status, "pending"), eq(signals.activationStatus, "NOT_ACTIVE")))
+      .orderBy(desc(signals.asofDate));
+  }
+
   async getActiveSignals(): Promise<Signal[]> {
     return db.select().from(signals)
       .where(eq(signals.status, "pending"))

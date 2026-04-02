@@ -5,7 +5,6 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import type {BtodState } from "@shared/schema";
 import type { SimDayContext } from "../simulation";
-import { getOnDeckSignals } from "./signalHelper";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -114,10 +113,10 @@ export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodSta
     }
   }
 
-  const onDeck = await getOnDeckSignals(ctx?.allSignals);
+  const onDeck = ctx ? Array.from(ctx.onDeckSignals.values()) : await storage.getOnDeckSignals();
 
   const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
-    onDeck as unknown as RankableSignalLike[],
+    onDeck,
     allowedSetups,
   );
 

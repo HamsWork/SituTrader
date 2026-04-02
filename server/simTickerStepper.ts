@@ -36,7 +36,6 @@ import {
   type ScanTickerConfig,
   type ActivationScanConfig,
   type ActivationMutation,
-  getOnDeckSignals,
 } from "./lib/signalHelper";
 import { runLiveMonitorTickForTicker } from "./jobs/jobFunctions";
 
@@ -658,37 +657,36 @@ export class SimTickerStepper {
     const timeframe = "5"; //TODO: get from config
 
     // validate hit or miss
-    const onDeckSignals = await getOnDeckSignals(this.allSignals);
+    const onDeckSignals = Array.from(this.ctx.onDeckSignals.values());
     for (const sig of onDeckSignals) {
       if (this.isAborted()) break;
-      const rawBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
-      const intradayBars = rawBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l }));
+      const intradayBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
       const validateResult = validateMagnetTouch(
-        intradayBars,
+        intradayBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l }) as { ts: string; high: number; low: number }),
         sig.magnetPrice,
-        sig.direction,
+        sig.direction as "BUY" | "SELL",
       );
       if (validateResult.hit) {
         sig.status = "hit";
         this.dayResult.hits.push({
           signalId: sig.id,
           ticker: sig.ticker,
-          hitTs: sig.targetDate,
-          timeToHitMin: 0,
+          hitTs: validateResult.hitTs ?? sig.targetDate,
+          timeToHitMin: validateResult.timeToHitMin ?? 0,
         });
       } else {
-        sig.status = "miss";
-        sig.missReason = "Magnet not touched during RTH";
         this.dayResult.misses.push({
           signalId: sig.id,
           ticker: sig.ticker,
-          reason: "Magnet not touched during RTH",
+          reason: "MAGNET_NOT_TOUCHED",
         });
       }
+      this.ctx.onDeckSignals.delete(sig.id);
+      this.ctx.allSignals.set(sig.id, { ...sig, status: sig.status, hitTs: null, missReason: validateResult.hit ? "MAGNET_TOUCHED" : "MAGNET_NOT_TOUCHED" });
     }
 
     const scanConfig: ScanTickerConfig = {
-      setups: this.config.setups,
+      setups: this.config.setups.filter(s => s !== "C"),
       gapThreshold: this.config.gapThreshold,
       timePriorityMode: this.timePriorityMode,
       entryMode: this.config.entryMode,

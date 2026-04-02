@@ -5,7 +5,7 @@
 Every weekday at **3:10 PM CT**, the after-close scan runs automatically (if Author Mode is on):
 
 1. **Universe rebuild** — The system re-ranks the top US tickers by dollar volume to determine which stocks to scan.
-2. **Setup detection** — It scans those tickers for 6 different multi-day pattern setups (labeled A through F). Each setup identifies a directional bias (Buy or Sell) with a magnet price (target) and stop level.
+2. **Setup detection** — It scans those tickers for 5 different multi-day pattern setups (Setup A, B, D, E, F). Each setup identifies a directional bias (Buy or Sell) with a magnet price (target) and stop level.
 3. **Quality scoring** — Each detected setup gets a 0-100 Quality Score based on 6 components: Edge Strength, Magnet Distance, Liquidity, Movement Environment, Historical Hit Rate, and TimeScore.
 4. **Signal creation** — Scored setups are saved to the database as new signals with status `pending` and activation status `NOT_ACTIVE`. They include a full trade plan (entry, stop, T1, T2 targets).
 
@@ -17,11 +17,11 @@ At this point, signals are just sitting in the database waiting for the next tra
 
 The pre-open scan runs at **8:20 AM CT** each weekday:
 
-1. **Stale signal cleanup** — Any signals from previous days that never activated are marked as `miss` (reason: TARGET_DATE_EXPIRED).
-2. **Option enrichment** — Expired option contracts are replaced with fresh ones that have valid expiration dates, good open interest, and tight spreads.
-3. **BTOD initialization** — This is the key step. The system:
-   - Pulls all pending, not-yet-activated signals
-   - Filters to only setups A, B, and C with a Quality Score of **62 or above**
+1. **Setup detection** - Detect signals for Setup C.
+2. **Stale signal cleanup** — Any signals from previous days that never activated are marked as `miss` (reason: TARGET_DATE_EXPIRED).
+4. **BTOD initialization** — This is the key step. The system:
+   - Pulls all on deck signals
+   - Filters to only setups A, B, and C with a Quality Score of **62 or above** (eligible signals)
    - Ranks them by Quality Score (highest first), then by setup type (A > B > C), then alphabetically by ticker
    - Selects the **Top 3** as the priority trades
    - Sets the BTOD phase to **SELECTIVE** and opens the execution gate
@@ -59,10 +59,10 @@ Just because a signal activated doesn't mean it gets traded. Every activation mu
 **During OPEN phase (after 10:00 AM CT):**
 - If no Top 3 signal activated by 10:00 AM, the system transitions to OPEN phase
 - Now ANY eligible signal can execute (not just Top 3)
-- But it must be a "fresh" activation — signals that activated before 10:00 AM are rejected as "stale" (this is the guard that Bug #2 was bypassing)
+- But it must be a "fresh" activation — signals that activated before 10:00 AM are rejected
 
 **Additional gate rules:**
-- Maximum **2 trades per day**
+- Maximum **1 trades per day**
 - After the first trade executes, the gate closes
 - The gate only re-opens for a second trade if the first trade closes (hits target or stop)
 
@@ -127,6 +127,29 @@ After-Close (3:10 PM)     Pre-Open (8:20 AM)     RTH (8:30 AM - 3:00 PM)
 ```
 
 ---
+
+
+### 📈 Milestone Tracking & Discord Notifications
+
+Each trade relayed to the Trade Sync API automatically enables seamless milestone tracking and real-time alerting:
+
+- **🔟 10% Milestone Initiation:**  
+  As soon as the trade is live, Trade Sync begins monitoring progress. The very first milestone occurs when the price moves 10% of the way from entry.
+
+- **🎯 Ongoing 10% Milestones:**  
+  For every additional 10% step (e.g., 20%, 30%, ...), Trade Sync fires a Discord notification, keeping the team updated as the trade unfolds.
+
+- **🛑 Stop Loss Alert:**  
+  If at any point the price moves against the position and a stop loss is triggered (before any milestone or between milestones), an immediate Discord alert is issued.
+
+**In summary:**  
+Every key event—crossing a new 10% milestone or triggering the stop loss—automatically generates a detailed Discord message. This ensures the team and subscribers have full visibility throughout the life of each position, from entry to exit.
+
+
+
+
+
+
 
 ## Key Files
 

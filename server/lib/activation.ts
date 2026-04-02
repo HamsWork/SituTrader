@@ -159,7 +159,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
 
   const currentPriceByTicker = new Map<string, number | null>();
   const tickerSet = new Set(activeSignals.map((s) => s.ticker));
-  for (const ticker of tickerSet) {
+  for (const ticker of Array.from(tickerSet.values())) {
     try {
       const snap = await fetchSnapshot(ticker);
       const currentPrice = snap && snap.lastPrice > 0 ? snap.lastPrice : null;
@@ -180,7 +180,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   }
   if (pendingTodayTickers.size > 0) {
     log(`Activation: Fetching fresh bars for ${pendingTodayTickers.size} ticker(s)`, "activation");
-    for (const ticker of pendingTodayTickers) {
+    for (const ticker of Array.from(pendingTodayTickers.values())) {
       try {
         const freshBars = await fetchIntradayBars(ticker, today, today, timeframe);
         for (const bar of freshBars) {

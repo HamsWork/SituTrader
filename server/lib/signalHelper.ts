@@ -14,29 +14,8 @@ interface OnDeckFilterable {
     activationStatus: string;
 }
 
-export async function getAllSignals(): Promise<Signal[]>;
-export async function getAllSignals<T extends OnDeckFilterable>(simSignals: Map<number, T>): Promise<T[]>;
-export async function getAllSignals<T extends OnDeckFilterable>(simSignals?: Map<number, T>): Promise<(Signal | T)[]> {
-    if (!simSignals) {
-        return await storage.getSignals(undefined, 5000);
-    }
-    return Array.from(simSignals.values());
-}
 
-export async function getOnDeckSignals(): Promise<Signal[]>;
-export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals: Map<number, T>): Promise<T[]>;
-export async function getOnDeckSignals<T extends OnDeckFilterable>(simSignals?: Map<number, T>): Promise<(Signal | T)[]> {
-    if (!simSignals) {
-        const all = await storage.getSignals(undefined, 5000);
-        return all.filter(
-            (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
-        );
-    }
-    const all = Array.from(simSignals.values());
-    return all.filter(
-        (s) => s.status === "pending" && s.activationStatus === "NOT_ACTIVE",
-    );
-}
+
 
 
 export function inferBias(signal: Signal): "BUY" | "SELL" {
@@ -459,7 +438,7 @@ export function runActivationCheck(
         tickerGroups.get(sig.ticker)!.push(sig);
     }
 
-    for (const [ticker, sigs] of tickerGroups) {
+    for (const [ticker, sigs] of Array.from(tickerGroups.entries())) {
         const currentPrice = getCurrentPrice(ticker);
 
         for (const sig of sigs) {
@@ -536,7 +515,7 @@ export function runActivationCheck(
         }
     }
 
-    for (const [ticker, sigs] of tickerGroups) {
+    for (const [ticker, sigs] of Array.from(tickerGroups.entries())) {
         for (const sig of sigs) {
             if (sig.activationStatus === "ACTIVE") continue;
             if (sig.activationStatus === "INVALIDATED") continue;
