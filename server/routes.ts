@@ -1814,17 +1814,51 @@ export async function registerRoutes(
 
   app.get("/api/tradesync/trades", async (req, res) => {
     try {
-      const { fetchTradeHistory, isTradeSyncEnabled } = await import("./lib/tradesync");
-      if (!isTradeSyncEnabled()) {
-        return res.status(400).json({ message: "TradeSync not configured" });
-      }
-      const limit = parseInt(req.query.limit as string) || 100;
-      const status = req.query.status as string | undefined;
-      const result = await fetchTradeHistory(limit, status);
-      if (!result.ok) {
-        return res.status(502).json({ message: result.error });
-      }
-      res.json(result.data);
+      const allTrades = await storage.getAllIbkrTrades();
+      const tsTrades = allTrades.filter(t => t.tradesyncSignalId != null);
+
+      const mapped = tsTrades.map(t => {
+        const details = (t.detailsJson as any) ?? {};
+        const direction = t.side === "BUY" ? "LONG" : t.side === "SELL" ? "SHORT" : t.side;
+        const targets: Record<string, any> = {};
+        if (t.target1Price != null) {
+          targets["1"] = { price: t.target1Price, percentage: 50, take_off_percent: 50 };
+        }
+        if (t.target2Price != null) {
+          targets["2"] = { price: t.target2Price, percentage: 50, take_off_percent: 100 };
+        }
+
+        return {
+          id: String(t.tradesyncSignalId),
+          status: t.status,
+          createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString(),
+          data: {
+            ticker: t.instrumentTicker || t.ticker,
+            instrument_type: t.instrumentType,
+            direction,
+            entry_price: t.entryPrice ?? 0,
+            stop_loss: t.stopPrice ?? undefined,
+            current_stop_loss: details.originalStopPrice ?? t.stopPrice ?? undefined,
+            underlying_ticker: t.ticker,
+            entry_underlying_price: details.entryUnderlyingPrice ?? t.entryPrice ?? undefined,
+            entry_option_price: t.instrumentType === "OPTION" ? t.entryPrice : undefined,
+            entry_letf_price: t.instrumentType === "LEVERAGED_ETF" ? t.entryPrice : undefined,
+            trade_type: "market",
+            auto_track: true,
+            status: t.status,
+            targets,
+            current_tp_number: t.tpHitLevel,
+            remain_quantity: t.remainingQuantity,
+            strike: details.optionStrike ?? undefined,
+            right: details.optionRight ?? undefined,
+            expiration: details.optionExpiry ?? undefined,
+            leverage: details.leverage ?? undefined,
+            risk_value: details.riskValue ?? undefined,
+          },
+        };
+      });
+
+      res.json(mapped);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
