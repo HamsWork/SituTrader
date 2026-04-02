@@ -112,7 +112,8 @@ export async function scanTickerSetups(
     if (dailyBars.length < 5) return [];
 
     const recentBars = dailyBars.slice(-30);
-    const recentIntradayBars: IntradayBar[] = await fetchIntradayBars(ticker, Date.parse(today), Date.parse(today) + 1000 * 60 * 60 * 24, "5").map(bar => ({
+    const rawIntradayBars = await fetchIntradayBars(ticker, today, today, "5");
+    const recentIntradayBars: IntradayBar[] = rawIntradayBars.map(bar => ({
         id: 0,
         ticker,
         open: bar.o,
@@ -120,7 +121,7 @@ export async function scanTickerSetups(
         low: bar.l,
         close: bar.c,
         volume: bar.v,
-        ts: bar.t,
+        ts: new Date(bar.t).toISOString(),
         source: "polygon",
     }));
     const setups = detectAllSetups(recentBars, recentIntradayBars, config.setups, config.gapThreshold)
