@@ -406,7 +406,7 @@ export async function simulateAllTradeTracking(
   sig: Signal,
   ctx: SimDayContext,
 ): Promise<SimTrackingResult[]> {
-  const { fetchIntradayBars, buildOccSymbol, getStrikeIncrement, generateFridaysBetween } = await import("./lib/polygon");
+  const { fetchIntradayBars, fetchOptionsChainManually } = await import("./lib/polygon");
 
   const entryPrice = sig.entryPriceAtActivation ?? 0;
   const stopPrice = sig.stopPrice ?? 0;
@@ -448,44 +448,43 @@ export async function simulateAllTradeTracking(
     results.push(runNormalTrack("Shares", sharesEntryPrice, adjustedStop, tp?.t1 ?? sig.magnetPrice, tp?.t2 ?? null, isBuy, sharesBars, actTs));
   }
 
-  if (sharesBars.length > 0) {
+  {
     let optBars: import("./lib/polygon").PolygonBar[] = [];
-    const optContractTicker = sig.optionContractTicker;
+    let optContractTicker = sig.optionContractTicker;
+
     if (optContractTicker) {
       optBars = await fetchIntradayBars(optContractTicker, activationDate, ctx.config.endDate, "1");
     }
+
     if (optBars.length === 0) {
       const right: "C" | "P" = isBuy ? "C" : "P";
-      const inc = getStrikeIncrement(entryPrice);
-      const atmStrike = Math.round(entryPrice / inc) * inc;
+      const contractType = isBuy ? "call" as const : "put" as const;
       const minExp = activationDate;
       const maxExpD = new Date(activationDate);
       maxExpD.setDate(maxExpD.getDate() + 14);
       const maxExp = maxExpD.toISOString().slice(0, 10);
-      const fridays = generateFridaysBetween(minExp, maxExp);
-      const expDate = fridays.length > 0 ? fridays[0] : maxExp;
-      const occSymbol = buildOccSymbol(sig.ticker, expDate, right, atmStrike);
-      optBars = await fetchIntradayBars(occSymbol, activationDate, ctx.config.endDate, "1");
-    }
 
-    const delta = 0.5;
-    let optionEntryMark = sig.optionEntryMark;
+      const contracts = await fetchOptionsChainManually(
+        sig.ticker, contractType, minExp, maxExp, 50, sharesEntryPrice
+      );
 
-    if (optBars.length === 0 && sharesBars.length > 0) {
-      if (!optionEntryMark || optionEntryMark <= 0) {
-        optionEntryMark = sharesEntryPrice * 0.02;
+      const sorted = [...contracts]
+        .sort((a, b) => Math.abs(a.strike_price - sharesEntryPrice) - Math.abs(b.strike_price - sharesEntryPrice));
+
+      for (const contract of sorted.slice(0, 3)) {
+        const sym = contract.ticker;
+        const bars = await fetchIntradayBars(sym, activationDate, ctx.config.endDate, "1");
+        if (bars.length > 0) {
+          optBars = bars;
+          optContractTicker = sym;
+          break;
+        }
       }
-      optBars = sharesBars.map(b => ({
-        t: b.t,
-        o: optionEntryMark! + delta * (b.o - sharesEntryPrice),
-        h: optionEntryMark! + delta * (b.h - sharesEntryPrice),
-        l: optionEntryMark! + delta * (b.l - sharesEntryPrice),
-        c: optionEntryMark! + delta * (b.c - sharesEntryPrice),
-        v: b.v,
-      }));
     }
 
     if (optBars.length > 0) {
+      const delta = 0.5;
+      let optionEntryMark = sig.optionEntryMark;
       if (!optionEntryMark || optionEntryMark <= 0) {
         const entryBar = actTs
           ? optBars.find(b => b.t >= actTs) ?? optBars[0]
@@ -546,35 +545,41 @@ export async function simulateAllTradeTracking(
       results.push(runNormalTrack("LETF", letfEntryPrice, letfStop, letfT1, letfT2, letfIsBuy, letfBars, actTs));
 
       const letfOptDelta = 0.5;
-      const letfOptEntry = letfEntryPrice * 0.03;
-      const letfOptStop = Math.max(0, letfOptEntry - letfOptDelta * Math.abs(letfStop - letfEntryPrice));
-      const letfOptT1 = letfOptEntry + letfOptDelta * Math.abs(letfT1 - letfEntryPrice);
-      const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice) : null;
+      const letfOptStop_dist = Math.abs(letfStop - letfEntryPrice);
+      const letfOptT1_dist = Math.abs(letfT1 - letfEntryPrice);
 
-      const letfRight: "C" | "P" = letfIsBuy ? "C" : "P";
-      const letfInc = getStrikeIncrement(letfEntryPrice);
-      const letfAtmStrike = Math.round(letfEntryPrice / letfInc) * letfInc;
+      const letfContractType = letfIsBuy ? "call" as const : "put" as const;
       const letfMinExp = activationDate;
       const letfMaxExpD = new Date(activationDate);
       letfMaxExpD.setDate(letfMaxExpD.getDate() + 14);
       const letfMaxExp = letfMaxExpD.toISOString().slice(0, 10);
-      const letfFridays = generateFridaysBetween(letfMinExp, letfMaxExp);
-      const letfExpDate = letfFridays.length > 0 ? letfFridays[0] : letfMaxExp;
-      const letfOccSymbol = buildOccSymbol(letfTicker, letfExpDate, letfRight, letfAtmStrike);
-      let letfOptBars = await fetchIntradayBars(letfOccSymbol, activationDate, ctx.config.endDate, "1");
 
-      if (letfOptBars.length === 0 && letfBars.length > 0) {
-        letfOptBars = letfBars.map(b => ({
-          t: b.t,
-          o: letfOptEntry + letfOptDelta * (b.o - letfEntryPrice),
-          h: letfOptEntry + letfOptDelta * (b.h - letfEntryPrice),
-          l: letfOptEntry + letfOptDelta * (b.l - letfEntryPrice),
-          c: letfOptEntry + letfOptDelta * (b.c - letfEntryPrice),
-          v: b.v,
-        }));
+      const letfContracts = await fetchOptionsChainManually(
+        letfTicker, letfContractType, letfMinExp, letfMaxExp, 50, letfEntryPrice
+      );
+
+      const letfSorted = [...letfContracts]
+        .sort((a, b) => Math.abs(a.strike_price - letfEntryPrice) - Math.abs(b.strike_price - letfEntryPrice));
+
+      let letfOptBars: import("./lib/polygon").PolygonBar[] = [];
+      for (const contract of letfSorted.slice(0, 3)) {
+        const sym = contract.ticker;
+        const bars = await fetchIntradayBars(sym, activationDate, ctx.config.endDate, "1");
+        if (bars.length > 0) {
+          letfOptBars = bars;
+          break;
+        }
       }
 
       if (letfOptBars.length > 0) {
+        const letfOptEntryBar = actTs
+          ? letfOptBars.find(b => b.t >= actTs) ?? letfOptBars[0]
+          : letfOptBars[0];
+        const letfOptEntry = (letfOptEntryBar.o + letfOptEntryBar.c) / 2;
+        const letfOptStop = Math.max(0, letfOptEntry - letfOptDelta * letfOptStop_dist);
+        const letfOptT1 = letfOptEntry + letfOptDelta * letfOptT1_dist;
+        const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice) : null;
+
         barSources["LETF Options"] = letfOptBars;
         results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars, actTs));
         results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars, actTs));
