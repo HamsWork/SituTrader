@@ -122,15 +122,32 @@ export async function sendToTradeSync(
     "tradesync",
   );
 
+  const TRADESYNC_TIMEOUT_MS = 15_000;
+
   try {
-    const res = await fetch(`${TRADESYNC_BASE_URL}/api/ingest/signals`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TRADESYNC_API_KEY}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TRADESYNC_TIMEOUT_MS);
+
+    let res: Response;
+    try {
+      res = await fetch(`${TRADESYNC_BASE_URL}/api/ingest/signals`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (fetchErr: any) {
+      clearTimeout(timer);
+      if (fetchErr.name === "AbortError") {
+        log(`TradeSync: Request timed out after ${TRADESYNC_TIMEOUT_MS}ms for ${signal.ticker}`, "tradesync");
+        return { ok: false, error: `TradeSync request timed out after ${TRADESYNC_TIMEOUT_MS}ms` };
+      }
+      throw fetchErr;
+    }
+    clearTimeout(timer);
 
     const body = await res.json().catch(() => null);
 
