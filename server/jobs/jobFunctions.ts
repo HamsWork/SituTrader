@@ -206,7 +206,7 @@ export async function runPreOpenScan(): Promise<ScanSummary> {
           isOnWatchlist: watchlistSet.has(ticker),
           today,
           from200,
-        });
+        }, true);
         for (const scored of processed) {
           await storage.upsertSignal({
             ticker,
