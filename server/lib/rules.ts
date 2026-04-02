@@ -66,10 +66,12 @@ export function detectSetupC(
   const lastIntradayBar = intradayBars[intradayBars.length - 1];
   if (!lastIntradayBar) return results;
   const lastIntradayBarDate = new Date(lastIntradayBar.ts).toISOString().slice(0, 10);
-  const lastDailyBar = bars[bars.length - 1];
+  const priorDailyBars = bars.filter(b => {
+    const d = new Date(b.date).toISOString().slice(0, 10);
+    return d < lastIntradayBarDate;
+  });
+  const lastDailyBar = priorDailyBars[priorDailyBars.length - 1];
   if (!lastDailyBar) return results;
-  const lastDailyBarDate = new Date(lastDailyBar.date).toISOString().slice(0, 10);
-  if (lastDailyBarDate > lastIntradayBarDate) return results;
   const gapPercent = (lastIntradayBar.close - lastDailyBar.close) / lastDailyBar.close;
   if (Math.abs(gapPercent) < gapThreshold) return results;
   const direction = gapPercent > 0 ? "down-to-magnet" : "up-to-magnet";
