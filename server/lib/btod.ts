@@ -51,6 +51,12 @@ function minutesSinceMidnightCT(): number {
 
 const SELECTIVE_END_MINUTES = 10 * 60;
 
+/** Highest-ranked signals allowed during BTOD SELECTIVE phase (persisted as `top3Ids` in schema). */
+export const BTOD_TOP_N = 15;
+
+/** Max BTOD auto-trades per session (`selectedSignalId` / `secondSignalId` support up to two). */
+export const BTOD_MAX_TRADES = 3;
+
 export function rankOnDeckSignals(
   signals: RankableSignalLike[],
   allowedSetups: string[] = ["A", "B", "C"],
@@ -85,16 +91,16 @@ export function rankOnDeckSignals(
   }));
 }
 
-export function getBtodRankedQueueAndTop3Ids(
+export function getBtodRankedQueueAndTopNIds(
   signals: RankableSignalLike[],
   allowedSetups?: string[],
 ): {
   rankedQueue: RankedSignalEntry[];
-  top3Ids: number[];
+  topNIds: number[];
 } {
   const rankedQueue = rankOnDeckSignals(signals, allowedSetups);
-  const top3Ids = rankedQueue.slice(0, 3).map((r) => r.signalId);
-  return { rankedQueue, top3Ids };
+  const topNIds = rankedQueue.slice(0, BTOD_TOP_N).map((r) => r.signalId);
+  return { rankedQueue, topNIds };
 }
 
 
@@ -115,7 +121,7 @@ export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodSta
 
   const onDeck = ctx ? Array.from(ctx.onDeckSignals.values()) : await storage.getOnDeckSignals();
 
-  const { rankedQueue: ranked, top3Ids } = getBtodRankedQueueAndTop3Ids(
+  const { rankedQueue: ranked, topNIds } = getBtodRankedQueueAndTopNIds(
     onDeck,
     allowedSetups,
   );
@@ -125,7 +131,7 @@ export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodSta
       tradeDate,
       phase: "SELECTIVE",
       rankedQueue: ranked as any,
-      top3Ids: top3Ids as any,
+      top3Ids: topNIds as any,
       selectedSignalId: null,
       secondSignalId: null,
       gateOpen: true,
@@ -133,8 +139,8 @@ export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodSta
       phaseChangedAt: null,
     });
     log(
-      `BTOD: Initialized for ${tradeDate} — ${ranked.length} eligible signals, top 3: [${ranked
-        .slice(0, 3)
+      `BTOD: Initialized for ${tradeDate} — ${ranked.length} eligible signals, top ${BTOD_TOP_N}: [${ranked
+        .slice(0, BTOD_TOP_N)
         .map((r) => `${r.ticker}(QS=${r.qualityScore})`)
         .join(", ")}]`,
       "btod",
@@ -142,12 +148,12 @@ export async function initializeBtodForDay(ctx?: SimDayContext): Promise<BtodSta
     return state;
   } else {
     return {
-      phase: top3Ids.length > 0 ? "SELECTIVE" : "CLOSED",
+      phase: topNIds.length > 0 ? "SELECTIVE" : "CLOSED",
       rankedQueue: ranked as any,
-      top3Ids: top3Ids as any,
+      top3Ids: topNIds as any,
       selectedSignalId: null,
       secondSignalId: null,
-      gateOpen: top3Ids.length > 0,
+      gateOpen: topNIds.length > 0,
       tradesExecuted: 0,
       phaseChangedAt: null,
     } as BtodState;
@@ -171,26 +177,26 @@ export async function shouldExecuteActivation(
     return { execute: false, reason: "gate_closed" };
   }
 
-  if (state.tradesExecuted >= 2) {
+  if (state.tradesExecuted >= BTOD_MAX_TRADES) {
     return { execute: false, reason: "max_trades_reached" };
   }
 
-  const top3 = state.top3Ids as number[];
+  const topN = state.top3Ids as number[];
   const ranked = state.rankedQueue as RankedSignalEntry[];
   const entry = ranked.find((r) => r.signalId === signalId);
   const rank = entry?.rank;
 
   if (state.phase === "SELECTIVE") {
-    if (top3.includes(signalId)) {
+    if (topN.includes(signalId)) {
       log(
-        `BTOD: Top-3 signal ${signalId} (${entry?.ticker ?? "?"} rank #${rank}) activated — EXECUTING`,
+        `BTOD: Top-${BTOD_TOP_N} signal ${signalId} (${entry?.ticker ?? "?"} rank #${rank}) activated — EXECUTING`,
         "btod",
       );
-      return { execute: true, reason: "top3_priority", rank };
+      return { execute: true, reason: "top_n_priority", rank };
     }
     return {
       execute: false,
-      reason: `not_in_top3_during_selective_phase`,
+      reason: `not_in_top_n_during_selective_phase`,
       rank,
     };
   }
@@ -211,7 +217,7 @@ export async function shouldExecuteActivation(
     if (
       state.selectedSignalId &&
       !state.secondSignalId &&
-      state.tradesExecuted < 2
+      state.tradesExecuted < BTOD_MAX_TRADES
     ) {
       log(
         `BTOD: Gate reopened after first trade closed — EXECUTING second trade signal ${signalId} (${entry?.ticker ?? "?"})`,
@@ -300,8 +306,11 @@ export async function onTradeClose(): Promise<void> {
   const state = await storage.getBtodState(tradeDate);
   if (!state) return;
 
-  if (state.tradesExecuted >= 2) {
-    log("BTOD: Max 2 trades reached, gate stays closed", "btod");
+  if (state.tradesExecuted >= BTOD_MAX_TRADES) {
+    log(
+      `BTOD: Max ${BTOD_MAX_TRADES} trades reached, gate stays closed`,
+      "btod",
+    );
     return;
   }
 
