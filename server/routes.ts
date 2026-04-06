@@ -806,14 +806,15 @@ export async function registerRoutes(
   });
 
   app.post("/api/backtest/simulate-start", async (req, res) => {
-    const { tickers, setups, startDate, endDate, phaseDelayMs, btodSetupTypes, monitorBtodOnly } = req.body;
+    const { tickers, setups, startDate, endDate, phaseDelayMs, btodSetupTypes, monitorBtodOnly, forceRun } = req.body;
     if (!tickers?.length || !setups?.length || !startDate || !endDate) {
       return res.status(400).json({ message: "tickers, setups, startDate, endDate required" });
     }
     const delay = typeof phaseDelayMs === "number" && Number.isFinite(phaseDelayMs) ? Math.max(0, Math.min(phaseDelayMs, 30000)) : 4000;
     const btodSetups = Array.isArray(btodSetupTypes) && btodSetupTypes.length > 0 ? btodSetupTypes : ["A", "B", "C"];
     const btodOnlyFlag = monitorBtodOnly !== false;
-    const result = await startSimulation(tickers, setups, startDate, endDate, delay, btodSetups, btodOnlyFlag);
+    const forceRunFlag = forceRun === true;
+    const result = await startSimulation(tickers, setups, startDate, endDate, delay, btodSetups, btodOnlyFlag, forceRunFlag);
     res.json(result);
   });
 
@@ -873,6 +874,11 @@ export async function registerRoutes(
   app.post("/api/backtest/simulate-clear", (_req, res) => {
     clearSimulation();
     res.json({ ok: true });
+  });
+
+  app.post("/api/backtest/simulate-cache-clear", async (_req, res) => {
+    await storage.clearSimDayCache();
+    res.json({ ok: true, message: "Simulation day cache cleared" });
   });
 
   app.get("/api/backtest/simulate-stream", (req, res) => {

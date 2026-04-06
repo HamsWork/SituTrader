@@ -138,7 +138,7 @@ export function getSimulationLogsSince(fromIndex: number): { logs: Array<{ messa
   };
 }
 
-export async function startSimulation(tickers: string[], setups: string[], startDate: string, endDate: string, phaseDelayMs: number = 4000, btodSetupTypes: string[] = ["A", "B", "C"], monitorBtodOnly: boolean = true): Promise<{ ok: boolean; message?: string }> {
+export async function startSimulation(tickers: string[], setups: string[], startDate: string, endDate: string, phaseDelayMs: number = 4000, btodSetupTypes: string[] = ["A", "B", "C"], monitorBtodOnly: boolean = true, forceRun: boolean = false): Promise<{ ok: boolean; message?: string }> {
   if (isSimulationRunning()) {
     activeState!.control.aborted = true;
     await new Promise(r => setTimeout(r, 200));
@@ -184,6 +184,7 @@ export async function startSimulation(tickers: string[], setups: string[], start
         phaseDelayMs,
         btodSetupTypes,
         monitorBtodOnly,
+        forceRun,
       };
 
       const emit = emitToState(state);

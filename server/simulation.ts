@@ -5,6 +5,7 @@ import {
 import { storage } from "./storage";
 import { SimTickerStepper } from "./simTickerStepper";
 import type { Signal } from "@shared/schema";
+import crypto from "crypto";
 
 export const SIM_BEFORE_PRE_OPEN_CT = 8 * 60 + 15;
 export const SIM_PRE_OPEN_CT = 8 * 60 + 20;
@@ -194,12 +195,42 @@ export interface SimConfig {
   phaseDelayMs: number;
   btodSetupTypes: string[];
   monitorBtodOnly: boolean;
+  forceRun: boolean;
 }
 
 export type SimEventCallback = (
   event: string,
   data: Record<string, any>,
 ) => void;
+
+const SIM_CACHE_VERSION = 1;
+
+async function buildSimConfigHash(config: SimConfig): Promise<string> {
+  const settings = await storage.getAllSettings();
+  const watchlist = await storage.getWatchlistSymbols();
+  const obj = {
+    v: SIM_CACHE_VERSION,
+    tickers: [...config.tickers].sort(),
+    setups: [...config.setups].sort(),
+    timeframe: config.timeframe,
+    entryMode: config.entryMode,
+    stopMode: config.stopMode,
+    atrMultiplier: config.atrMultiplier,
+    gapThreshold: config.gapThreshold,
+    btodSetupTypes: [...config.btodSetupTypes].sort(),
+    monitorBtodOnly: config.monitorBtodOnly,
+    timePriorityMode: settings.timePriorityMode || "BLEND",
+    stopAdvancedMode: settings.stopAdvancedMode || "VOLATILITY_ONLY",
+    stopBeEnabled: settings.stopBeEnabled || "false",
+    stopTimeEnabled: settings.stopTimeEnabled || "false",
+    watchlistHash: watchlist.map((s: any) => s.ticker).sort().join(","),
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(obj)).digest("hex").slice(0, 16);
+}
+
+function buildDayCacheKey(date: string, configHash: string): string {
+  return `${date}__${configHash}`;
+}
 
 function iterateTradingDays(start: string, end: string): string[] {
   const days: string[] = [];
@@ -825,6 +856,14 @@ export async function runSimulation(
     type: "info",
   });
 
+  const configHash = await buildSimConfigHash(config);
+  const useCache = !config.forceRun;
+  if (useCache) {
+    emit("log", { message: `Cache enabled (hash: ${configHash}). Use Force Run to bypass.`, type: "info" });
+  } else {
+    emit("log", { message: `Force Run enabled — all days will be computed fresh.`, type: "info" });
+  }
+
   // IMPORTANT (no look-ahead):
   // In simulation, treat the simulated "today" as the only available "current time".
   // So each day we fetch daily bars up to `today`, not up to config.endDate.
@@ -864,6 +903,9 @@ export async function runSimulation(
     prefetchedBars: new Map(),
   };
 
+  let cacheHits = 0;
+  let cacheMisses = 0;
+
   for (let dayIdx = 0; dayIdx < tradingDays.length; dayIdx++) {
     if (abortSignal?.aborted) {
       emit("log", { message: "Simulation aborted", type: "error" });
@@ -876,7 +918,54 @@ export async function runSimulation(
       emit("log", { message: "Simulation resumed", type: "info" });
     }
 
-    currentDayCtx.today = tradingDays[dayIdx];
+    const day = tradingDays[dayIdx];
+    const dayCacheKey = buildDayCacheKey(day, configHash);
+
+    if (useCache) {
+      try {
+        const cached = await storage.getSimDayCache(dayCacheKey);
+        if (cached) {
+          const cachedResult = cached.dayResultJson as SimDayResult;
+          const snapshot = cached.signalsSnapshot as { allSignals: any[]; nextSimSignalId: number } | null;
+
+          if (!snapshot || !Array.isArray(snapshot.allSignals)) {
+            emit("log", { message: `Day ${day}: cache entry missing signals snapshot, recomputing`, type: "info" });
+          } else {
+            allSignals.clear();
+            currentDayCtx.onDeckSignals.clear();
+            currentDayCtx.activeSignals.clear();
+            currentDayCtx.doneSignals.clear();
+            for (const sig of snapshot.allSignals) {
+              allSignals.set(sig.id, sig as Signal);
+              if (sig.status === "pending" && sig.activationStatus === "NOT_ACTIVE") {
+                currentDayCtx.onDeckSignals.set(sig.id, sig as Signal);
+              } else if (sig.status === "pending" && sig.activationStatus === "ACTIVE") {
+                currentDayCtx.activeSignals.set(sig.id, sig as Signal);
+              } else {
+                currentDayCtx.doneSignals.set(sig.id, sig as Signal);
+              }
+            }
+            nextSimSignalId = snapshot.nextSimSignalId;
+            currentDayCtx.nextSimSignalId = nextSimSignalId;
+
+            results.push(cachedResult);
+            cacheHits++;
+
+            emit("progress", { completed: dayIdx + 1, total: tradingDays.length, day, phase: "cached" });
+            emit("log", { message: `Day ${day}: loaded from cache`, type: "success" });
+            emit("day", { dayIndex: dayIdx, date: day, result: cachedResult });
+            continue;
+          }
+        }
+      } catch (err: any) {
+        emit("log", { message: `Cache lookup failed for ${day}: ${err.message}`, type: "info" });
+      }
+    }
+
+    cacheMisses++;
+    emit("log", { message: `Day ${day}: computing fresh`, type: "processing" });
+
+    currentDayCtx.today = day;
     currentDayCtx.dayIdx = dayIdx;
     currentDayCtx.totalDays = tradingDays.length;
     currentDayCtx.btodExecutedToday = false;
@@ -888,7 +977,23 @@ export async function runSimulation(
 
     results.push(dayOutput.result);
 
+    if (useCache) {
+      try {
+        const signalsSnapshot = {
+          allSignals: Array.from(allSignals.values()),
+          nextSimSignalId: currentDayCtx.nextSimSignalId,
+        };
+        await storage.upsertSimDayCache(dayCacheKey, day, configHash, dayOutput.result, signalsSnapshot);
+      } catch (err: any) {
+        emit("log", { message: `Cache save failed for ${day}: ${err.message}`, type: "info" });
+      }
+    }
+
     if (dayOutput.shouldBreak) break;
+  }
+
+  if (cacheHits > 0 || cacheMisses > 0) {
+    emit("log", { message: `Cache summary: ${cacheHits} cached, ${cacheMisses} computed fresh`, type: "info" });
   }
 
   const totalSignalsGenerated = results.reduce(

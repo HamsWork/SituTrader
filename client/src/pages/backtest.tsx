@@ -315,6 +315,7 @@ export default function BacktestPage() {
   const [selectedSetups, setSelectedSetups] = useState<string[]>(["A", "B", "C", "D", "E", "F"]);
   const [btodSetupTypes, setBtodSetupTypes] = useState<string[]>(["A", "B", "C"]);
   const [monitorBtodOnly, setMonitorBtodOnly] = useState(true);
+  const [forceRun, setForceRun] = useState(false);
   const [durationPreset, setDurationPreset] = useState("12");
   const [startDate, setStartDate] = useState(getDateFromMonthsAgo(12));
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
@@ -714,7 +715,7 @@ export default function BacktestPage() {
     fetch("/api/backtest/simulate-start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate, phaseDelayMs: simPhaseDelayMs, btodSetupTypes, monitorBtodOnly }),
+      body: JSON.stringify({ tickers, setups: selectedSetups, startDate, endDate, phaseDelayMs: simPhaseDelayMs, btodSetupTypes, monitorBtodOnly, forceRun }),
     }).then((res) => {
       if (!res.ok) {
         toast({ title: "Simulation failed", description: "Failed to start", variant: "destructive" });
@@ -724,7 +725,7 @@ export default function BacktestPage() {
     }).catch((err) => {
       toast({ title: "Simulation failed", description: err.message, variant: "destructive" });
     });
-  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, btodSetupTypes, monitorBtodOnly, toast, connectSSE]);
+  }, [selectedTickers, enabledSymbols, selectedSetups, startDate, endDate, simPhaseDelayMs, btodSetupTypes, monitorBtodOnly, forceRun, toast, connectSSE]);
 
   const btRunLogCountRef = useRef(0);
   const btRunWasRunningRef = useRef(false);
@@ -1081,6 +1082,19 @@ export default function BacktestPage() {
                   Monitor BTOD Only
                 </label>
                 <span className="text-[10px] text-muted-foreground">(only monitor Top 3 BTOD signals during live phase)</span>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <Checkbox
+                  id="sim-force-run"
+                  checked={forceRun}
+                  onCheckedChange={(v) => setForceRun(!!v)}
+                  data-testid="checkbox-force-run"
+                />
+                <label htmlFor="sim-force-run" className="text-xs cursor-pointer">
+                  Force Run
+                </label>
+                <span className="text-[10px] text-muted-foreground">(ignore cached data and re-compute all days)</span>
               </div>
 
               <div className="space-y-2">

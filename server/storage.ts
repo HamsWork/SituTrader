@@ -5,7 +5,7 @@ import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
   ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs, embedTemplates,
-  roiTradeCache, roiCacheMeta, pwTradeCache, pwCacheMeta, btodState,
+  roiTradeCache, roiCacheMeta, pwTradeCache, pwCacheMeta, btodState, simDayCache,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
@@ -16,6 +16,7 @@ import {
   type RoiTradeCache, type InsertRoiTradeCache, type RoiCacheMeta,
   type PwTradeCache, type InsertPwTradeCache, type PwCacheMeta,
   type BtodState, type InsertBtodState,
+  type SimDayCache,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -152,6 +153,10 @@ export interface IStorage {
 
   getBtodState(tradeDate: string): Promise<BtodState | null>;
   upsertBtodState(state: Partial<InsertBtodState> & { tradeDate: string }): Promise<BtodState>;
+
+  getSimDayCache(cacheKey: string): Promise<SimDayCache | null>;
+  upsertSimDayCache(cacheKey: string, tradeDate: string, configHash: string, dayResultJson: any, signalsSnapshot: any): Promise<void>;
+  clearSimDayCache(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1172,6 +1177,23 @@ export class DatabaseStorage implements IStorage {
       phaseChangedAt: state.phaseChangedAt ?? null,
     }).returning();
     return created;
+  }
+
+  async getSimDayCache(cacheKey: string): Promise<SimDayCache | null> {
+    const [result] = await db.select().from(simDayCache).where(eq(simDayCache.cacheKey, cacheKey));
+    return result ?? null;
+  }
+
+  async upsertSimDayCache(cacheKey: string, tradeDate: string, configHash: string, dayResultJson: any, signalsSnapshot: any): Promise<void> {
+    await db.insert(simDayCache).values({ cacheKey, tradeDate, configHash, dayResultJson, signalsSnapshot, createdAt: new Date() })
+      .onConflictDoUpdate({
+        target: [simDayCache.cacheKey],
+        set: { dayResultJson, signalsSnapshot, createdAt: new Date() },
+      });
+  }
+
+  async clearSimDayCache(): Promise<void> {
+    await db.delete(simDayCache);
   }
 }
 

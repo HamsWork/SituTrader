@@ -698,3 +698,16 @@ export const barCacheMeta = pgTable("bar_cache_meta", {
   adjusted: integer("adjusted").notNull(),
   lastFetched: real("last_fetched").notNull(),
 }, (table) => [unique("bar_cache_meta_pkey").on(table.symbol, table.timeframe, table.adjusted)]);
+
+export const simDayCache = pgTable("sim_day_cache", {
+  id: serial("id").primaryKey(),
+  cacheKey: text("cache_key").notNull().unique(),
+  tradeDate: text("trade_date").notNull(),
+  configHash: text("config_hash").notNull(),
+  dayResultJson: jsonb("day_result_json").notNull(),
+  signalsSnapshot: jsonb("signals_snapshot"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type SimDayCache = typeof simDayCache.$inferSelect;
+export type InsertSimDayCache = typeof simDayCache.$inferInsert;
