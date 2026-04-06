@@ -377,7 +377,6 @@ export async function handlePostActivationSim(
           isBtod: true,
         });
 
-        ctx.dayResult.btodStatus.gateOpen = false;
         ctx.dayResult.btodStatus.tradesExecuted = ctx.btodTradesExecuted;
         ctx.dayResult.btodStatus.executedSignalIds.push(sig.id);
         if (!ctx.dayResult.btodStatus.executedSignalId) {
@@ -386,6 +385,7 @@ export async function handlePostActivationSim(
         }
         if (ctx.btodTradesExecuted >= BTOD_MAX_TRADES) {
           ctx.dayResult.btodStatus.phase = "CLOSED";
+          ctx.dayResult.btodStatus.gateOpen = false;
         }
 
         const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
@@ -401,11 +401,6 @@ export async function handlePostActivationSim(
           : activationEntry + stopDist;
 
         const trackingResults = await simulateAllTradeTracking(sig, ctx);
-
-        if (ctx.btodTradesExecuted < BTOD_MAX_TRADES) {
-          ctx.dayResult.btodStatus.gateOpen = true;
-          ctx.dayResult.btodStatus.phase = "OPEN";
-        }
 
         const anyWin = trackingResults.some((r) => r.win);
         ctx.dayResult.tradeSyncCalls.push({

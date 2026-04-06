@@ -515,7 +515,7 @@ export class SimTickerStepper {
           });
         } else {
           this.emit("log", {
-            message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${(mut.entryPrice ?? 0).toFixed(2)}${isBtodCandidate && this.btodTradesExecuted >= BTOD_MAX_TRADES ? " (BTOD gate closed)" : ""}`,
+            message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${(mut.entryPrice ?? 0).toFixed(2)}${isBtodCandidate && this.btodTradesExecuted >= BTOD_MAX_TRADES ? " (BTOD max trades reached)" : ""}`,
             type: "success",
           });
         }
