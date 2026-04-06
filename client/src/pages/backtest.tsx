@@ -1085,7 +1085,7 @@ export default function BacktestPage() {
                 <label htmlFor="sim-monitor-btod-only" className="text-xs cursor-pointer">
                   Monitor BTOD Only
                 </label>
-                <span className="text-[10px] text-muted-foreground">(only monitor Top 3 BTOD signals during live phase)</span>
+                <span className="text-[10px] text-muted-foreground">(only monitor Top 15 BTOD signals during live phase)</span>
               </div>
 
               <div className="flex items-center gap-2 pt-1">
@@ -1495,7 +1495,7 @@ export default function BacktestPage() {
                               <div className="space-y-2">
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-violet-400">
                                   <Star className="w-3.5 h-3.5" />
-                                  BTOD Top 3
+                                  BTOD Top 15
                                 </div>
                                 {btodTop3.length > 0 ? (
                                   <div className="space-y-1">

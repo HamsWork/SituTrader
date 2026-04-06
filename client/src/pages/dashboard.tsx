@@ -1074,7 +1074,7 @@ function BtodStatusPanel() {
               <div>
                 <p className="text-xs font-medium mb-1.5 text-muted-foreground">Priority Queue ({data.rankedQueue.length} signals)</p>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {data.rankedQueue.slice(0, 10).map((entry: any, idx: number) => (
+                  {data.rankedQueue.slice(0, 15).map((entry: any, idx: number) => (
                     <div
                       key={entry.signalId}
                       className={`flex items-center justify-between text-xs px-2 py-1 rounded ${
@@ -1100,9 +1100,9 @@ function BtodStatusPanel() {
                       </div>
                     </div>
                   ))}
-                  {data.rankedQueue.length > 10 && (
+                  {data.rankedQueue.length > 15 && (
                     <p className="text-[10px] text-muted-foreground text-center py-1">
-                      +{data.rankedQueue.length - 10} more signals
+                      +{data.rankedQueue.length - 15} more signals
                     </p>
                   )}
                 </div>
