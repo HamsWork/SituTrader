@@ -89,6 +89,8 @@ export interface SimBtodStatus {
   gateOpen: boolean;
   executedSignalId: number | null;
   executedTicker: string | null;
+  executedSignalIds: number[];
+  tradesExecuted: number;
   top3Ids: number[];
   eligibleCount: number;
 }
@@ -280,7 +282,7 @@ export interface SimDayContext {
   today: string;
   dayIdx: number;
   totalDays: number;
-  btodExecutedToday: boolean;
+  btodTradesExecuted: number;
   btodSignalIds: Set<number>;
   dayResult: SimDayResult;
   prefetchedBars: Map<string, import("./lib/polygon").PolygonBar[]>;
@@ -351,15 +353,18 @@ export async function handlePostActivationSim(
   ctx: SimDayContext,
   mutations: import("./lib/signalHelper").ActivationMutation[],
 ): Promise<void> {
+  const { BTOD_MAX_TRADES } = await import("./lib/btod");
+
   for (const mut of mutations) {
     if (mut.type === "activated") {
       const sig = ctx.onDeckSignals.get(mut.signalId) ?? ctx.allSignals.get(mut.signalId);
       if (!sig) continue;
 
       const isBtodCandidate = ctx.btodSignalIds.has(sig.id);
+      const btodGateOpen = isBtodCandidate && ctx.btodTradesExecuted < BTOD_MAX_TRADES;
 
-      if (isBtodCandidate && !ctx.btodExecutedToday) {
-        ctx.btodExecutedToday = true;
+      if (btodGateOpen) {
+        ctx.btodTradesExecuted++;
 
         applyActivationToCtx(ctx, mut);
 
@@ -372,10 +377,16 @@ export async function handlePostActivationSim(
           isBtod: true,
         });
 
-        ctx.dayResult.btodStatus.phase = "CLOSED";
         ctx.dayResult.btodStatus.gateOpen = false;
-        ctx.dayResult.btodStatus.executedSignalId = sig.id;
-        ctx.dayResult.btodStatus.executedTicker = sig.ticker;
+        ctx.dayResult.btodStatus.tradesExecuted = ctx.btodTradesExecuted;
+        ctx.dayResult.btodStatus.executedSignalIds.push(sig.id);
+        if (!ctx.dayResult.btodStatus.executedSignalId) {
+          ctx.dayResult.btodStatus.executedSignalId = sig.id;
+          ctx.dayResult.btodStatus.executedTicker = sig.ticker;
+        }
+        if (ctx.btodTradesExecuted >= BTOD_MAX_TRADES) {
+          ctx.dayResult.btodStatus.phase = "CLOSED";
+        }
 
         const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
         const instruments: string[] = ["Shares"];
@@ -390,6 +401,11 @@ export async function handlePostActivationSim(
           : activationEntry + stopDist;
 
         const trackingResults = await simulateAllTradeTracking(sig, ctx);
+
+        if (ctx.btodTradesExecuted < BTOD_MAX_TRADES) {
+          ctx.dayResult.btodStatus.gateOpen = true;
+          ctx.dayResult.btodStatus.phase = "OPEN";
+        }
 
         const anyWin = trackingResults.some((r) => r.win);
         ctx.dayResult.tradeSyncCalls.push({
@@ -814,7 +830,7 @@ function runNormalTrack(
 export interface SimDayOutput {
   result: SimDayResult;
   nextSimSignalId: number;
-  btodExecutedToday: boolean;
+  btodTradesExecuted: number;
   shouldBreak: boolean;
 }
 
@@ -873,7 +889,7 @@ export async function runSimulation(
     phase: "scan",
     signalsGenerated: [],
     btodTop3: [],
-    btodStatus: { phase: "SELECTIVE", gateOpen: true, executedSignalId: null, executedTicker: null, top3Ids: [], eligibleCount: 0 },
+    btodStatus: { phase: "SELECTIVE", gateOpen: true, executedSignalId: null, executedTicker: null, executedSignalIds: [], tradesExecuted: 0, top3Ids: [], eligibleCount: 0 },
     tradeSyncCalls: [],
     activations: [],
     hits: [],
@@ -894,7 +910,7 @@ export async function runSimulation(
     doneSignals: new Map(),
     activeSignals: new Map(),
     currentMin: SIM_BEFORE_PRE_OPEN_CT,
-    btodExecutedToday: false,
+    btodTradesExecuted: 0,
     btodSignalIds: new Set(),
     dayResult: emptyDayResult,
     today: tradingDays[0],
@@ -968,7 +984,7 @@ export async function runSimulation(
     currentDayCtx.today = day;
     currentDayCtx.dayIdx = dayIdx;
     currentDayCtx.totalDays = tradingDays.length;
-    currentDayCtx.btodExecutedToday = false;
+    currentDayCtx.btodTradesExecuted = 0;
     currentDayCtx.prefetchedBars = new Map();
 
     currentDayCtx.currentMin = SIM_BEFORE_PRE_OPEN_CT;

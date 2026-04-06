@@ -308,6 +308,8 @@ function TradeChart({ tr }: { tr: SimTrackingResult }) {
   );
 }
 
+const BTOD_MAX_TRADES_DISPLAY = 3;
+
 export default function BacktestPage() {
   const { toast } = useToast();
   const [tickerSearch, setTickerSearch] = useState("");
@@ -423,6 +425,8 @@ export default function BacktestPage() {
     gateOpen: boolean;
     executedSignalId: number | null;
     executedTicker: string | null;
+    executedSignalIds: number[];
+    tradesExecuted: number;
     top3Ids: number[];
     eligibleCount: number;
   }
@@ -1551,9 +1555,15 @@ export default function BacktestPage() {
                                       <span className="text-muted-foreground">Eligible</span>
                                       <span>{btodStatus.eligibleCount} signals</span>
                                     </div>
-                                    {btodStatus.executedTicker && (
+                                    {btodStatus.tradesExecuted > 0 && (
                                       <div className="flex items-center justify-between pt-1 border-t border-cyan-500/10">
                                         <span className="text-muted-foreground">Executed</span>
+                                        <span className="font-mono font-semibold text-emerald-400">{btodStatus.tradesExecuted}/{BTOD_MAX_TRADES_DISPLAY}</span>
+                                      </div>
+                                    )}
+                                    {btodStatus.executedTicker && (
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-muted-foreground text-[9px]">First</span>
                                         <span className="font-mono font-semibold text-emerald-400">{btodStatus.executedTicker}</span>
                                       </div>
                                     )}

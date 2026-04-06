@@ -29,7 +29,7 @@ import {
   SIM_RTH_END_CT,
   SIM_AFTER_CLOSE_CT,
 } from "./simulation";
-import { initializeBtodForDay } from "./lib/btod";
+import { initializeBtodForDay, BTOD_TOP_N, BTOD_MAX_TRADES } from "./lib/btod";
 import type { RankedSignalEntry } from "./lib/btod";
 import {
   runActivationCheck,
@@ -85,8 +85,8 @@ export class SimTickerStepper {
 
   private get nextSimSignalId() { return this.ctx.nextSimSignalId; }
   private set nextSimSignalId(value: number) { this.ctx.nextSimSignalId = value; }
-  private get btodExecutedToday() { return this.ctx.btodExecutedToday; }
-  private set btodExecutedToday(value: boolean) { this.ctx.btodExecutedToday = value; }
+  private get btodTradesExecuted() { return this.ctx.btodTradesExecuted; }
+  private set btodTradesExecuted(value: number) { this.ctx.btodTradesExecuted = value; }
 
   constructor(ctx: SimDayContext) {
     this.ctx = ctx;
@@ -101,6 +101,8 @@ export class SimTickerStepper {
         gateOpen: true,
         executedSignalId: null,
         executedTicker: null,
+        executedSignalIds: [],
+        tradesExecuted: 0,
         top3Ids: [],
         eligibleCount: 0,
       },
@@ -133,7 +135,7 @@ export class SimTickerStepper {
     return {
       result: this.dayResult,
       nextSimSignalId: this.nextSimSignalId,
-      btodExecutedToday: this.btodExecutedToday,
+      btodTradesExecuted: this.btodTradesExecuted,
       shouldBreak: true,
     };
   }
@@ -166,7 +168,7 @@ export class SimTickerStepper {
         const sig = this.allSignals.get(e.signalId);
         return { ...e, activationStatus: sig?.activationStatus ?? "NOT_ACTIVE" };
       }),
-      btodStatus: { ...this.dayResult.btodStatus, top3Ids: [...this.dayResult.btodStatus.top3Ids] },
+      btodStatus: { ...this.dayResult.btodStatus, top3Ids: [...this.dayResult.btodStatus.top3Ids], executedSignalIds: [...this.dayResult.btodStatus.executedSignalIds] },
       tradeSyncCalls: [...this.dayResult.tradeSyncCalls],
       activations: [...this.dayResult.activations],
       hits: [...this.dayResult.hits],
@@ -341,7 +343,7 @@ export class SimTickerStepper {
     // initialize btod for day
     const btodState = await initializeBtodForDay(this.ctx);
     const ranked = (btodState.rankedQueue as RankedSignalEntry[]) || [];
-    const top3Ranked = ranked.slice(0, 3);
+    const top3Ranked = ranked.slice(0, BTOD_TOP_N);
 
     this.top3 = top3Ranked.map((r) => ({
       signalId: r.signalId,
@@ -358,6 +360,8 @@ export class SimTickerStepper {
       gateOpen: btodState.gateOpen,
       executedSignalId: null,
       executedTicker: null,
+      executedSignalIds: [],
+      tradesExecuted: 0,
       top3Ids: (btodState.top3Ids as number[]) || [],
       eligibleCount: ranked.length,
     };
@@ -511,7 +515,7 @@ export class SimTickerStepper {
           });
         } else {
           this.emit("log", {
-            message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${(mut.entryPrice ?? 0).toFixed(2)}${isBtodCandidate && this.btodExecutedToday ? " (BTOD gate closed)" : ""}`,
+            message: `  → Activated [${formatSimTime(min)}]: ${sig.ticker}/${sig.setupType} @ $${(mut.entryPrice ?? 0).toFixed(2)}${isBtodCandidate && this.btodTradesExecuted >= BTOD_MAX_TRADES ? " (BTOD gate closed)" : ""}`,
             type: "success",
           });
         }
@@ -886,7 +890,7 @@ export class SimTickerStepper {
     return {
       result: this.dayResult,
       nextSimSignalId: this.nextSimSignalId,
-      btodExecutedToday: this.btodExecutedToday,
+      btodTradesExecuted: this.btodTradesExecuted,
       shouldBreak: false,
     };
   }
