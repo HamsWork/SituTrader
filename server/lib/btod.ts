@@ -173,10 +173,6 @@ export async function shouldExecuteActivation(
     return { execute: false, reason: "no_btod_state" };
   }
 
-  if (!state.gateOpen) {
-    return { execute: false, reason: "gate_closed" };
-  }
-
   if (state.tradesExecuted >= BTOD_MAX_TRADES) {
     return { execute: false, reason: "max_trades_reached" };
   }
@@ -189,7 +185,7 @@ export async function shouldExecuteActivation(
   if (state.phase === "SELECTIVE") {
     if (topN.includes(signalId)) {
       log(
-        `BTOD: Top-${BTOD_TOP_N} signal ${signalId} (${entry?.ticker ?? "?"} rank #${rank}) activated — EXECUTING`,
+        `BTOD: Top-${BTOD_TOP_N} signal ${signalId} (${entry?.ticker ?? "?"} rank #${rank}) activated — EXECUTING (trade ${state.tradesExecuted + 1}/${BTOD_MAX_TRADES})`,
         "btod",
       );
       return { execute: true, reason: "top_n_priority", rank };
@@ -214,27 +210,11 @@ export async function shouldExecuteActivation(
       }
     }
 
-    if (
-      state.selectedSignalId &&
-      !state.secondSignalId &&
-      state.tradesExecuted < BTOD_MAX_TRADES
-    ) {
-      log(
-        `BTOD: Gate reopened after first trade closed — EXECUTING second trade signal ${signalId} (${entry?.ticker ?? "?"})`,
-        "btod",
-      );
-      return { execute: true, reason: "second_trade_after_close", rank };
-    }
-
-    if (!state.selectedSignalId) {
-      log(
-        `BTOD: Open phase, first fresh activation signal ${signalId} (${entry?.ticker ?? "?"}) — EXECUTING`,
-        "btod",
-      );
-      return { execute: true, reason: "first_fresh_after_open_phase", rank };
-    }
-
-    return { execute: false, reason: "gate_closed_trade_active" };
+    log(
+      `BTOD: Open phase signal ${signalId} (${entry?.ticker ?? "?"}) — EXECUTING (trade ${state.tradesExecuted + 1}/${BTOD_MAX_TRADES})`,
+      "btod",
+    );
+    return { execute: true, reason: "open_phase_under_max", rank };
   }
 
   return { execute: false, reason: "unknown_phase" };
@@ -245,10 +225,11 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
   const state = await storage.getBtodState(tradeDate);
   if (!state) return;
 
+  const newCount = state.tradesExecuted + 1;
   const updates: any = {
     tradeDate,
-    gateOpen: false,
-    tradesExecuted: state.tradesExecuted + 1,
+    tradesExecuted: newCount,
+    gateOpen: newCount < BTOD_MAX_TRADES,
     updatedAt: new Date(),
   };
 
@@ -263,7 +244,7 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
   const ranked = state.rankedQueue as RankedSignalEntry[];
   const entry = ranked.find((r) => r.signalId === signalId);
   log(
-    `BTOD: Trade #${state.tradesExecuted + 1} executed — signal ${signalId} (${entry?.ticker ?? "?"} rank #${entry?.rank ?? "?"})`,
+    `BTOD: Trade #${newCount}/${BTOD_MAX_TRADES} executed — signal ${signalId} (${entry?.ticker ?? "?"} rank #${entry?.rank ?? "?"})`,
     "btod",
   );
 }
@@ -308,20 +289,14 @@ export async function onTradeClose(): Promise<void> {
 
   if (state.tradesExecuted >= BTOD_MAX_TRADES) {
     log(
-      `BTOD: Max ${BTOD_MAX_TRADES} trades reached, gate stays closed`,
+      `BTOD: Max ${BTOD_MAX_TRADES} trades reached — no more trades today`,
       "btod",
     );
     return;
   }
 
-  await storage.upsertBtodState({
-    tradeDate,
-    gateOpen: true,
-    phase: "OPEN",
-  });
-
   log(
-    `BTOD: Trade closed — gate reopened for trade #${state.tradesExecuted + 1}`,
+    `BTOD: Trade closed — ${state.tradesExecuted}/${BTOD_MAX_TRADES} trades used today`,
     "btod",
   );
 }

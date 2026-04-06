@@ -1047,13 +1047,8 @@ function BtodStatusPanel() {
               <Badge className={`text-[10px] border ${phaseColors[data.phase] ?? "bg-muted text-foreground"}`} data-testid="badge-btod-phase">
                 {data.phase}
               </Badge>
-              <span className="text-xs text-muted-foreground">
-                Gate: <span className={data.gateOpen ? "text-emerald-600 font-medium" : "text-red-500 font-medium"} data-testid="text-btod-gate">
-                  {data.gateOpen ? "Open" : "Closed"}
-                </span>
-              </span>
               <span className="text-xs text-muted-foreground" data-testid="text-btod-trades-count">
-                Trades: {data.tradesExecuted}/2
+                Trades: <span className={data.tradesExecuted >= 3 ? "text-red-500 font-medium" : "text-emerald-600 font-medium"}>{data.tradesExecuted}/3</span>
               </span>
               {data.phase === "SELECTIVE" && minutesToTen > 0 && (
                 <span className="text-xs text-muted-foreground">

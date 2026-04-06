@@ -4867,7 +4867,7 @@ export async function registerRoutes(
             timestamp: btod.updatedAt ? new Date(btod.updatedAt).toISOString() : btod.createdAt ? new Date(btod.createdAt).toISOString() : dateStr + "T09:30:00Z",
             ticker: "BTOD",
             title: `BTOD ${btod.phase} — ${dateStr}`,
-            detail: `Top-3: [${(btod.top3Ids as number[])?.join(', ') || 'none'}] | Selected: ${btod.selectedSignalId ?? 'none'} | Trades: ${btod.tradesExecuted} | Gate: ${btod.gateOpen ? 'OPEN' : 'CLOSED'}`,
+            detail: `Top-15: [${(btod.top3Ids as number[])?.join(', ') || 'none'}] | Selected: ${btod.selectedSignalId ?? 'none'} | Trades: ${btod.tradesExecuted}/${3}`,
             meta: { btodId: btod.id, phase: btod.phase, selectedSignalId: btod.selectedSignalId, secondSignalId: btod.secondSignalId, tradesExecuted: btod.tradesExecuted, gateOpen: btod.gateOpen, top3Ids: btod.top3Ids },
           });
         }
