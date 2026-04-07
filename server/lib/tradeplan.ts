@@ -11,13 +11,10 @@ export function generateTradePlan(
   signalDirection?: string,
 ): TradePlan {
   const atr = computeATR(dailyBars);
-  //TODO we need to check
-  // const bias: "BUY" | "SELL" = signalDirection
-  //   ? (signalDirection.toLowerCase().includes("up") ? "BUY" : "SELL")
-  //   : (lastClose > magnetPrice ? "SELL" : "BUY");
-  const bias = lastClose > magnetPrice ? "SELL" : "BUY";
+  const bias: "BUY" | "SELL" = signalDirection
+    ? (signalDirection.toLowerCase().includes("up") ? "BUY" : "SELL")
+    : (lastClose > magnetPrice ? "SELL" : "BUY");
   const direction = bias === "SELL" ? "down-to-magnet" : "up-to-magnet";
-  
 
   let entryTrigger: string;
   if (entryMode === "aggressive") {
