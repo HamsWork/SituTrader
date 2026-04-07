@@ -626,35 +626,23 @@ export async function executeBtodMultiInstrument(
   let freshOptionMark: number | null = null;
   const optTickerForFresh = optionTicker;
   if (optTickerForFresh) {
-    const cachedMark = signal.optionEntryMark ?? 0;
     const fetchStart = Date.now();
     try {
-      const { fetchOptionLastTrade, fetchOptionMark } = await import("./polygon");
-      const MAX_LAST_TRADE_AGE_MS = 5 * 60 * 1000;
+      const { fetchOptionLastTrade } = await import("./polygon");
       const lastTrade = await fetchOptionLastTrade(optTickerForFresh);
-      const tradeIsRecent = lastTrade && lastTrade.mark != null && lastTrade.mark > 0 &&
-        lastTrade.ts != null && (Date.now() - lastTrade.ts) < MAX_LAST_TRADE_AGE_MS;
-      if (tradeIsRecent) {
-        freshOptionMark = lastTrade!.mark!;
-        const ageMs = Date.now() - lastTrade!.ts!;
-        log(`BTOD: Option last trade for ${optTickerForFresh}: $${freshOptionMark} (age ${Math.round(ageMs / 1000)}s, fetched in ${Date.now() - fetchStart}ms)`, "btod");
+      if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
+        freshOptionMark = lastTrade.mark;
+        const ageMs = lastTrade.ts != null ? Date.now() - lastTrade.ts : null;
+        log(`BTOD: Option last trade for ${optTickerForFresh}: $${freshOptionMark} (age ${ageMs != null ? Math.round(ageMs / 1000) + "s" : "unknown"}, fetched in ${Date.now() - fetchStart}ms)`, "btod");
       } else {
-        const liveQuote = await fetchOptionMark(optTickerForFresh, signal.ticker);
-        if (liveQuote && liveQuote.mark != null && liveQuote.mark > 0) {
-          freshOptionMark = liveQuote.mark;
-          log(`BTOD: Option NBBO mark for ${optTickerForFresh}: $${freshOptionMark} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
-        } else {
-          freshOptionMark = cachedMark > 0 ? cachedMark : null;
-          log(`BTOD: ⚠ No live option price for ${optTickerForFresh}, using cached $${freshOptionMark ?? 0} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
-        }
+        log(`BTOD: ⚠ No option last trade for ${optTickerForFresh} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
       }
       if (freshOptionMark != null && freshOptionMark > 0) {
         await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: freshOptionMark });
-        log(`BTOD: Updated optionEntryMark for signal ${signalId}: $${freshOptionMark} (was $${cachedMark})`, "btod");
+        log(`BTOD: Updated optionEntryMark for signal ${signalId}: $${freshOptionMark}`, "btod");
       }
     } catch (err: any) {
-      freshOptionMark = cachedMark > 0 ? cachedMark : null;
-      log(`BTOD: Error fetching option price for ${optTickerForFresh}: ${err.message} — using cached $${freshOptionMark ?? 0}`, "btod");
+      log(`BTOD: Error fetching option last trade for ${optTickerForFresh}: ${err.message}`, "btod");
     }
   }
 
@@ -699,39 +687,27 @@ export async function executeBtodMultiInstrument(
           log(`BTOD: Error fetching fresh LETF price for ${inst.ticker}: ${err.message}`, "btod");
         }
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
-        const cachedLetfOptMark = letfOptionContract.markPrice;
         instrumentEntry = 0;
         const fetchStart = Date.now();
+        const ltContract = letfOptionContract.contractTicker;
         try {
-          const { fetchOptionLastTrade, fetchOptionMark } = await import("./polygon");
-          const MAX_LAST_TRADE_AGE_MS = 5 * 60 * 1000;
-          const ltContract = letfOptionContract.contractTicker;
+          const { fetchOptionLastTrade } = await import("./polygon");
           const lastTrade = await fetchOptionLastTrade(ltContract);
-          const tradeIsRecent = lastTrade && lastTrade.mark != null && lastTrade.mark > 0 &&
-            lastTrade.ts != null && (Date.now() - lastTrade.ts) < MAX_LAST_TRADE_AGE_MS;
-          if (tradeIsRecent) {
-            instrumentEntry = lastTrade!.mark!;
-            const ageMs = Date.now() - lastTrade!.ts!;
-            log(`BTOD: LETF option last trade for ${ltContract}: $${instrumentEntry} (age ${Math.round(ageMs / 1000)}s, fetched in ${Date.now() - fetchStart}ms)`, "btod");
+          if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
+            instrumentEntry = lastTrade.mark;
+            const ageMs = lastTrade.ts != null ? Date.now() - lastTrade.ts : null;
+            log(`BTOD: LETF option last trade for ${ltContract}: $${instrumentEntry} (age ${ageMs != null ? Math.round(ageMs / 1000) + "s" : "unknown"}, fetched in ${Date.now() - fetchStart}ms)`, "btod");
           } else {
-            const liveQuote = await fetchOptionMark(ltContract);
-            if (liveQuote && liveQuote.mark != null && liveQuote.mark > 0) {
-              instrumentEntry = liveQuote.mark;
-              log(`BTOD: LETF option NBBO mark for ${ltContract}: $${instrumentEntry} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
-            } else {
-              instrumentEntry = cachedLetfOptMark;
-              log(`BTOD: ⚠ No live LETF option price for ${ltContract}, falling back to cached mark $${instrumentEntry} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
-            }
+            log(`BTOD: ⚠ No LETF option last trade for ${ltContract} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
           }
         } catch (err: any) {
-          instrumentEntry = cachedLetfOptMark;
-          log(`BTOD: Error fetching LETF option price for ${letfOptionContract.contractTicker}: ${err.message} — using cached $${instrumentEntry}`, "btod");
+          log(`BTOD: Error fetching LETF option last trade for ${ltContract}: ${err.message}`, "btod");
         }
         delta =
           letfOptionContract.delta ??
           (letfOptionContract.right === "P" ? -0.5 : 0.5);
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
-        log(`BTOD: LETF option delta: ${delta?.toFixed(3)} | entry=$${instrumentEntry} (cached was $${cachedLetfOptMark})`, "btod");
+        log(`BTOD: LETF option delta: ${delta?.toFixed(3)} | entry=$${instrumentEntry}`, "btod");
       }
 
       const converted = convertStockTargetsToInstrument(
