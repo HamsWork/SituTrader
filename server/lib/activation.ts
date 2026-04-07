@@ -155,7 +155,14 @@ async function handlePostActivation(
           "activation",
         );
 
-        await onBtodTradeExecuted(sig.id);
+        if (results.length > 0 && successCount > 0) {
+          await onBtodTradeExecuted(sig.id);
+        } else {
+          log(
+            `BTOD: No successful instruments for signal ${sig.id} — skipping onBtodTradeExecuted`,
+            "activation",
+          );
+        }
       } catch (btodExecErr: any) {
         log(
           `BTOD: Multi-instrument execution failed for signal ${sig.id}: ${btodExecErr.message}`,
