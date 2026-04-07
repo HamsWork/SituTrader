@@ -660,7 +660,12 @@ export async function executeBtodMultiInstrument(
       if (inst.type === "SHARES") {
         instrumentEntry = stockEntry;
       } else if (inst.type === "OPTION" && inst.ticker) {
-        instrumentEntry = freshOptionMark ?? signal.optionEntryMark ?? 0;
+        if (freshOptionMark == null || freshOptionMark <= 0) {
+          log(`BTOD: ❌ No fresh option last trade for ${inst.ticker} — skipping OPTION execution`, "btod");
+          results.push({ instrumentType: inst.type, success: false, error: "No fresh option last trade price" });
+          continue;
+        }
+        instrumentEntry = freshOptionMark;
         try {
           const { fetchOptionSnapshot } = await import("./polygon");
           const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
