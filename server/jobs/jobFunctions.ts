@@ -384,7 +384,7 @@ export async function runLiveMonitorTickForTicker(
 ): Promise<{ hadEvents: boolean; mutations: ActivationMutation[] }> {
   let hadEvents = false;
   try {
-    const updatedCount = await enrichOptionsJsonForTicker({}, ticker, pendingSignals, ctx);
+    const updatedCount = await enrichOptionsJsonForTicker({}, ticker, pendingSignals, now, ctx);
     if (updatedCount > 0) {
       hadEvents = true;
     }

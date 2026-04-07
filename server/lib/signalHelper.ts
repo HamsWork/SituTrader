@@ -134,7 +134,7 @@ export async function scanTickerSetups(
     const atr = computeATR(dailyBars);
     const avgVol = computeAvgVolume(dailyBars);
     const avgDollarVol = computeAvgDollarVolume(dailyBars);
-    const lastBar = dailyBars[dailyBars.length - 1];
+    const lastBar = isPreOpen ? recentIntradayBars[recentIntradayBars.length - 1] : dailyBars[dailyBars.length - 1]; //TODO
     const slice20 = dailyBars.slice(-20);
     const avgRange20d = slice20.length > 0
         ? slice20.reduce((s, b) => s + (b.high - b.low), 0) / slice20.length
@@ -193,6 +193,15 @@ export async function scanTickerSetups(
             config.entryMode, config.stopMode, config.atrMultiplier,
             setup.direction,
         );
+
+        // TODO: This is a hack to ensure the signal direction matches the trade plan bias.
+        if (setup.direction === null || setup.direction !== (tradePlan.bias === "SELL" ? "down-to-magnet" : "up-to-magnet")) {
+            console.log(`setup.direction: ${setup.direction}, tradePlan.bias: ${tradePlan.bias}`);
+            console.error(`Signal direction ${setup.direction} does not match bias ${tradePlan.bias}`);
+            continue;
+        } else {
+            console.log(`Signal direction ${setup.direction} matches bias ${tradePlan.bias}`);
+        }
 
         const stopPrice = tradePlan.stopDistance
             ? (tradePlan.bias === "SELL"
