@@ -646,6 +646,11 @@ export async function executeBtodMultiInstrument(
     }
   }
 
+  if (optTickerForFresh && (freshOptionMark == null || freshOptionMark <= 0)) {
+    log(`BTOD: ❌ No fresh option last trade for ${optTickerForFresh} — aborting entire BTOD execution for signal ${signalId}`, "btod");
+    return results;
+  }
+
   const stockT1 = tp.t1 ?? null;
   const stockT2 = tp.t2 ?? null;
   const stockStop = signal.stopPrice ?? null;
@@ -660,12 +665,7 @@ export async function executeBtodMultiInstrument(
       if (inst.type === "SHARES") {
         instrumentEntry = stockEntry;
       } else if (inst.type === "OPTION" && inst.ticker) {
-        if (freshOptionMark == null || freshOptionMark <= 0) {
-          log(`BTOD: ❌ No fresh option last trade for ${inst.ticker} — skipping OPTION execution`, "btod");
-          results.push({ instrumentType: inst.type, success: false, error: "No fresh option last trade price" });
-          continue;
-        }
-        instrumentEntry = freshOptionMark;
+        instrumentEntry = freshOptionMark!;
         try {
           const { fetchOptionSnapshot } = await import("./polygon");
           const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
