@@ -607,7 +607,57 @@ export async function executeBtodMultiInstrument(
     "btod",
   );
 
-  const stockEntry = signal.entryPriceAtActivation ?? 0;
+  let stockEntry = signal.entryPriceAtActivation ?? 0;
+  const staleEntry = stockEntry;
+  try {
+    const { fetchSnapshot } = await import("./polygon");
+    const snap = await fetchSnapshot(signal.ticker);
+    if (snap?.lastPrice && snap.lastPrice > 0) {
+      stockEntry = snap.lastPrice;
+      log(`BTOD: Live stock price for ${signal.ticker}: $${stockEntry.toFixed(2)} (was $${staleEntry.toFixed(2)})`, "btod");
+      await storage.updateSignalActivation(signal.id, signal.activationStatus ?? "ACTIVE", undefined, stockEntry);
+    } else {
+      log(`BTOD: No live stock price for ${signal.ticker}, keeping activation price $${stockEntry}`, "btod");
+    }
+  } catch (err: any) {
+    log(`BTOD: Error fetching live stock price for ${signal.ticker}: ${err.message}, keeping $${stockEntry}`, "btod");
+  }
+
+  let freshOptionMark: number | null = null;
+  const optTickerForFresh = optionTicker;
+  if (optTickerForFresh) {
+    const cachedMark = signal.optionEntryMark ?? 0;
+    const fetchStart = Date.now();
+    try {
+      const { fetchOptionLastTrade, fetchOptionMark } = await import("./polygon");
+      const MAX_LAST_TRADE_AGE_MS = 5 * 60 * 1000;
+      const lastTrade = await fetchOptionLastTrade(optTickerForFresh);
+      const tradeIsRecent = lastTrade && lastTrade.mark != null && lastTrade.mark > 0 &&
+        lastTrade.ts != null && (Date.now() - lastTrade.ts) < MAX_LAST_TRADE_AGE_MS;
+      if (tradeIsRecent) {
+        freshOptionMark = lastTrade!.mark!;
+        const ageMs = Date.now() - lastTrade!.ts!;
+        log(`BTOD: Option last trade for ${optTickerForFresh}: $${freshOptionMark} (age ${Math.round(ageMs / 1000)}s, fetched in ${Date.now() - fetchStart}ms)`, "btod");
+      } else {
+        const liveQuote = await fetchOptionMark(optTickerForFresh, signal.ticker);
+        if (liveQuote && liveQuote.mark != null && liveQuote.mark > 0) {
+          freshOptionMark = liveQuote.mark;
+          log(`BTOD: Option NBBO mark for ${optTickerForFresh}: $${freshOptionMark} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
+        } else {
+          freshOptionMark = cachedMark > 0 ? cachedMark : null;
+          log(`BTOD: ⚠ No live option price for ${optTickerForFresh}, using cached $${freshOptionMark ?? 0} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
+        }
+      }
+      if (freshOptionMark != null && freshOptionMark > 0) {
+        await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: freshOptionMark });
+        log(`BTOD: Updated optionEntryMark for signal ${signalId}: $${freshOptionMark} (was $${cachedMark})`, "btod");
+      }
+    } catch (err: any) {
+      freshOptionMark = cachedMark > 0 ? cachedMark : null;
+      log(`BTOD: Error fetching option price for ${optTickerForFresh}: ${err.message} — using cached $${freshOptionMark ?? 0}`, "btod");
+    }
+  }
+
   const stockT1 = tp.t1 ?? null;
   const stockT2 = tp.t2 ?? null;
   const stockStop = signal.stopPrice ?? null;
@@ -621,49 +671,15 @@ export async function executeBtodMultiInstrument(
 
       if (inst.type === "SHARES") {
         instrumentEntry = stockEntry;
-        try {
-          const { fetchSnapshot } = await import("./polygon");
-          const snap = await fetchSnapshot(signal.ticker);
-          if (snap?.lastPrice && snap.lastPrice > 0) {
-            instrumentEntry = snap.lastPrice;
-            log(`BTOD: Fresh stock price for ${signal.ticker}: $${instrumentEntry.toFixed(2)}`, "btod");
-          } else {
-            log(`BTOD: No fresh stock price for ${signal.ticker}, using activation price $${instrumentEntry}`, "btod");
-          }
-        } catch (err: any) {
-          log(`BTOD: Error fetching fresh stock price for ${signal.ticker}: ${err.message}`, "btod");
-        }
       } else if (inst.type === "OPTION" && inst.ticker) {
-        const cachedMark = signal.optionEntryMark ?? 0;
-        instrumentEntry = 0;
-        const fetchStart = Date.now();
+        instrumentEntry = freshOptionMark ?? signal.optionEntryMark ?? 0;
         try {
-          const { fetchOptionLastTrade, fetchOptionMark, fetchOptionSnapshot } = await import("./polygon");
-          const MAX_LAST_TRADE_AGE_MS = 5 * 60 * 1000;
-          const lastTrade = await fetchOptionLastTrade(inst.ticker);
-          const tradeIsRecent = lastTrade && lastTrade.mark != null && lastTrade.mark > 0 &&
-            lastTrade.ts != null && (Date.now() - lastTrade.ts) < MAX_LAST_TRADE_AGE_MS;
-          if (tradeIsRecent) {
-            instrumentEntry = lastTrade!.mark!;
-            const ageMs = Date.now() - lastTrade!.ts!;
-            log(`BTOD: Option last trade for ${inst.ticker}: $${instrumentEntry} (age ${Math.round(ageMs / 1000)}s, fetched in ${Date.now() - fetchStart}ms)`, "btod");
-          } else {
-            const liveQuote = await fetchOptionMark(inst.ticker, signal.ticker);
-            if (liveQuote && liveQuote.mark != null && liveQuote.mark > 0) {
-              instrumentEntry = liveQuote.mark;
-              log(`BTOD: Option NBBO mark for ${inst.ticker}: $${instrumentEntry} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
-            } else {
-              instrumentEntry = cachedMark;
-              log(`BTOD: ⚠ No live option price for ${inst.ticker}, falling back to cached mark $${instrumentEntry} (fetched in ${Date.now() - fetchStart}ms)`, "btod");
-            }
-          }
-          await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: instrumentEntry });
+          const { fetchOptionSnapshot } = await import("./polygon");
           const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
           delta = optSnap?.delta ?? null;
-          log(`BTOD: Option delta for ${inst.ticker}: ${delta?.toFixed(3) ?? "null"} | entry=$${instrumentEntry} (cached was $${cachedMark})`, "btod");
+          log(`BTOD: Option delta for ${inst.ticker}: ${delta?.toFixed(3) ?? "null"} | entry=$${instrumentEntry}`, "btod");
         } catch (err: any) {
-          instrumentEntry = cachedMark;
-          log(`BTOD: Error fetching option price for ${inst.ticker}: ${err.message} — using cached $${instrumentEntry}`, "btod");
+          log(`BTOD: Error fetching option delta for ${inst.ticker}: ${err.message}`, "btod");
           delta = isBuy ? 0.5 : -0.5;
         }
       } else if (inst.type === "LEVERAGED_ETF") {
