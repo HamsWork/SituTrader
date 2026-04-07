@@ -233,6 +233,7 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
     updatedAt: new Date(),
   };
 
+  // TODO: selectedSingalId should be array
   if (!state.selectedSignalId) {
     updates.selectedSignalId = signalId;
   } else {
