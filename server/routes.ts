@@ -1435,9 +1435,12 @@ export async function registerRoutes(
   });
 
   app.post("/api/test/detect-setups", async (_req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(403).json({ message: "Test endpoints disabled in production" });
+    }
     try {
       const report = runAllDetectSetupTests();
-      res.json(report);
+      res.json({ ...report, allPassed: report.summary.failed === 0 });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
