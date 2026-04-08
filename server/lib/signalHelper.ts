@@ -852,32 +852,31 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
             warnings.push(`Option fetch failed for ${tickerToFetch}: ${err.message}`);
         }
     } else {
-        const updatedTp = signal.tradePlanJson as TradePlan | null;
-        if (updatedTp) {
+        if (tp) {
             try {
                 log(`[refresh] #${signal.id} ${signal.ticker} no option data — enriching options`, "refresh");
-                const enrichedSignal = await storage.getSignal(signal.id);
-                if (enrichedSignal) {
-                    const instrumentType = await enrichOptionData(
-                        signal.ticker,
-                        enrichedSignal,
-                        updatedTp,
-                        signal.activatedTs ?? undefined,
-                    );
-                    const refreshed = await storage.getSignal(signal.id);
-                    if (refreshed) {
-                        signal = {
-                            ...signal,
-                            optionsJson: refreshed.optionsJson,
-                            optionContractTicker: refreshed.optionContractTicker,
-                            optionEntryMark: refreshed.optionEntryMark,
-                            instrumentType: refreshed.instrumentType,
-                        };
-                        if (refreshed.optionEntryMark != null && refreshed.optionEntryMark > 0) {
-                            freshOptionMark = refreshed.optionEntryMark;
-                        }
-                        log(`[refresh] #${signal.id} option enrichment complete: contract=${refreshed.optionContractTicker ?? "none"} mark=$${refreshed.optionEntryMark?.toFixed(2) ?? "null"} type=${instrumentType}`, "refresh");
+                const instrumentType = await enrichOptionData(
+                    signal.ticker,
+                    signal,
+                    tp,
+                    signal.activatedTs ?? undefined,
+                );
+                const refreshed = await storage.getSignal(signal.id);
+                if (refreshed) {
+                    signal = {
+                        ...signal,
+                        optionsJson: refreshed.optionsJson,
+                        optionContractTicker: refreshed.optionContractTicker,
+                        optionEntryMark: refreshed.optionEntryMark,
+                        instrumentType: refreshed.instrumentType,
+                        instrumentTicker: refreshed.instrumentTicker,
+                        instrumentEntryPrice: refreshed.instrumentEntryPrice,
+                        leveragedEtfJson: refreshed.leveragedEtfJson,
+                    };
+                    if (refreshed.optionEntryMark != null && refreshed.optionEntryMark > 0) {
+                        freshOptionMark = refreshed.optionEntryMark;
                     }
+                    log(`[refresh] #${signal.id} option enrichment complete: contract=${refreshed.optionContractTicker ?? "none"} mark=$${refreshed.optionEntryMark?.toFixed(2) ?? "null"} type=${instrumentType}`, "refresh");
                 }
             } catch (err: any) {
                 warnings.push(`Option enrichment failed for ${signal.ticker}: ${err.message}`);
