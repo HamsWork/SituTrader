@@ -1438,67 +1438,46 @@ export async function registerRoutes(
       const signalId = Number(req.body.signalId);
       if (!signalId) return res.status(400).json({ message: "signalId required" });
 
-      const sigs = await storage.getSignals(undefined, 5000);
-      const signal = sigs.find((s) => s.id === signalId);
+      const signal = await storage.getSignalById(signalId);
       if (!signal) return res.status(404).json({ message: `Signal ${signalId} not found` });
 
-      const tp = signal.tradePlanJson as any;
+      const { refreshAndValidateSignal } = await import("./lib/signalHelper");
+      const refreshResult = await refreshAndValidateSignal(signal);
+      const sig = refreshResult.signal;
+
+      const tp = sig.tradePlanJson as any;
       if (!tp) return res.status(400).json({ message: "Signal has no trade plan" });
 
       const isBuy = tp.bias === "BUY";
-      const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
-
-      let optionTicker = signal.optionContractTicker || (signal.optionsJson as any)?.candidate?.contractSymbol;
-      const optionsJson = signal.optionsJson as any;
-      const optionHadNoQuote = optionsJson?.checks?.reasonIfFail?.includes("NO_QUOTE") || (optionsJson?.checks?.bid === 0 && optionsJson?.checks?.ask === 0);
-      let optionQuoteInfo: any = null;
-
-      if (optionTicker && optionHadNoQuote) {
-        try {
-          const { fetchOptionSnapshot } = await import("./lib/polygon");
-          const liveSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
-          if (liveSnap && liveSnap.bid != null && liveSnap.bid > 0 && liveSnap.ask != null && liveSnap.ask > 0) {
-            optionQuoteInfo = { bid: liveSnap.bid, ask: liveSnap.ask, status: "LIVE_QUOTE_OK" };
-          } else {
-            optionQuoteInfo = { status: "LIVE_QUOTE_UNAVAILABLE" };
-            optionTicker = null;
-          }
-        } catch (err: any) {
-          optionQuoteInfo = { status: "QUOTE_CHECK_FAILED", error: err.message };
-          optionTicker = null;
-        }
-      }
-
-      const letfJson = signal.leveragedEtfJson as any;
-      const letfTicker = signal.instrumentTicker || letfJson?.ticker;
+      const optionTicker = sig.optionContractTicker || (sig.optionsJson as any)?.candidate?.contractSymbol;
+      const letfJson = sig.leveragedEtfJson as any;
+      const letfTicker = sig.instrumentTicker || letfJson?.ticker;
+      const letfOptionContract = refreshResult.letfOptionContract;
 
       const instrumentsToExecute: Array<{ type: string; ticker: string | null }> = [];
-      instrumentsToExecute.push({ type: "SHARES", ticker: signal.ticker });
+      instrumentsToExecute.push({ type: "SHARES", ticker: sig.ticker });
       if (optionTicker) instrumentsToExecute.push({ type: "OPTION", ticker: optionTicker });
       if (letfTicker) instrumentsToExecute.push({ type: "LEVERAGED_ETF", ticker: letfTicker });
-
-      let letfOptionContract: any = null;
-      if (letfTicker) {
-        try {
-          const { fetchSnapshot } = await import("./lib/polygon");
-          const { findLetfOptionContract } = await import("./lib/btod");
-          const letfSnap = await fetchSnapshot(letfTicker);
-          const letfPrice = letfSnap?.lastPrice ?? signal.instrumentEntryPrice ?? 0;
-          if (letfPrice > 0) {
-            letfOptionContract = await findLetfOptionContract(letfTicker, action, letfPrice);
-            if (letfOptionContract && letfOptionContract.markPrice > 0) {
-              instrumentsToExecute.push({ type: "LETF_OPTIONS", ticker: letfOptionContract.contractTicker });
-            }
-          }
-        } catch (err: any) {
-          letfOptionContract = { error: err.message };
-        }
+      if (letfOptionContract && letfOptionContract.markPrice > 0) {
+        instrumentsToExecute.push({ type: "LETF_OPTIONS", ticker: letfOptionContract.contractTicker });
       }
 
-      const stockEntry = signal.entryPriceAtActivation ?? 0;
+      const stockEntry = sig.entryPriceAtActivation ?? 0;
+      const freshOptionMark = sig.optionEntryMark ?? null;
       const stockT1 = tp.t1 ?? null;
       const stockT2 = tp.t2 ?? null;
-      const stockStop = signal.stopPrice ?? null;
+      const stockStop = sig.stopPrice ?? null;
+
+      const productionAbortReasons: string[] = [];
+      if (refreshResult.invalidated) {
+        productionAbortReasons.push(`Signal invalidated during refresh: ${refreshResult.invalidationReason}`);
+      }
+      if (stockEntry <= 0) {
+        productionAbortReasons.push("No valid stock entry price (stockEntry <= 0)");
+      }
+      if (optionTicker && (freshOptionMark == null || freshOptionMark <= 0)) {
+        productionAbortReasons.push(`Option instrument present (${optionTicker}) but no fresh option mark — production aborts entire BTOD execution`);
+      }
 
       const tradeDetails: any[] = [];
       for (const inst of instrumentsToExecute) {
@@ -1511,17 +1490,15 @@ export async function registerRoutes(
           if (inst.type === "SHARES") {
             instrumentEntry = stockEntry;
           } else if (inst.type === "OPTION" && inst.ticker) {
-            instrumentEntry = signal.optionEntryMark ?? 0;
-            try {
-              const { fetchOptionSnapshot } = await import("./lib/polygon");
-              const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
-              delta = optSnap?.delta ?? null;
-            } catch { delta = isBuy ? 0.5 : -0.5; }
+            instrumentEntry = freshOptionMark ?? 0;
+            const optData = sig.optionsJson as any;
+            delta = optData?.candidate?.delta ?? optData?.live?.delta ?? null;
+            if (delta == null) delta = isBuy ? 0.5 : -0.5;
           } else if (inst.type === "LEVERAGED_ETF") {
-            instrumentEntry = signal.instrumentEntryPrice ?? 0;
+            instrumentEntry = sig.instrumentEntryPrice ?? 0;
             leverage = letfJson?.leverage ?? 1;
           } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
-            instrumentEntry = letfOptionContract.markPrice;
+            instrumentEntry = refreshResult.letfOptionMark ?? letfOptionContract.markPrice;
             delta = letfOptionContract.delta ?? (letfOptionContract.right === "P" ? -0.5 : 0.5);
             leverage = letfJson?.leverage ?? 1;
           }
@@ -1530,13 +1507,14 @@ export async function registerRoutes(
 
           let optionMeta: any = undefined;
           if (inst.type === "OPTION" && inst.ticker) {
-            optionMeta = { expiry: optionsJson?.candidate?.expiry, strike: optionsJson?.candidate?.strike, right: optionsJson?.candidate?.right === "P" ? "PUT" : "CALL" };
+            const optData = sig.optionsJson as any;
+            optionMeta = { expiry: optData?.candidate?.expiry, strike: optData?.candidate?.strike, right: optData?.candidate?.right === "P" ? "PUT" : "CALL" };
           } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
             optionMeta = { expiry: letfOptionContract.expiry, strike: letfOptionContract.strike, right: letfOptionContract.right === "P" ? "PUT" : "CALL" };
           }
 
           const { buildTradeSyncPayloadFromSignal } = await import("./lib/tradesync");
-          const tsPayload = buildTradeSyncPayloadFromSignal(signal, inst.type, instrumentEntry, inst.ticker, { t1: converted.t1, t2: converted.t2, stop: converted.stop }, { delta, leverage, optionExpiry: optionMeta?.expiry, optionStrike: optionMeta?.strike, optionRight: optionMeta?.right, letfTicker: letfTicker ?? undefined });
+          const tsPayload = buildTradeSyncPayloadFromSignal(sig, inst.type, instrumentEntry, inst.ticker, { t1: converted.t1, t2: converted.t2, stop: converted.stop }, { delta, leverage, optionExpiry: optionMeta?.expiry, optionStrike: optionMeta?.strike, optionRight: optionMeta?.right, letfTicker: letfTicker ?? undefined });
 
           tradeDetails.push({
             instrumentType: inst.type,
@@ -1555,16 +1533,28 @@ export async function registerRoutes(
 
       res.json({
         dryRun: true,
+        wouldAbortInProduction: productionAbortReasons.length > 0,
+        productionAbortReasons: productionAbortReasons.length > 0 ? productionAbortReasons : undefined,
         signalId,
-        ticker: signal.ticker,
-        setupType: signal.setupType,
+        ticker: sig.ticker,
+        setupType: sig.setupType,
+        direction: sig.direction,
         bias: tp.bias,
-        qualityScore: signal.qualityScore,
+        qualityScore: sig.qualityScore,
+        refresh: {
+          freshStockPrice: refreshResult.freshStockPrice,
+          freshOptionMark: refreshResult.freshOptionMark,
+          freshLetfPrice: refreshResult.freshLetfPrice,
+          letfOptionMark: refreshResult.letfOptionMark,
+          invalidated: refreshResult.invalidated,
+          invalidationReason: refreshResult.invalidationReason,
+          tradePlanRegenerated: refreshResult.tradePlanRegenerated,
+          warnings: refreshResult.warnings,
+        },
         stockEntry,
         stockT1,
         stockT2,
         stockStop,
-        optionQuoteRecheck: optionQuoteInfo,
         letfOptionContract,
         instrumentCount: instrumentsToExecute.length,
         instruments: instrumentsToExecute,
