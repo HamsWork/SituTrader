@@ -3,7 +3,7 @@ import { log } from "../index";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
-import type {BtodState } from "@shared/schema";
+import type {BtodState, Signal } from "@shared/schema";
 import type { SimDayContext } from "../simulation";
 
 dayjs.extend(utc);
@@ -467,6 +467,10 @@ export interface BtodInstrumentResult {
   tradeId?: number;
   tradesyncSignalId?: number;
   error?: string;
+}
+
+async function refreshAndValidateSignal(sigal: Signal) {
+  
 }
 
 export async function executeBtodMultiInstrument(
