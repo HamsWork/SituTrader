@@ -7,6 +7,7 @@ import {
   detectSetupE,
   detectSetupF,
   detectAllSetups,
+  type SetupResult,
 } from "./rules";
 
 function makeBar(overrides: Partial<DailyBar> & { date: string }): DailyBar {
@@ -39,19 +40,27 @@ function makeIntradayBar(overrides: Partial<IntradayBar> & { ts: string }): Intr
   };
 }
 
-interface TestCase {
-  name: string;
-  expectDetect: boolean;
-  run: () => { detected: boolean; results: any[] };
-}
-
-function runTestCase(tc: TestCase): {
+interface TestCaseResult {
   name: string;
   pass: boolean;
   expectDetect: boolean;
   detected: boolean;
-  results: any[];
-} {
+  results: SetupResult[];
+}
+
+interface TestCase {
+  name: string;
+  expectDetect: boolean;
+  run: () => { detected: boolean; results: SetupResult[] };
+}
+
+interface SetupGroupResult {
+  passed: number;
+  failed: number;
+  tests: TestCaseResult[];
+}
+
+function runTestCase(tc: TestCase): TestCaseResult {
   const { detected, results } = tc.run();
   const pass = detected === tc.expectDetect;
   return { name: tc.name, pass, expectDetect: tc.expectDetect, detected, results };
@@ -343,7 +352,7 @@ function detectAllSetupsTest(): TestCase[] {
 
 export function runAllDetectSetupTests(): {
   summary: { total: number; passed: number; failed: number };
-  setups: Record<string, { passed: number; failed: number; tests: any[] }>;
+  setups: Record<string, SetupGroupResult>;
 } {
   const allGroups: Record<string, TestCase[]> = {
     A: setupATests(),
@@ -358,7 +367,7 @@ export function runAllDetectSetupTests(): {
   let total = 0;
   let passed = 0;
   let failed = 0;
-  const setups: Record<string, { passed: number; failed: number; tests: any[] }> = {};
+  const setups: Record<string, SetupGroupResult> = {};
 
   for (const [group, tests] of Object.entries(allGroups)) {
     const groupResults = tests.map(runTestCase);
