@@ -467,10 +467,17 @@ export async function findLetfOptionContract(
 
 export interface BtodInstrumentResult {
   instrumentType: string;
+  ticker?: string | null;
   success: boolean;
   tradeId?: number;
   tradesyncSignalId?: number;
   error?: string;
+  entry?: number;
+  targets?: { t1: number | null; t2: number | null; stop: number | null };
+  delta?: number | null;
+  leverage?: number;
+  optionMeta?: { expiry?: string; strike?: number; right?: string };
+  tradeSyncPayload?: any;
 }
 
 export async function executeBtodMultiInstrument(
@@ -478,6 +485,7 @@ export async function executeBtodMultiInstrument(
   qty: number = 1,
   preLetfOptionContract: LetfOptionContractResult | null = null,
   preLetfOptionMark: number | null = null,
+  dryRun: boolean = false,
 ): Promise<BtodInstrumentResult[]> {
   const results: BtodInstrumentResult[] = [];
   const signal = refreshedSignal;
@@ -623,15 +631,6 @@ export async function executeBtodMultiInstrument(
         buildTradeSyncPayloadFromSignal,
       } = await import("./tradesync");
 
-      if (!isTradeSyncEnabled()) {
-        throw new Error("TradeSync disabled");
-      }
-
-      log(
-        `BTOD: TradeSync call for ${inst.type} ${inst.ticker ?? signal.ticker} — entry=$${instrumentEntry.toFixed(2)} stop=$${tradeStopPrice?.toFixed(2) ?? "null"} t1=$${tradeTarget1?.toFixed(2) ?? "null"} delta=${delta?.toFixed(3) ?? "null"}`,
-        "btod",
-      );
-
       const tsPayload = buildTradeSyncPayloadFromSignal(
         signal,
         inst.type,
@@ -646,6 +645,35 @@ export async function executeBtodMultiInstrument(
           optionRight,
           letfTicker: letfTicker ?? undefined,
         },
+      );
+
+      const optMeta =
+        optionExpiry || optionStrike || optionRight
+          ? { expiry: optionExpiry, strike: optionStrike, right: optionRight }
+          : undefined;
+
+      if (dryRun) {
+        results.push({
+          instrumentType: inst.type,
+          ticker: inst.ticker,
+          success: true,
+          entry: instrumentEntry,
+          targets: { t1: tradeTarget1, t2: tradeTarget2, stop: tradeStopPrice },
+          delta,
+          leverage,
+          optionMeta: optMeta,
+          tradeSyncPayload: tsPayload,
+        });
+        continue;
+      }
+
+      if (!isTradeSyncEnabled()) {
+        throw new Error("TradeSync disabled");
+      }
+
+      log(
+        `BTOD: TradeSync call for ${inst.type} ${inst.ticker ?? signal.ticker} — entry=$${instrumentEntry.toFixed(2)} stop=$${tradeStopPrice?.toFixed(2) ?? "null"} t1=$${tradeTarget1?.toFixed(2) ?? "null"} delta=${delta?.toFixed(3) ?? "null"}`,
+        "btod",
       );
 
       const tsSendStart = Date.now();
@@ -703,8 +731,15 @@ export async function executeBtodMultiInstrument(
 
       results.push({
         instrumentType: inst.type,
+        ticker: inst.ticker,
         success: true,
         tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined,
+        entry: instrumentEntry,
+        targets: { t1: tradeTarget1, t2: tradeTarget2, stop: tradeStopPrice },
+        delta,
+        leverage,
+        optionMeta: optMeta,
+        tradeSyncPayload: tsPayload,
       });
     } catch (err: any) {
       results.push({

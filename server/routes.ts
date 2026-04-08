@@ -1448,93 +1448,17 @@ export async function registerRoutes(
       const tp = sig.tradePlanJson as any;
       if (!tp) return res.status(400).json({ message: "Signal has no trade plan" });
 
-      const isBuy = tp.bias === "BUY";
-      const optionTicker = sig.optionContractTicker || (sig.optionsJson as any)?.candidate?.contractSymbol;
-      const letfJson = sig.leveragedEtfJson as any;
-      const letfTicker = sig.instrumentTicker || letfJson?.ticker;
-      const letfOptionContract = refreshResult.letfOptionContract;
-
-      const instrumentsToExecute: Array<{ type: string; ticker: string | null }> = [];
-      instrumentsToExecute.push({ type: "SHARES", ticker: sig.ticker });
-      if (optionTicker) instrumentsToExecute.push({ type: "OPTION", ticker: optionTicker });
-      if (letfTicker) instrumentsToExecute.push({ type: "LEVERAGED_ETF", ticker: letfTicker });
-      if (letfOptionContract && letfOptionContract.markPrice > 0) {
-        instrumentsToExecute.push({ type: "LETF_OPTIONS", ticker: letfOptionContract.contractTicker });
-      }
-
-      const stockEntry = sig.entryPriceAtActivation ?? 0;
-      const freshOptionMark = sig.optionEntryMark ?? null;
-      const stockT1 = tp.t1 ?? null;
-      const stockT2 = tp.t2 ?? null;
-      const stockStop = sig.stopPrice ?? null;
-
-      const productionAbortReasons: string[] = [];
-      if (refreshResult.invalidated) {
-        productionAbortReasons.push(`Signal invalidated during refresh: ${refreshResult.invalidationReason}`);
-      }
-      if (stockEntry <= 0) {
-        productionAbortReasons.push("No valid stock entry price (stockEntry <= 0)");
-      }
-      if (optionTicker && (freshOptionMark == null || freshOptionMark <= 0)) {
-        productionAbortReasons.push(`Option instrument present (${optionTicker}) but no fresh option mark — production aborts entire BTOD execution`);
-      }
-
-      const tradeDetails: any[] = [];
-      for (const inst of instrumentsToExecute) {
-        try {
-          const { convertStockTargetsToInstrument } = await import("./lib/ibkrOrders");
-          let instrumentEntry = 0;
-          let delta: number | null = null;
-          let leverage = 1;
-
-          if (inst.type === "SHARES") {
-            instrumentEntry = stockEntry;
-          } else if (inst.type === "OPTION" && inst.ticker) {
-            instrumentEntry = freshOptionMark ?? 0;
-            const optData = sig.optionsJson as any;
-            delta = optData?.candidate?.delta ?? optData?.live?.delta ?? null;
-            if (delta == null) delta = isBuy ? 0.5 : -0.5;
-          } else if (inst.type === "LEVERAGED_ETF") {
-            instrumentEntry = sig.instrumentEntryPrice ?? 0;
-            leverage = letfJson?.leverage ?? 1;
-          } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
-            instrumentEntry = refreshResult.letfOptionMark ?? letfOptionContract.markPrice;
-            delta = letfOptionContract.delta ?? (letfOptionContract.right === "P" ? -0.5 : 0.5);
-            leverage = letfJson?.leverage ?? 1;
-          }
-
-          const converted = convertStockTargetsToInstrument(stockEntry, instrumentEntry, stockT1, stockT2, stockStop, delta, leverage, inst.type);
-
-          let optionMeta: any = undefined;
-          if (inst.type === "OPTION" && inst.ticker) {
-            const optData = sig.optionsJson as any;
-            optionMeta = { expiry: optData?.candidate?.expiry, strike: optData?.candidate?.strike, right: optData?.candidate?.right === "P" ? "PUT" : "CALL" };
-          } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
-            optionMeta = { expiry: letfOptionContract.expiry, strike: letfOptionContract.strike, right: letfOptionContract.right === "P" ? "PUT" : "CALL" };
-          }
-
-          const { buildTradeSyncPayloadFromSignal } = await import("./lib/tradesync");
-          const tsPayload = buildTradeSyncPayloadFromSignal(sig, inst.type, instrumentEntry, inst.ticker, { t1: converted.t1, t2: converted.t2, stop: converted.stop }, { delta, leverage, optionExpiry: optionMeta?.expiry, optionStrike: optionMeta?.strike, optionRight: optionMeta?.right, letfTicker: letfTicker ?? undefined });
-
-          tradeDetails.push({
-            instrumentType: inst.type,
-            ticker: inst.ticker,
-            entry: instrumentEntry,
-            targets: converted,
-            delta,
-            leverage,
-            optionMeta,
-            tradeSyncPayload: tsPayload,
-          });
-        } catch (err: any) {
-          tradeDetails.push({ instrumentType: inst.type, ticker: inst.ticker, error: err.message });
-        }
-      }
+      const { executeBtodMultiInstrument } = await import("./lib/btod");
+      const tradeResults = await executeBtodMultiInstrument(
+        sig,
+        1,
+        refreshResult.letfOptionContract,
+        refreshResult.letfOptionMark,
+        true,
+      );
 
       res.json({
         dryRun: true,
-        wouldAbortInProduction: productionAbortReasons.length > 0,
-        productionAbortReasons: productionAbortReasons.length > 0 ? productionAbortReasons : undefined,
         signalId,
         ticker: sig.ticker,
         setupType: sig.setupType,
@@ -1551,14 +1475,13 @@ export async function registerRoutes(
           tradePlanRegenerated: refreshResult.tradePlanRegenerated,
           warnings: refreshResult.warnings,
         },
-        stockEntry,
-        stockT1,
-        stockT2,
-        stockStop,
-        letfOptionContract,
-        instrumentCount: instrumentsToExecute.length,
-        instruments: instrumentsToExecute,
-        tradeDetails,
+        stockEntry: sig.entryPriceAtActivation ?? 0,
+        stockT1: tp.t1 ?? null,
+        stockT2: tp.t2 ?? null,
+        stockStop: sig.stopPrice ?? null,
+        letfOptionContract: refreshResult.letfOptionContract,
+        instrumentCount: tradeResults.length,
+        tradeResults,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
