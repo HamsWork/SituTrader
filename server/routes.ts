@@ -1448,6 +1448,36 @@ export async function registerRoutes(
       const tp = sig.tradePlanJson as any;
       if (!tp) return res.status(400).json({ message: "Signal has no trade plan" });
 
+      if (refreshResult.invalidated) {
+        return res.json({
+          signalId,
+          ticker: sig.ticker,
+          setupType: sig.setupType,
+          direction: sig.direction,
+          bias: tp.bias,
+          qualityScore: sig.qualityScore,
+          refresh: {
+            freshStockPrice: refreshResult.freshStockPrice,
+            freshOptionMark: refreshResult.freshOptionMark,
+            freshLetfPrice: refreshResult.freshLetfPrice,
+            letfOptionMark: refreshResult.letfOptionMark,
+            invalidated: true,
+            invalidationReason: refreshResult.invalidationReason,
+            tradePlanRegenerated: refreshResult.tradePlanRegenerated,
+            warnings: refreshResult.warnings,
+          },
+          stockEntry: sig.entryPriceAtActivation ?? 0,
+          stockT1: tp.t1 ?? null,
+          stockT2: tp.t2 ?? null,
+          stockStop: sig.stopPrice ?? null,
+          letfOptionContract: refreshResult.letfOptionContract,
+          instrumentCount: 0,
+          tradeResults: [],
+          skipped: true,
+          skipReason: `Signal invalidated during refresh: ${refreshResult.invalidationReason}`,
+        });
+      }
+
       const { executeBtodMultiInstrument } = await import("./lib/btod");
       const tradeResults = await executeBtodMultiInstrument(
         sig,
