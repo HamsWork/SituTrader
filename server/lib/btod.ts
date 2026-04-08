@@ -497,6 +497,7 @@ export async function executeBtodMultiInstrument(
   }
 
   const isBuy = tp.bias === "BUY";
+  const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
   let optionTicker =
     signal.optionContractTicker ||
