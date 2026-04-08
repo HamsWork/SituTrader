@@ -122,7 +122,7 @@ export async function sendToTradeSync(
     "tradesync",
   );
 
-  const TRADESYNC_TIMEOUT_MS = 15_000;
+  const TRADESYNC_TIMEOUT_MS = 60_000;
 
   try {
     const controller = new AbortController();
