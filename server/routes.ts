@@ -1821,7 +1821,7 @@ export async function registerRoutes(
   app.get("/api/tradesync/trades", async (req, res) => {
     try {
       const allTrades = await storage.getAllIbkrTrades();
-      const tsTrades = allTrades.filter(t => t.tradesyncSignalId != null);
+      const tsTrades = allTrades.filter(t => t.tradesyncSignalId != null || (t.detailsJson as any)?.tradeSyncPayload != null);
 
       const mapped = tsTrades.map(t => {
         const details = (t.detailsJson as any) ?? {};
@@ -1835,9 +1835,11 @@ export async function registerRoutes(
         }
 
         return {
-          id: String(t.tradesyncSignalId),
+          id: t.tradesyncSignalId != null ? String(t.tradesyncSignalId) : `local-${t.id}`,
           status: t.status,
           createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : new Date().toISOString(),
+          tradeSyncResponse: details.tradeSyncResponse ? JSON.stringify(details.tradeSyncResponse) : undefined,
+          tradeSyncPayload: details.tradeSyncPayload ? JSON.stringify(details.tradeSyncPayload) : undefined,
           data: {
             ticker: t.instrumentTicker || t.ticker,
             instrument_type: t.instrumentType,
@@ -1847,7 +1849,7 @@ export async function registerRoutes(
             current_stop_loss: details.originalStopPrice ?? t.stopPrice ?? undefined,
             underlying_ticker: t.ticker,
             entry_underlying_price: details.entryUnderlyingPrice ?? t.entryPrice ?? undefined,
-            entry_option_price: t.instrumentType === "OPTION" ? t.entryPrice : undefined,
+            entry_option_price: t.instrumentType === "OPTION" || t.instrumentType === "LETF_OPTIONS" ? t.entryPrice : undefined,
             entry_letf_price: t.instrumentType === "LEVERAGED_ETF" ? t.entryPrice : undefined,
             trade_type: "market",
             auto_track: true,
@@ -1860,6 +1862,7 @@ export async function registerRoutes(
             expiration: details.optionExpiry ?? undefined,
             leverage: details.leverage ?? undefined,
             risk_value: details.riskValue ?? undefined,
+            delta: details.delta ?? undefined,
           },
         };
       });

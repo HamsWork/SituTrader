@@ -17,6 +17,7 @@ interface TradeSyncSignal {
   discordChannelId?: string;
   tradeSyncError?: string;
   tradeSyncResponse?: string;
+  tradeSyncPayload?: string;
   data: {
     ticker: string;
     instrument_type: string;
@@ -455,8 +456,14 @@ function SignalCard({ signal }: { signal: TradeSyncSignal }) {
 
   const hitCount = d.hit_targets ? Object.keys(d.hit_targets).length : 0;
 
+  function safeParse(s: string): string {
+    try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
+  }
+
   function handleCopy() {
-    const payload = JSON.stringify(redactPayload(signal.data), null, 2);
+    const payload = signal.tradeSyncPayload
+      ? safeParse(signal.tradeSyncPayload)
+      : JSON.stringify(redactPayload(signal.data), null, 2);
     navigator.clipboard.writeText(payload);
     toast({ title: "Copied to clipboard" });
   }
@@ -601,7 +608,9 @@ function SignalCard({ signal }: { signal: TradeSyncSignal }) {
         {expanded && (
           <div className="border-t border-border px-4 py-3 bg-muted/20">
             <pre className="text-xs font-mono whitespace-pre-wrap break-all text-muted-foreground max-h-60 overflow-y-auto" data-testid={`payload-${signal.id}`}>
-              {JSON.stringify(redactPayload(signal.data), null, 2)}
+              {signal.tradeSyncPayload
+                ? safeParse(signal.tradeSyncPayload)
+                : JSON.stringify(redactPayload(signal.data), null, 2)}
             </pre>
           </div>
         )}

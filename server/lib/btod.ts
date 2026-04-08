@@ -794,6 +794,38 @@ export async function executeBtodMultiInstrument(
         "btod",
       );
 
+      try {
+        await storage.createIbkrTrade({
+          signalId: signal.id,
+          ticker: signal.ticker,
+          instrumentType: inst.type,
+          instrumentTicker: inst.ticker ?? signal.ticker,
+          side: action,
+          quantity: qty,
+          originalQuantity: qty,
+          remainingQuantity: qty,
+          entryPrice: instrumentEntry,
+          stopPrice: tradeStopPrice ?? undefined,
+          target1Price: tradeTarget1 ?? undefined,
+          target2Price: tradeTarget2 ?? undefined,
+          status: "SUBMITTED",
+          tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined,
+          detailsJson: {
+            entryUnderlyingPrice: stockEntry,
+            optionExpiry: optionExpiry ?? null,
+            optionStrike: optionStrike ?? null,
+            optionRight: optionRight ?? null,
+            delta: delta ?? null,
+            leverage: leverage !== 1 ? leverage : null,
+            tradeSyncPayload: tsPayload,
+            tradeSyncResponse: tsResult.data ?? null,
+          },
+        });
+        log(`BTOD: Recorded ibkr_trade for ${inst.type} signal ${signalId} (ts_id: ${tradeSyncId})`, "btod");
+      } catch (dbErr: any) {
+        log(`BTOD: Failed to record ibkr_trade for ${inst.type} signal ${signalId}: ${dbErr.message}`, "btod");
+      }
+
       results.push({
         instrumentType: inst.type,
         success: true,
