@@ -565,20 +565,13 @@ export async function executeBtodMultiInstrument(
         instrumentEntry = stockEntry;
       } else if (inst.type === "OPTION" && inst.ticker) {
         instrumentEntry = freshOptionMark!;
-        try {
-          const { fetchOptionSnapshot } = await import("./polygon");
-          const optSnap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
-          delta = optSnap?.delta ?? null;
-          log(
-            `BTOD: Option delta for ${inst.ticker}: ${delta?.toFixed(3) ?? "null"} | entry=$${instrumentEntry}`,
-            "btod",
-          );
-        } catch (err: any) {
-          log(
-            `BTOD: Error fetching option delta for ${inst.ticker}: ${err.message}`,
-            "btod",
-          );
+        const optData = signal.optionsJson as any;
+        delta = optData?.candidate?.delta ?? optData?.live?.delta ?? null;
+        if (delta == null) {
           delta = isBuy ? 0.5 : -0.5;
+          log(`BTOD: No delta in optionsJson for ${inst.ticker}, using default ${delta}`, "btod");
+        } else {
+          log(`BTOD: Option delta from optionsJson for ${inst.ticker}: ${delta.toFixed(3)} | entry=$${instrumentEntry}`, "btod");
         }
       } else if (inst.type === "LEVERAGED_ETF") {
         instrumentEntry = signal.instrumentEntryPrice ?? 0;
