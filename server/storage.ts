@@ -38,6 +38,7 @@ export interface IStorage {
   getIntradayCoverage(ticker: string): Promise<{ earliest: string; latest: string; count: number } | null>;
 
   upsertSignal(signal: Omit<Signal, "id" | "createdAt">): Promise<Signal>;
+  getSignalById(id: number): Promise<Signal | null>;
   getSignals(ticker?: string, limit?: number): Promise<Signal[]>;
   getActiveSignals(): Promise<Signal[]>;
   getAlertEligibleSignals(): Promise<Signal[]>;
@@ -290,6 +291,11 @@ export class DatabaseStorage implements IStorage {
     }
     const [result] = await db.insert(signals).values(signal).returning();
     return result;
+  }
+
+  async getSignalById(id: number): Promise<Signal | null> {
+    const rows = await db.select().from(signals).where(eq(signals.id, id)).limit(1);
+    return rows[0] ?? null;
   }
 
   async getSignals(ticker?: string, limit: number = 50): Promise<Signal[]> {

@@ -861,7 +861,7 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
                     tp,
                     signal.activatedTs ?? undefined,
                 );
-                const refreshed = await storage.getSignal(signal.id);
+                const refreshed = await storage.getSignalById(signal.id);
                 if (refreshed) {
                     signal = {
                         ...signal,
