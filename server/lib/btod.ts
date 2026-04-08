@@ -573,27 +573,53 @@ export async function executeBtodMultiInstrument(
         instrumentEntry = stockEntry;
       } else if (inst.type === "OPTION" && inst.ticker) {
         instrumentEntry = freshOptionMark!;
-        const optData = signal.optionsJson as any;
-        delta = optData?.candidate?.delta ?? optData?.live?.delta ?? null;
-        if (delta == null) {
-          delta = isBuy ? 0.5 : -0.5;
-          log(`BTOD: No delta in optionsJson for ${inst.ticker}, using default ${delta}`, "btod");
+        const { fetchOptionSnapshot } = await import("./polygon");
+        const snap = await fetchOptionSnapshot(signal.ticker, inst.ticker);
+        if (snap?.delta != null) {
+          delta = snap.delta;
+          if (snap.bid != null && snap.ask != null) {
+            const freshMark = (snap.bid + snap.ask) / 2;
+            if (freshMark > 0) instrumentEntry = freshMark;
+          }
+          log(`BTOD: Fresh option snapshot for ${inst.ticker}: delta=${delta!.toFixed(3)} mark=$${instrumentEntry.toFixed(2)}`, "btod");
         } else {
-          log(`BTOD: Option delta from optionsJson for ${inst.ticker}: ${delta.toFixed(3)} | entry=$${instrumentEntry}`, "btod");
+          const optData = signal.optionsJson as any;
+          delta = optData?.candidate?.delta ?? optData?.live?.delta ?? null;
+          if (delta == null) {
+            delta = isBuy ? 0.5 : -0.5;
+            log(`BTOD: No delta from Polygon or optionsJson for ${inst.ticker}, using default ${delta}`, "btod");
+          } else {
+            log(`BTOD: Option delta from optionsJson fallback for ${inst.ticker}: ${delta.toFixed(3)} | entry=$${instrumentEntry}`, "btod");
+          }
         }
       } else if (inst.type === "LEVERAGED_ETF") {
         instrumentEntry = signal.instrumentEntryPrice ?? 0;
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
         instrumentEntry = preLetfOptionMark ?? letfOptionContract.markPrice;
-        delta =
-          letfOptionContract.delta ??
-          (letfOptionContract.right === "P" ? -0.5 : 0.5);
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
-        log(
-          `BTOD: LETF option ${letfOptionContract.contractTicker}: delta=${delta?.toFixed(3)} entry=$${instrumentEntry}`,
-          "btod",
-        );
+        const letfUnderlying = (signal.leveragedEtfJson as any)?.ticker ?? signal.ticker;
+        const { fetchOptionSnapshot } = await import("./polygon");
+        const letfSnap = await fetchOptionSnapshot(letfUnderlying, letfOptionContract.contractTicker);
+        if (letfSnap?.delta != null) {
+          delta = letfSnap.delta;
+          if (letfSnap.bid != null && letfSnap.ask != null) {
+            const freshMark = (letfSnap.bid + letfSnap.ask) / 2;
+            if (freshMark > 0) instrumentEntry = freshMark;
+          }
+          log(
+            `BTOD: Fresh LETF option snapshot ${letfOptionContract.contractTicker}: delta=${delta!.toFixed(3)} mark=$${instrumentEntry.toFixed(2)}`,
+            "btod",
+          );
+        } else {
+          delta =
+            letfOptionContract.delta ??
+            (letfOptionContract.right === "P" ? -0.5 : 0.5);
+          log(
+            `BTOD: LETF option ${letfOptionContract.contractTicker}: delta=${delta?.toFixed(3)} entry=$${instrumentEntry} (fallback)`,
+            "btod",
+          );
+        }
       }
 
       const converted = convertStockTargetsToInstrument(
