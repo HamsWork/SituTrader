@@ -7,6 +7,7 @@ import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
 import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar, fetchSnapshot, fetchOptionLastTrade } from "./polygon";
 import { enrichOptionData } from "./options";
+import { findLetfOptionContract, type LetfOptionContractResult } from "./btod";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 import { log } from "../index";
@@ -728,6 +729,8 @@ export interface RefreshResult {
     freshStockPrice: number | null;
     freshOptionMark: number | null;
     freshLetfPrice: number | null;
+    letfOptionContract: LetfOptionContractResult | null;
+    letfOptionMark: number | null;
     tradePlanRegenerated: boolean;
     invalidated: boolean;
     invalidationReason: string | null;
@@ -739,6 +742,8 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
     let freshStockPrice: number | null = null;
     let freshOptionMark: number | null = null;
     let freshLetfPrice: number | null = null;
+    let letfOptionContract: LetfOptionContractResult | null = null;
+    let letfOptionMark: number | null = null;
     let tradePlanRegenerated = false;
     let invalidated = false;
     let invalidationReason: string | null = null;
@@ -752,6 +757,7 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         invalidationReason = "NO_TRADE_PLAN";
         return {
             signal, freshStockPrice, freshOptionMark, freshLetfPrice,
+            letfOptionContract, letfOptionMark,
             tradePlanRegenerated, invalidated, invalidationReason, warnings,
         };
     }
@@ -805,6 +811,7 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
 
         return {
             signal, freshStockPrice, freshOptionMark, freshLetfPrice,
+            letfOptionContract, letfOptionMark,
             tradePlanRegenerated, invalidated, invalidationReason, warnings,
         };
     }
@@ -893,6 +900,37 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         } catch (err: any) {
             warnings.push(`LETF fetch failed for ${letfTicker}: ${err.message}`);
         }
+
+        const letfPrice = signal.instrumentEntryPrice ?? 0;
+        if (letfPrice > 0) {
+            const isBuy = tp.bias === "BUY";
+            const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
+            try {
+                letfOptionContract = await findLetfOptionContract(letfTicker, action, letfPrice);
+                if (letfOptionContract && letfOptionContract.markPrice > 0) {
+                    log(`[refresh] #${signal.id} LETF option contract: ${letfOptionContract.contractTicker} strike=$${letfOptionContract.strike} mark=$${letfOptionContract.markPrice.toFixed(2)}`, "refresh");
+
+                    try {
+                        const lastTrade = await fetchOptionLastTrade(letfOptionContract.contractTicker);
+                        if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
+                            letfOptionMark = lastTrade.mark;
+                            log(`[refresh] #${signal.id} LETF option last trade: $${letfOptionMark.toFixed(2)}`, "refresh");
+                        } else {
+                            letfOptionMark = letfOptionContract.markPrice;
+                            log(`[refresh] #${signal.id} LETF option no last trade, using snapshot mark: $${letfOptionMark.toFixed(2)}`, "refresh");
+                        }
+                    } catch (err: any) {
+                        letfOptionMark = letfOptionContract.markPrice;
+                        warnings.push(`LETF option last trade fetch failed: ${err.message}, using snapshot mark`);
+                    }
+                } else if (letfOptionContract && letfOptionContract.markPrice <= 0) {
+                    log(`[refresh] #${signal.id} LETF option contract ${letfOptionContract.contractTicker} has no valid mark — skipping`, "refresh");
+                    letfOptionContract = null;
+                }
+            } catch (err: any) {
+                warnings.push(`LETF option contract lookup failed for ${letfTicker}: ${err.message}`);
+            }
+        }
     }
 
     return {
@@ -900,6 +938,8 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         freshStockPrice,
         freshOptionMark,
         freshLetfPrice,
+        letfOptionContract,
+        letfOptionMark,
         tradePlanRegenerated,
         invalidated,
         invalidationReason,

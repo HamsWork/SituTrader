@@ -165,7 +165,7 @@ async function handlePostActivation(
             parseInt(
               (await storage.getSetting("ibkrDefaultQuantity")) || "1",
             ) || 1;
-          const results = await executeBtodMultiInstrument(refreshedSig, qty);
+          const results = await executeBtodMultiInstrument(refreshedSig, qty, refreshResult.letfOptionContract, refreshResult.letfOptionMark);
           const successCount = results.filter((r) => r.success).length;
           log(
             `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,

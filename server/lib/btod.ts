@@ -476,6 +476,8 @@ export interface BtodInstrumentResult {
 export async function executeBtodMultiInstrument(
   refreshedSignal: Signal,
   qty: number = 1,
+  preLetfOptionContract: LetfOptionContractResult | null = null,
+  preLetfOptionMark: number | null = null,
 ): Promise<BtodInstrumentResult[]> {
   const results: BtodInstrumentResult[] = [];
   const signal = refreshedSignal;
@@ -488,7 +490,6 @@ export async function executeBtodMultiInstrument(
   }
 
   const isBuy = tp.bias === "BUY";
-  const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
   let optionTicker =
     signal.optionContractTicker ||
@@ -521,35 +522,12 @@ export async function executeBtodMultiInstrument(
     });
   }
 
-  let letfOptionContract: LetfOptionContractResult | null = null;
-  if (letfTicker) {
-    try {
-      const letfPrice = signal.instrumentEntryPrice ?? 0;
-      if (letfPrice > 0) {
-        letfOptionContract = await findLetfOptionContract(
-          letfTicker,
-          action,
-          letfPrice,
-        );
-        if (letfOptionContract && letfOptionContract.markPrice > 0) {
-          instrumentsToExecute.push({
-            type: "LETF_OPTIONS",
-            ticker: letfOptionContract.contractTicker,
-          });
-        } else if (letfOptionContract && letfOptionContract.markPrice <= 0) {
-          log(
-            `BTOD: Skipping LETF_OPTIONS for ${letfTicker} — markPrice is ${letfOptionContract.markPrice} (no valid quote)`,
-            "btod",
-          );
-          letfOptionContract = null;
-        }
-      }
-    } catch (err: any) {
-      log(
-        `BTOD: Failed to find LETF option contract for ${letfTicker}: ${err.message}`,
-        "btod",
-      );
-    }
+  const letfOptionContract = preLetfOptionContract;
+  if (letfOptionContract && letfOptionContract.markPrice > 0) {
+    instrumentsToExecute.push({
+      type: "LETF_OPTIONS",
+      ticker: letfOptionContract.contractTicker,
+    });
   }
 
   log(
@@ -606,38 +584,13 @@ export async function executeBtodMultiInstrument(
         instrumentEntry = signal.instrumentEntryPrice ?? 0;
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
-        instrumentEntry = 0;
-        const fetchStart = Date.now();
-        const ltContract = letfOptionContract.contractTicker;
-        try {
-          const { fetchOptionLastTrade } = await import("./polygon");
-          const lastTrade = await fetchOptionLastTrade(ltContract);
-          if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
-            instrumentEntry = lastTrade.mark;
-            const ageMs =
-              lastTrade.ts != null ? Date.now() - lastTrade.ts : null;
-            log(
-              `BTOD: LETF option last trade for ${ltContract}: $${instrumentEntry} (age ${ageMs != null ? Math.round(ageMs / 1000) + "s" : "unknown"}, fetched in ${Date.now() - fetchStart}ms)`,
-              "btod",
-            );
-          } else {
-            log(
-              `BTOD: ⚠ No LETF option last trade for ${ltContract} (fetched in ${Date.now() - fetchStart}ms)`,
-              "btod",
-            );
-          }
-        } catch (err: any) {
-          log(
-            `BTOD: Error fetching LETF option last trade for ${ltContract}: ${err.message}`,
-            "btod",
-          );
-        }
+        instrumentEntry = preLetfOptionMark ?? letfOptionContract.markPrice;
         delta =
           letfOptionContract.delta ??
           (letfOptionContract.right === "P" ? -0.5 : 0.5);
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
         log(
-          `BTOD: LETF option delta: ${delta?.toFixed(3)} | entry=$${instrumentEntry}`,
+          `BTOD: LETF option ${letfOptionContract.contractTicker}: delta=${delta?.toFixed(3)} entry=$${instrumentEntry}`,
           "btod",
         );
       }
