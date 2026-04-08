@@ -389,9 +389,6 @@ export async function handlePostActivationSim(
         }
 
         const tp = sig.tradePlanJson as import("@shared/schema").TradePlan;
-        const instruments: string[] = ["Shares"];
-        if (tp?.stopDistance) instruments.push("Options");
-        instruments.push("LETF", "LETF Options");
 
         const activationEntry = mut.entryPrice ?? 0;
         const stopDist = tp?.stopDistance ?? 0;
@@ -401,6 +398,13 @@ export async function handlePostActivationSim(
           : activationEntry + stopDist;
 
         const trackingResults = await simulateAllTradeTracking(sig, ctx);
+
+        const instrumentSet = new Set<string>(["Shares"]);
+        if (tp?.stopDistance) instrumentSet.add("Options");
+        for (const tr of trackingResults) {
+          instrumentSet.add(tr.instrument);
+        }
+        const instruments = Array.from(instrumentSet);
 
         const anyWin = trackingResults.some((r) => r.win);
         ctx.dayResult.tradeSyncCalls.push({
@@ -586,45 +590,63 @@ export async function simulateAllTradeTracking(
       results.push(runTenPercentTrack("LETF", letfEntryPrice, letfStop, letfIsBuy, letfBars, actTs));
       results.push(runNormalTrack("LETF", letfEntryPrice, letfStop, letfT1, letfT2, letfIsBuy, letfBars, actTs));
 
-      const letfOptDelta = 0.5;
-      const letfOptStop_dist = Math.abs(letfStop - letfEntryPrice);
-      const letfOptT1_dist = Math.abs(letfT1 - letfEntryPrice);
+      try {
+        const letfOptDelta = 0.5;
+        const letfOptStop_dist = Math.abs(letfStop - letfEntryPrice);
+        const letfOptT1_dist = Math.abs(letfT1 - letfEntryPrice);
 
-      const letfContractType = letfIsBuy ? "call" as const : "put" as const;
-      const letfMinExp = activationDate;
-      const letfMaxExpD = new Date(activationDate);
-      letfMaxExpD.setDate(letfMaxExpD.getDate() + 14);
-      const letfMaxExp = letfMaxExpD.toISOString().slice(0, 10);
+        const letfContractType = letfIsBuy ? "call" as const : "put" as const;
+        const letfMinExp = activationDate;
+        const letfMaxExpD = new Date(activationDate);
+        letfMaxExpD.setDate(letfMaxExpD.getDate() + 14);
+        const letfMaxExp = letfMaxExpD.toISOString().slice(0, 10);
 
-      const letfContracts = await fetchOptionsChainManually(
-        letfTicker, letfContractType, letfMinExp, letfMaxExp, 50, letfEntryPrice
-      );
+        ctx.emit("log", { message: `[LETF Options] Fetching ${letfContractType} contracts for ${letfTicker} (${letfMinExp} to ${letfMaxExp})`, type: "info" });
 
-      const letfSorted = [...letfContracts]
-        .sort((a, b) => Math.abs(a.strike_price - letfEntryPrice) - Math.abs(b.strike_price - letfEntryPrice));
+        const letfContracts = await fetchOptionsChainManually(
+          letfTicker, letfContractType, letfMinExp, letfMaxExp, 50, letfEntryPrice
+        );
 
-      let letfOptBars: import("./lib/polygon").PolygonBar[] = [];
-      for (const contract of letfSorted.slice(0, 3)) {
-        const sym = contract.ticker;
-        const bars = await fetchIntradayBars(sym, activationDate, ctx.config.endDate, "1");
-        if (bars.length > 0) {
-          letfOptBars = bars;
-          break;
+        if (letfContracts.length === 0) {
+          ctx.emit("log", { message: `[LETF Options] No contracts found for ${letfTicker} — skipping`, type: "info" });
+        } else {
+          const letfSorted = [...letfContracts]
+            .sort((a, b) => Math.abs(a.strike_price - letfEntryPrice!) - Math.abs(b.strike_price - letfEntryPrice!));
+
+          ctx.emit("log", { message: `[LETF Options] Found ${letfContracts.length} contracts, trying top ${Math.min(3, letfSorted.length)} for bars`, type: "info" });
+
+          let letfOptBars: import("./lib/polygon").PolygonBar[] = [];
+          let letfOptContractUsed = "";
+          for (const contract of letfSorted.slice(0, 3)) {
+            const sym = contract.ticker;
+            const bars = await fetchIntradayBars(sym, activationDate, ctx.config.endDate, "1");
+            if (bars.length > 0) {
+              letfOptBars = bars;
+              letfOptContractUsed = sym;
+              break;
+            }
+          }
+
+          if (letfOptBars.length > 0) {
+            const letfOptEntryBar = actTs
+              ? letfOptBars.find(b => b.t >= actTs) ?? letfOptBars[0]
+              : letfOptBars[0];
+            const letfOptEntry = (letfOptEntryBar.o + letfOptEntryBar.c) / 2;
+            const letfOptStop = Math.max(0, letfOptEntry - letfOptDelta * letfOptStop_dist);
+            const letfOptT1 = letfOptEntry + letfOptDelta * letfOptT1_dist;
+            const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice!) : null;
+
+            ctx.emit("log", { message: `[LETF Options] ${letfOptContractUsed}: entry=$${letfOptEntry.toFixed(2)} stop=$${letfOptStop.toFixed(2)} t1=$${letfOptT1.toFixed(2)}`, type: "success" });
+
+            barSources["LETF Options"] = letfOptBars;
+            results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars, actTs));
+            results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars, actTs));
+          } else {
+            ctx.emit("log", { message: `[LETF Options] No bars found for any ${letfTicker} option contract — skipping`, type: "info" });
+          }
         }
-      }
-
-      if (letfOptBars.length > 0) {
-        const letfOptEntryBar = actTs
-          ? letfOptBars.find(b => b.t >= actTs) ?? letfOptBars[0]
-          : letfOptBars[0];
-        const letfOptEntry = (letfOptEntryBar.o + letfOptEntryBar.c) / 2;
-        const letfOptStop = Math.max(0, letfOptEntry - letfOptDelta * letfOptStop_dist);
-        const letfOptT1 = letfOptEntry + letfOptDelta * letfOptT1_dist;
-        const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice) : null;
-
-        barSources["LETF Options"] = letfOptBars;
-        results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars, actTs));
-        results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars, actTs));
+      } catch (letfOptErr: any) {
+        ctx.emit("log", { message: `[LETF Options] Error: ${letfOptErr.message}`, type: "error" });
       }
     }
   }

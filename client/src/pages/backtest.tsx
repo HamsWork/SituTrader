@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1813,7 +1813,12 @@ export default function BacktestPage() {
                                             </Badge>
                                             <div className="flex flex-wrap gap-1">
                                               {tc.instruments.map((inst) => (
-                                                <Badge key={inst} variant="secondary" className="text-[8px] h-3.5 px-1">
+                                                <Badge key={inst} variant="secondary" className={`text-[8px] h-3.5 px-1 ${
+                                                  inst === "LETF Options" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
+                                                  inst === "LETF" ? "bg-orange-500/15 text-orange-400 border-orange-500/20" :
+                                                  inst === "Options" ? "bg-purple-500/15 text-purple-400 border-purple-500/20" :
+                                                  ""
+                                                }`}>
                                                   {inst}
                                                 </Badge>
                                               ))}
@@ -1882,8 +1887,8 @@ export default function BacktestPage() {
                                                 {tc.trackingResults.map((tr, j) => {
                                                   const hasChart = tr.chartBars && tr.chartBars.length > 0;
                                                   return (
-                                                    <>
-                                                      <tr key={`row-${j}`} className="border-b border-zinc-800/20">
+                                                    <Fragment key={`tr-${j}`}>
+                                                      <tr className="border-b border-zinc-800/20">
                                                         <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
                                                         <td className="py-1 pr-2">
                                                           <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
@@ -1922,7 +1927,7 @@ export default function BacktestPage() {
                                                           </td>
                                                         </tr>
                                                       )}
-                                                    </>
+                                                    </Fragment>
                                                   );
                                                 })}
                                               </tbody>
@@ -2146,7 +2151,12 @@ export default function BacktestPage() {
                                       </Badge>
                                       <div className="flex flex-wrap gap-1">
                                         {(tc.instruments ?? []).map((inst: string) => (
-                                          <Badge key={inst} variant="secondary" className="text-[8px] h-3.5 px-1">{inst}</Badge>
+                                          <Badge key={inst} variant="secondary" className={`text-[8px] h-3.5 px-1 ${
+                                            inst === "LETF Options" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
+                                            inst === "LETF" ? "bg-orange-500/15 text-orange-400 border-orange-500/20" :
+                                            inst === "Options" ? "bg-purple-500/15 text-purple-400 border-purple-500/20" :
+                                            ""
+                                          }`}>{inst}</Badge>
                                         ))}
                                       </div>
                                     </div>
@@ -2211,8 +2221,8 @@ export default function BacktestPage() {
                                           {tc.trackingResults.map((tr: SimTrackingResult, j: number) => {
                                             const hasChart = tr.chartBars && tr.chartBars.length > 0;
                                             return (
-                                              <>
-                                                <tr key={`row-${j}`} className="border-b border-zinc-800/20">
+                                              <Fragment key={`tr-${j}`}>
+                                                <tr className="border-b border-zinc-800/20">
                                                   <td className="py-1 pr-2 font-mono font-semibold">{tr.instrument}</td>
                                                   <td className="py-1 pr-2">
                                                     <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${tr.tradeType === "ten_percent" ? "bg-violet-500/20 text-violet-400" : "bg-blue-500/20 text-blue-400"}`}>
@@ -2246,7 +2256,7 @@ export default function BacktestPage() {
                                                     </td>
                                                   </tr>
                                                 )}
-                                              </>
+                                              </Fragment>
                                             );
                                           })}
                                         </tbody>
