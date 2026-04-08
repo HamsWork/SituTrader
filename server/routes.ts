@@ -1827,6 +1827,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/tradesync/logs", async (req, res) => {
+    try {
+      const rawSignalId = req.query.signalId ? parseInt(req.query.signalId as string) : undefined;
+      const rawLimit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const signalId = rawSignalId != null && !isNaN(rawSignalId) ? rawSignalId : undefined;
+      const success = req.query.success != null ? req.query.success === "true" : undefined;
+      const limit = rawLimit != null && !isNaN(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : undefined;
+      const logs = await storage.getTradesyncLogs({ signalId, success, limit });
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/discord-trades", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;

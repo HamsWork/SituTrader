@@ -563,11 +563,16 @@ export async function executeBtodMultiInstrument(
   const stockStop = signal.stopPrice ?? null;
 
   for (const inst of instrumentsToExecute) {
+    let instrumentEntry = 0;
+    let delta: number | null = null;
+    let leverage = 1;
+    let tradeStopPrice: number | null = null;
+    let tradeTarget1: number | null = null;
+    let tradeTarget2: number | null = null;
+    let tsPayload: any = null;
+
     try {
       const { convertStockTargetsToInstrument } = await import("./ibkrOrders");
-      let instrumentEntry = 0;
-      let delta: number | null = null;
-      let leverage = 1;
 
       if (inst.type === "SHARES") {
         instrumentEntry = stockEntry;
@@ -632,9 +637,9 @@ export async function executeBtodMultiInstrument(
         leverage,
         inst.type,
       );
-      const tradeStopPrice = converted.stop;
-      const tradeTarget1 = converted.t1;
-      const tradeTarget2 = converted.t2;
+      tradeStopPrice = converted.stop;
+      tradeTarget1 = converted.t1;
+      tradeTarget2 = converted.t2;
 
       let optionExpiry: string | undefined;
       let optionStrike: number | undefined;
@@ -665,7 +670,7 @@ export async function executeBtodMultiInstrument(
         buildTradeSyncPayloadFromSignal,
       } = await import("./tradesync");
 
-      const tsPayload = buildTradeSyncPayloadFromSignal(
+      tsPayload = buildTradeSyncPayloadFromSignal(
         signal,
         inst.type,
         instrumentEntry,
@@ -697,7 +702,30 @@ export async function executeBtodMultiInstrument(
 
       const tsSendStart = Date.now();
       const tsResult = await sendToTradeSync(tsPayload);
+      const tsDuration = Date.now() - tsSendStart;
+
       if (!tsResult.ok) {
+        try {
+          await storage.createTradesyncLog({
+            signalId: signal.id,
+            ticker: signal.ticker,
+            instrumentType: inst.type,
+            direction: tsPayload.direction ?? action,
+            entryPrice: instrumentEntry,
+            stopPrice: tradeStopPrice ?? null,
+            target1Price: tradeTarget1 ?? null,
+            target2Price: tradeTarget2 ?? null,
+            delta: delta ?? null,
+            success: false,
+            tradesyncSignalId: null,
+            errorMessage: tsResult.error ?? "Unknown error",
+            payloadJson: tsPayload,
+            responseJson: tsResult.data ?? null,
+            durationMs: tsDuration,
+          });
+        } catch (logErr: any) {
+          log(`BTOD: Failed to log TradeSync failure: ${logErr.message}`, "btod");
+        }
         throw new Error(`TradeSync send failed: ${tsResult.error}`);
       }
 
@@ -706,9 +734,31 @@ export async function executeBtodMultiInstrument(
         tsResult.data?.signal?.id ||
         tsResult.data?.signalId;
       log(
-        `BTOD: ${inst.type} signal sent to TradeSync (ts_id: ${tradeSyncId}, ${Date.now() - tsSendStart}ms)`,
+        `BTOD: ${inst.type} signal sent to TradeSync (ts_id: ${tradeSyncId}, ${tsDuration}ms)`,
         "btod",
       );
+
+      try {
+        await storage.createTradesyncLog({
+          signalId: signal.id,
+          ticker: signal.ticker,
+          instrumentType: inst.type,
+          direction: tsPayload.direction ?? action,
+          entryPrice: instrumentEntry,
+          stopPrice: tradeStopPrice ?? null,
+          target1Price: tradeTarget1 ?? null,
+          target2Price: tradeTarget2 ?? null,
+          delta: delta ?? null,
+          success: true,
+          tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : null,
+          errorMessage: null,
+          payloadJson: tsPayload,
+          responseJson: tsResult.data ?? null,
+          durationMs: tsDuration,
+        });
+      } catch (logErr: any) {
+        log(`BTOD: Failed to log TradeSync success: ${logErr.message}`, "btod");
+      }
 
       try {
         await storage.createIbkrTrade({
@@ -761,6 +811,30 @@ export async function executeBtodMultiInstrument(
         tradeSyncPayload: tsPayload,
       });
     } catch (err: any) {
+      if (!(err.message?.includes("TradeSync send failed"))) {
+        try {
+          await storage.createTradesyncLog({
+            signalId: signal.id,
+            ticker: signal.ticker,
+            instrumentType: inst.type,
+            direction: action,
+            entryPrice: instrumentEntry,
+            stopPrice: tradeStopPrice ?? null,
+            target1Price: tradeTarget1 ?? null,
+            target2Price: tradeTarget2 ?? null,
+            delta: delta ?? null,
+            success: false,
+            tradesyncSignalId: null,
+            errorMessage: err.message ?? "Unknown error",
+            payloadJson: tsPayload ?? null,
+            responseJson: null,
+            durationMs: null,
+          });
+        } catch (logErr: any) {
+          log(`BTOD: Failed to log TradeSync error: ${logErr.message}`, "btod");
+        }
+      }
+
       results.push({
         instrumentType: inst.type,
         success: false,

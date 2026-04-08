@@ -3,9 +3,10 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   History, Search, CheckCircle, XCircle, ChevronDown, ChevronUp, Copy, FileText,
-  ArrowUpRight, ArrowDownRight, X, Send, Wifi, WifiOff
+  ArrowUpRight, ArrowDownRight, X, Send, Wifi, WifiOff, AlertTriangle, Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -662,8 +663,227 @@ function ConnectionBadge() {
   );
 }
 
+interface TradesyncLogEntry {
+  id: number;
+  signalId: number;
+  ticker: string;
+  instrumentType: string;
+  direction: string | null;
+  entryPrice: number | null;
+  stopPrice: number | null;
+  target1Price: number | null;
+  target2Price: number | null;
+  delta: number | null;
+  success: boolean;
+  tradesyncSignalId: number | null;
+  errorMessage: string | null;
+  payloadJson: any;
+  responseJson: any;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+function TradesyncLogsPanel() {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [filterSuccess, setFilterSuccess] = useState<"all" | "success" | "error">("all");
+
+  const { data: logs, isLoading } = useQuery<TradesyncLogEntry[]>({
+    queryKey: ["/api/tradesync/logs"],
+    refetchInterval: 30000,
+  });
+
+  const filtered = (logs ?? []).filter(l => {
+    if (filterSuccess === "success") return l.success;
+    if (filterSuccess === "error") return !l.success;
+    return true;
+  });
+
+  const successCount = logs?.filter(l => l.success).length ?? 0;
+  const errorCount = logs?.filter(l => !l.success).length ?? 0;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-16" />
+        <Skeleton className="h-16" />
+        <Skeleton className="h-16" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg border border-border bg-card text-center py-3">
+          <div className="text-2xl font-bold" data-testid="text-logs-total">{logs?.length ?? 0}</div>
+          <div className="text-[10px] text-muted-foreground mt-1">Total Attempts</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card text-center py-3">
+          <div className="text-2xl font-bold text-green-400" data-testid="text-logs-success">{successCount}</div>
+          <div className="text-[10px] text-muted-foreground mt-1">Successful</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card text-center py-3">
+          <div className="text-2xl font-bold text-red-400" data-testid="text-logs-errors">{errorCount}</div>
+          <div className="text-[10px] text-muted-foreground mt-1">Failed</div>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        {(["all", "success", "error"] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilterSuccess(f)}
+            className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+              filterSuccess === f
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card text-muted-foreground border-border hover:text-foreground"
+            }`}
+            data-testid={`btn-filter-${f}`}
+          >
+            {f === "all" ? "All" : f === "success" ? "Success" : "Errors"}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <History className="h-10 w-10 text-muted-foreground/40 mb-3" />
+          <h3 className="text-sm font-semibold">No send logs found</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Trade Sync send attempts (successes and failures) will appear here.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(log => {
+            const isExpanded = expandedId === log.id;
+            return (
+              <div
+                key={log.id}
+                className={`rounded-lg border ${log.success ? "border-green-500/20" : "border-red-500/30 bg-red-500/5"} bg-card overflow-hidden`}
+                data-testid={`log-entry-${log.id}`}
+              >
+                <button
+                  className="w-full flex items-center gap-3 p-3 text-left hover:bg-muted/30 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : log.id)}
+                  data-testid={`btn-expand-log-${log.id}`}
+                >
+                  {log.success ? (
+                    <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-sm">{log.ticker}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                        {log.instrumentType}
+                      </Badge>
+                      {log.direction && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                          {log.direction}
+                        </Badge>
+                      )}
+                      <span className="text-[10px] text-muted-foreground">
+                        Signal #{log.signalId}
+                      </span>
+                    </div>
+                    {!log.success && log.errorMessage && (
+                      <p className="text-xs text-red-400 mt-0.5 truncate">{log.errorMessage}</p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    {log.durationMs != null && (
+                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {(log.durationMs / 1000).toFixed(1)}s
+                      </span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">
+                      {log.createdAt ? fmtTime(log.createdAt) : "—"}
+                    </span>
+                    {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </div>
+                </button>
+
+                {isExpanded && (
+                  <div className="border-t border-border p-3 space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Entry</span>
+                        <p className="font-mono">{fmtPrice(log.entryPrice)}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Stop</span>
+                        <p className="font-mono">{fmtPrice(log.stopPrice)}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">T1</span>
+                        <p className="font-mono">{fmtPrice(log.target1Price)}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">T2</span>
+                        <p className="font-mono">{fmtPrice(log.target2Price)}</p>
+                      </div>
+                    </div>
+
+                    {log.delta != null && (
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">Delta: </span>
+                        <span className="font-mono">{log.delta.toFixed(3)}</span>
+                      </div>
+                    )}
+
+                    {log.tradesyncSignalId && (
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">TradeSync ID: </span>
+                        <span className="font-mono">{log.tradesyncSignalId}</span>
+                      </div>
+                    )}
+
+                    {!log.success && log.errorMessage && (
+                      <div className="rounded-md bg-red-500/10 border border-red-500/20 p-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-red-400 mb-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          Error
+                        </div>
+                        <p className="text-xs text-red-300 font-mono break-all">{log.errorMessage}</p>
+                      </div>
+                    )}
+
+                    {log.payloadJson && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground mb-1">Payload</p>
+                        <pre className="text-[10px] bg-muted/50 rounded p-2 overflow-x-auto max-h-48 font-mono">
+                          {(() => { try { return JSON.stringify(typeof log.payloadJson === "string" ? JSON.parse(log.payloadJson) : log.payloadJson, null, 2); } catch { return String(log.payloadJson); } })()}
+                        </pre>
+                      </div>
+                    )}
+
+                    {log.responseJson && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground mb-1">Response</p>
+                        <pre className="text-[10px] bg-muted/50 rounded p-2 overflow-x-auto max-h-48 font-mono">
+                          {(() => { try { return JSON.stringify(typeof log.responseJson === "string" ? JSON.parse(log.responseJson) : log.responseJson, null, 2); } catch { return String(log.responseJson); } })()}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SignalHistoryPage() {
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("history");
 
   const { data: trades, isLoading } = useQuery<TradeSyncSignal[]>({
     queryKey: ["/api/tradesync/trades"],
@@ -733,59 +953,78 @@ export default function SignalHistoryPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3 sm:gap-4">
-        <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
-          <div className="text-2xl sm:text-3xl font-bold" data-testid="text-total-sent">{totalSent}</div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total Sent</div>
-        </div>
-        <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
-          <div className="text-2xl sm:text-3xl font-bold text-green-400" data-testid="text-completed-count">{completedCount}</div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Completed</div>
-        </div>
-        <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
-          <div className="text-2xl sm:text-3xl font-bold text-blue-400" data-testid="text-active-count">{activeCount}</div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Active</div>
-        </div>
-        <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
-          <div className="text-2xl sm:text-3xl font-bold text-red-400" data-testid="text-failed-count">{failedCount}</div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Stopped</div>
-        </div>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList data-testid="tabs-signal-history">
+          <TabsTrigger value="history" data-testid="tab-history">
+            <Send className="w-3.5 h-3.5 mr-1.5" />
+            Trades ({totalSent})
+          </TabsTrigger>
+          <TabsTrigger value="logs" data-testid="tab-logs">
+            <FileText className="w-3.5 h-3.5 mr-1.5" />
+            Send Logs
+          </TabsTrigger>
+        </TabsList>
 
-      {sorted.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-signals">
-          <History className="h-12 w-12 text-muted-foreground/40 mb-4" />
-          <h3 className="text-sm font-semibold">No signals found</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            {search
-              ? "Try adjusting your search."
-              : "Your signal history will appear here once signals are sent to Trade Sync."
-            }
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {Object.entries(grouped).map(([dateKey, dateSignals]) => {
-            const okCount = dateSignals.filter(s => isPositive(s)).length;
-            return (
-              <div key={dateKey} className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold" data-testid={`text-date-group-${dateKey}`}>{dateKey}</h3>
-                  <span className="text-xs text-muted-foreground">
-                    <span className="text-green-400">{okCount} ok</span>{" "}
-                    {dateSignals.length} total
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  {dateSignals.map(signal => (
-                    <SignalCard key={signal.id} signal={signal} />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+        <TabsContent value="history" className="mt-4 space-y-4">
+          <div className="grid grid-cols-4 gap-3 sm:gap-4">
+            <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
+              <div className="text-2xl sm:text-3xl font-bold" data-testid="text-total-sent">{totalSent}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total Sent</div>
+            </div>
+            <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
+              <div className="text-2xl sm:text-3xl font-bold text-green-400" data-testid="text-completed-count">{completedCount}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Completed</div>
+            </div>
+            <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
+              <div className="text-2xl sm:text-3xl font-bold text-blue-400" data-testid="text-active-count">{activeCount}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Active</div>
+            </div>
+            <div className="rounded-lg border border-border bg-card text-center py-3 sm:py-4">
+              <div className="text-2xl sm:text-3xl font-bold text-red-400" data-testid="text-failed-count">{failedCount}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">Stopped</div>
+            </div>
+          </div>
+
+          {sorted.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-signals">
+              <History className="h-12 w-12 text-muted-foreground/40 mb-4" />
+              <h3 className="text-sm font-semibold">No signals found</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                {search
+                  ? "Try adjusting your search."
+                  : "Your signal history will appear here once signals are sent to Trade Sync."
+                }
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {Object.entries(grouped).map(([dateKey, dateSignals]) => {
+                const okCount = dateSignals.filter(s => isPositive(s)).length;
+                return (
+                  <div key={dateKey} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold" data-testid={`text-date-group-${dateKey}`}>{dateKey}</h3>
+                      <span className="text-xs text-muted-foreground">
+                        <span className="text-green-400">{okCount} ok</span>{" "}
+                        {dateSignals.length} total
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                      {dateSignals.map(signal => (
+                        <SignalCard key={signal.id} signal={signal} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-4">
+          <TradesyncLogsPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

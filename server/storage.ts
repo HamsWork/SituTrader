@@ -4,12 +4,13 @@ import pg from "pg";
 import {
   symbols, dailyBars, intradayBars, signals, backtests, backtestJobs, timeToHitStats, appSettings,
   universeMembers, tickerStats, setupExpectancy, signalProfiles, schedulerState,
-  ibkrTrades, ibkrState, robustnessRuns, discordTradeLogs, embedTemplates,
+  ibkrTrades, ibkrState, tradesyncLogs, robustnessRuns, discordTradeLogs, embedTemplates,
   roiTradeCache, roiCacheMeta, pwTradeCache, pwCacheMeta, btodState, simDayCache,
   type Symbol, type DailyBar, type IntradayBar, type Signal, type Backtest, type BacktestJob, type TimeToHitStat,
   type UniverseMember, type TickerStat, type SetupExpectancy, type SignalProfile, type SchedulerState,
   type InsertSymbol, type InsertSignalProfile,
   type IbkrTrade, type IbkrState,
+  type TradesyncLog, type InsertTradesyncLog,
   type RobustnessRun, type InsertRobustnessRun,
   type DiscordTradeLog, type InsertDiscordTradeLog,
   type EmbedTemplate, type InsertEmbedTemplate,
@@ -113,6 +114,9 @@ export interface IStorage {
   getSchedulerState(): Promise<SchedulerState>;
   updateSchedulerState(updates: Partial<Omit<SchedulerState, "key">>): Promise<SchedulerState>;
   ensureSchedulerState(): Promise<SchedulerState>;
+
+  createTradesyncLog(data: InsertTradesyncLog): Promise<TradesyncLog>;
+  getTradesyncLogs(opts?: { signalId?: number; success?: boolean; limit?: number }): Promise<TradesyncLog[]>;
 
   createIbkrTrade(data: Partial<IbkrTrade>): Promise<IbkrTrade>;
   getIbkrTrade(id: number): Promise<IbkrTrade | null>;
@@ -890,6 +894,28 @@ export class DatabaseStorage implements IStorage {
     };
     await db.insert(schedulerState).values(defaults);
     return defaults;
+  }
+
+  async createTradesyncLog(data: InsertTradesyncLog): Promise<TradesyncLog> {
+    const rows = await db.insert(tradesyncLogs).values(data).returning();
+    return rows[0];
+  }
+
+  async getTradesyncLogs(opts?: { signalId?: number; success?: boolean; limit?: number }): Promise<TradesyncLog[]> {
+    const conditions = [];
+    if (opts?.signalId != null) conditions.push(eq(tradesyncLogs.signalId, opts.signalId));
+    if (opts?.success != null) conditions.push(eq(tradesyncLogs.success, opts.success));
+
+    const q = db
+      .select()
+      .from(tradesyncLogs)
+      .orderBy(desc(tradesyncLogs.createdAt))
+      .limit(opts?.limit ?? 200);
+
+    if (conditions.length > 0) {
+      return q.where(and(...conditions));
+    }
+    return q;
   }
 
   async createIbkrTrade(data: Partial<IbkrTrade>): Promise<IbkrTrade> {

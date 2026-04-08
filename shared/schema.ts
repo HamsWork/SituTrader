@@ -280,9 +280,32 @@ export const ibkrState = pgTable("ibkr_state", {
   ordersJson: jsonb("orders_json"),
 });
 
+export const tradesyncLogs = pgTable("tradesync_logs", {
+  id: serial("id").primaryKey(),
+  signalId: integer("signal_id").notNull(),
+  ticker: text("ticker").notNull(),
+  instrumentType: text("instrument_type").notNull(),
+  direction: text("direction"),
+  entryPrice: real("entry_price"),
+  stopPrice: real("stop_price"),
+  target1Price: real("target1_price"),
+  target2Price: real("target2_price"),
+  delta: real("delta"),
+  success: boolean("success").notNull(),
+  tradesyncSignalId: integer("tradesync_signal_id"),
+  errorMessage: text("error_message"),
+  payloadJson: jsonb("payload_json"),
+  responseJson: jsonb("response_json"),
+  durationMs: integer("duration_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type TradesyncLog = typeof tradesyncLogs.$inferSelect;
 export type IbkrTrade = typeof ibkrTrades.$inferSelect;
 export type IbkrState = typeof ibkrState.$inferSelect;
 
+export const insertTradesyncLogSchema = createInsertSchema(tradesyncLogs).omit({ id: true, createdAt: true });
+export type InsertTradesyncLog = z.infer<typeof insertTradesyncLogSchema>;
 export const insertIbkrTradeSchema = createInsertSchema(ibkrTrades).omit({ id: true, createdAt: true });
 export type InsertIbkrTrade = z.infer<typeof insertIbkrTradeSchema>;
 
