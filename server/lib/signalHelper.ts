@@ -5,9 +5,10 @@ import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
 import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
-import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar } from "./polygon";
+import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar, fetchSnapshot, fetchOptionLastTrade } from "./polygon";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
+import { log } from "../index";
 
 interface OnDeckFilterable {
     status: string;
@@ -719,4 +720,193 @@ export function checkActivationForTicker(
     }
     
     return { events, mutations };
+}
+
+export interface RefreshResult {
+    signal: Signal;
+    freshStockPrice: number | null;
+    freshOptionMark: number | null;
+    freshLetfPrice: number | null;
+    tradePlanRegenerated: boolean;
+    optionRefreshed: boolean;
+    letfRefreshed: boolean;
+    invalidated: boolean;
+    invalidationReason: string | null;
+    warnings: string[];
+}
+
+export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshResult> {
+    const warnings: string[] = [];
+    let freshStockPrice: number | null = null;
+    let freshOptionMark: number | null = null;
+    let freshLetfPrice: number | null = null;
+    let tradePlanRegenerated = false;
+    let optionRefreshed = false;
+    let letfRefreshed = false;
+    let invalidated = false;
+    let invalidationReason: string | null = null;
+
+    const tp = signal.tradePlanJson as TradePlan | null;
+    if (!tp) {
+        warnings.push("Signal has no trade plan");
+        return {
+            signal, freshStockPrice, freshOptionMark, freshLetfPrice,
+            tradePlanRegenerated, optionRefreshed, letfRefreshed,
+            invalidated: true, invalidationReason: "NO_TRADE_PLAN", warnings,
+        };
+    }
+
+    const snap = await fetchSnapshot(signal.ticker);
+    if (snap?.lastPrice && snap.lastPrice > 0) {
+        freshStockPrice = snap.lastPrice;
+        log(`[refresh] ${signal.ticker} #${signal.id} live price: $${freshStockPrice.toFixed(2)}`, "refresh");
+    } else {
+        warnings.push(`No live stock price for ${signal.ticker}`);
+    }
+
+    const today = formatDate(new Date());
+    const from200 = getTradingDaysBack(today, 200);
+    const dailyBars = await fetchDailyBarsFromPolygon(signal.ticker, from200, today);
+
+    const latestDailyClose = dailyBars.length > 0 ? dailyBars[dailyBars.length - 1].close : null;
+    const currentPrice = freshStockPrice ?? signal.entryPriceAtActivation ?? latestDailyClose ?? 0;
+
+    if (currentPrice <= 0) {
+        warnings.push(`No valid price available for ${signal.ticker}`);
+        return {
+            signal, freshStockPrice, freshOptionMark, freshLetfPrice,
+            tradePlanRegenerated, optionRefreshed, letfRefreshed,
+            invalidated: false, invalidationReason: null, warnings,
+        };
+    }
+
+    if (dailyBars.length >= 5) {
+        const newTp = generateTradePlan(
+            currentPrice, signal.magnetPrice, dailyBars,
+            tp.entryMode ?? "conservative",
+            tp.stopMode ?? "VOLATILITY_BE",
+            tp.atrMultiplier ?? 1.5,
+            signal.direction,
+        );
+
+        const biasChanged = newTp.bias !== tp.bias;
+        const stopDistChanged = tp.stopDistance != null && newTp.stopDistance != null
+            && Math.abs(newTp.stopDistance - tp.stopDistance) / tp.stopDistance > 0.05;
+
+        if (biasChanged || stopDistChanged) {
+            const newStopPrice = newTp.stopDistance
+                ? (newTp.bias === "SELL"
+                    ? currentPrice + newTp.stopDistance
+                    : currentPrice - newTp.stopDistance)
+                : signal.stopPrice;
+
+            signal = {
+                ...signal,
+                tradePlanJson: newTp as any,
+                stopPrice: newStopPrice ?? signal.stopPrice,
+            };
+            tradePlanRegenerated = true;
+
+            if (biasChanged) {
+                warnings.push(`Bias changed: ${tp.bias} → ${newTp.bias}`);
+            }
+
+            await storage.upsertSignal(signal as any);
+            log(`[refresh] #${signal.id} trade plan regenerated (bias=${newTp.bias}, stopDist=${newTp.stopDistance?.toFixed(2)})`, "refresh");
+        }
+    } else {
+        warnings.push(`Insufficient daily bars for ${signal.ticker} (${dailyBars.length})`);
+    }
+
+    const updatedTp = signal.tradePlanJson as TradePlan;
+
+    if (signal.activationStatus === "ACTIVE" && signal.stopPrice != null && currentPrice > 0) {
+        const entryPrice = signal.entryPriceAtActivation ?? currentPrice;
+        if (checkInvalidation(currentPrice, updatedTp, entryPrice, signal.stopPrice)) {
+            invalidated = true;
+            invalidationReason = updatedTp.bias === "SELL"
+                ? `Price $${currentPrice.toFixed(2)} above stop $${signal.stopPrice.toFixed(2)}`
+                : `Price $${currentPrice.toFixed(2)} below stop $${signal.stopPrice.toFixed(2)}`;
+            warnings.push(`Signal invalidated: ${invalidationReason}`);
+            log(`[refresh] #${signal.id} INVALIDATED: ${invalidationReason}`, "refresh");
+
+            const nowIso = new Date().toISOString();
+            await storage.updateSignalActivation(signal.id, "INVALIDATED");
+            await storage.updateSignalInvalidation(signal.id, nowIso);
+            signal = { ...signal, activationStatus: "INVALIDATED", invalidationTs: nowIso };
+        }
+    }
+
+    const optionTicker = signal.optionContractTicker;
+    if (optionTicker) {
+        try {
+            const lastTrade = await fetchOptionLastTrade(optionTicker);
+            if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
+                freshOptionMark = lastTrade.mark;
+                await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: freshOptionMark });
+                signal = { ...signal, optionEntryMark: freshOptionMark };
+                optionRefreshed = true;
+                log(`[refresh] #${signal.id} option ${optionTicker} mark: $${freshOptionMark.toFixed(2)}`, "refresh");
+            } else {
+                warnings.push(`No live option mark for ${optionTicker}`);
+            }
+        } catch (err: any) {
+            warnings.push(`Option fetch failed for ${optionTicker}: ${err.message}`);
+        }
+    } else if (signal.activationStatus === "ON_DECK" || signal.activationStatus === "NOT_ACTIVE") {
+        try {
+            const { enrichOptionData } = await import("./options");
+            await enrichOptionData(signal.ticker, signal, updatedTp, signal.activatedTs ?? undefined);
+            const refreshedSignals = await storage.getSignals(signal.ticker, 5000);
+            const refreshed = refreshedSignals.find(s => s.id === signal.id);
+            if (refreshed) {
+                signal = refreshed;
+                optionRefreshed = true;
+                log(`[refresh] #${signal.id} option data re-enriched`, "refresh");
+            }
+        } catch (err: any) {
+            warnings.push(`Option enrichment failed: ${err.message}`);
+        }
+    }
+
+    const letfTicker = signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
+    if (letfTicker) {
+        try {
+            const letfSnap = await fetchSnapshot(letfTicker);
+            if (letfSnap?.lastPrice && letfSnap.lastPrice > 0) {
+                freshLetfPrice = letfSnap.lastPrice;
+                await storage.updateSignalInstrument(signal.id, signal.instrumentType, letfTicker, freshLetfPrice);
+                signal = { ...signal, instrumentEntryPrice: freshLetfPrice };
+                letfRefreshed = true;
+                log(`[refresh] #${signal.id} LETF ${letfTicker} price: $${freshLetfPrice.toFixed(2)}`, "refresh");
+            } else {
+                warnings.push(`No live LETF price for ${letfTicker}`);
+            }
+        } catch (err: any) {
+            warnings.push(`LETF fetch failed for ${letfTicker}: ${err.message}`);
+        }
+    }
+
+    if (freshStockPrice != null && signal.activationStatus === "ACTIVE") {
+        await storage.updateSignalActivation(
+            signal.id,
+            signal.activationStatus,
+            undefined,
+            freshStockPrice,
+        );
+        signal = { ...signal, entryPriceAtActivation: freshStockPrice };
+    }
+
+    return {
+        signal,
+        freshStockPrice,
+        freshOptionMark,
+        freshLetfPrice,
+        tradePlanRegenerated,
+        optionRefreshed,
+        letfRefreshed,
+        invalidated,
+        invalidationReason,
+        warnings,
+    };
 }

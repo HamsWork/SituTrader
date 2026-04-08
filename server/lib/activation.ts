@@ -142,6 +142,8 @@ async function handlePostActivation(
 
     if (btodActive && btodAllowed) {
       try {
+
+        
         const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
 
         const qty =
