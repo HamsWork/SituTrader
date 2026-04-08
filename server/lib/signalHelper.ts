@@ -6,6 +6,7 @@ import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from 
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
 import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar, fetchSnapshot, fetchOptionLastTrade } from "./polygon";
+import { enrichOptionData } from "./options";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 import { log } from "../index";
@@ -846,23 +847,58 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         }
     }
 
-    // fresh option price
     const optionTicker = signal.optionContractTicker;
-    if (optionTicker) {
+    const optionsJson = signal.optionsJson as Record<string, any> | null;
+    const hasOptionData = optionTicker || optionsJson?.candidate?.contractSymbol;
+
+    if (hasOptionData) {
+        const tickerToFetch = optionTicker || optionsJson?.candidate?.contractSymbol;
         try {
-            const lastTrade = await fetchOptionLastTrade(optionTicker);
+            const lastTrade = await fetchOptionLastTrade(tickerToFetch);
             if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
                 freshOptionMark = lastTrade.mark;
                 await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: freshOptionMark });
                 signal = { ...signal, optionEntryMark: freshOptionMark };
-                log(`[refresh] #${signal.id} option ${optionTicker} mark: $${freshOptionMark.toFixed(2)}`, "refresh");
+                log(`[refresh] #${signal.id} option ${tickerToFetch} mark: $${freshOptionMark.toFixed(2)}`, "refresh");
             } else {
-                warnings.push(`No live option mark for ${optionTicker}`);
+                warnings.push(`No live option mark for ${tickerToFetch}`);
             }
         } catch (err: any) {
-            warnings.push(`Option fetch failed for ${optionTicker}: ${err.message}`);
+            warnings.push(`Option fetch failed for ${tickerToFetch}: ${err.message}`);
         }
-    } 
+    } else {
+        const updatedTp = signal.tradePlanJson as TradePlan | null;
+        if (updatedTp) {
+            try {
+                log(`[refresh] #${signal.id} ${signal.ticker} no option data — enriching options`, "refresh");
+                const enrichedSignal = await storage.getSignal(signal.id);
+                if (enrichedSignal) {
+                    const instrumentType = await enrichOptionData(
+                        signal.ticker,
+                        enrichedSignal,
+                        updatedTp,
+                        signal.activatedTs ?? undefined,
+                    );
+                    const refreshed = await storage.getSignal(signal.id);
+                    if (refreshed) {
+                        signal = {
+                            ...signal,
+                            optionsJson: refreshed.optionsJson,
+                            optionContractTicker: refreshed.optionContractTicker,
+                            optionEntryMark: refreshed.optionEntryMark,
+                            instrumentType: refreshed.instrumentType,
+                        };
+                        if (refreshed.optionEntryMark != null && refreshed.optionEntryMark > 0) {
+                            freshOptionMark = refreshed.optionEntryMark;
+                        }
+                        log(`[refresh] #${signal.id} option enrichment complete: contract=${refreshed.optionContractTicker ?? "none"} mark=$${refreshed.optionEntryMark?.toFixed(2) ?? "null"} type=${instrumentType}`, "refresh");
+                    }
+                }
+            } catch (err: any) {
+                warnings.push(`Option enrichment failed for ${signal.ticker}: ${err.message}`);
+            }
+        }
+    }
 
     const letfTicker = signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
     if (letfTicker) {
