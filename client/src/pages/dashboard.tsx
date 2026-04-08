@@ -1670,7 +1670,11 @@ export default function Dashboard() {
           ))
         ) : (
           <>
-            <Card>
+            <Card
+              className="cursor-pointer hover:border-amber-500/40 transition-colors"
+              onClick={() => document.getElementById("section-active-trades")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              data-testid="card-stat-active-trades"
+            >
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Active Trades</CardTitle>
                 <Radio className="h-4 w-4 text-amber-500" />
@@ -1680,7 +1684,11 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground mt-1">Auto-executed on activation</p>
               </CardContent>
             </Card>
-            <Card>
+            <Card
+              className="cursor-pointer hover:border-primary/40 transition-colors"
+              onClick={() => document.getElementById("section-on-deck")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              data-testid="card-stat-on-deck"
+            >
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">On Deck</CardTitle>
                 <Eye className="h-4 w-4 text-muted-foreground" />
@@ -1745,7 +1753,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div>
+      <div id="section-active-trades" className="scroll-mt-4">
         <div className="flex items-center gap-2 mb-3">
           <Radio className="w-4 h-4 text-amber-500" />
           <h2 className="text-base font-semibold" data-testid="text-trade-now-title">Active Trades</h2>
@@ -1777,7 +1785,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div>
+      <div id="section-on-deck" className="scroll-mt-4">
         <div className="flex items-center gap-2 mb-3">
           <Eye className="w-4 h-4 text-muted-foreground" />
           <h2 className="text-base font-semibold" data-testid="text-on-deck-title">On Deck</h2>
