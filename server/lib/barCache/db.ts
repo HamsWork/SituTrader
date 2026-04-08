@@ -15,36 +15,47 @@ function getSqlitePath(): string {
   return c.path;
 }
 
+let sqliteInitError: string | null = null;
+
 function getSqliteDb(): Database.Database {
   if (sqliteDb) return sqliteDb;
+  if (sqliteInitError) throw new Error(`SQLite previously failed: ${sqliteInitError}`);
   const dbPath = getSqlitePath();
-  sqliteDb = new Database(dbPath);
-  sqliteDb.pragma("journal_mode = WAL");
-  sqliteDb.pragma("synchronous = NORMAL");
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS bar_cache (
-      symbol TEXT NOT NULL,
-      timeframe TEXT NOT NULL,
-      adjusted INTEGER NOT NULL,
-      timestamp REAL NOT NULL,
-      open REAL NOT NULL,
-      high REAL NOT NULL,
-      low REAL NOT NULL,
-      close REAL NOT NULL,
-      volume REAL NOT NULL,
-      UNIQUE(symbol, timeframe, adjusted, timestamp)
-    );
-    CREATE TABLE IF NOT EXISTS cache_meta (
-      symbol TEXT NOT NULL,
-      timeframe TEXT NOT NULL,
-      adjusted INTEGER NOT NULL,
-      last_fetched REAL NOT NULL,
-      PRIMARY KEY(symbol, timeframe, adjusted)
-    );
-    CREATE INDEX IF NOT EXISTS idx_bar_cache_lookup
-      ON bar_cache(symbol, timeframe, adjusted, timestamp);
-  `);
-  return sqliteDb;
+  try {
+    sqliteDb = new Database(dbPath);
+    sqliteDb.pragma("journal_mode = WAL");
+    sqliteDb.pragma("synchronous = NORMAL");
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS bar_cache (
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        adjusted INTEGER NOT NULL,
+        timestamp REAL NOT NULL,
+        open REAL NOT NULL,
+        high REAL NOT NULL,
+        low REAL NOT NULL,
+        close REAL NOT NULL,
+        volume REAL NOT NULL,
+        UNIQUE(symbol, timeframe, adjusted, timestamp)
+      );
+      CREATE TABLE IF NOT EXISTS cache_meta (
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        adjusted INTEGER NOT NULL,
+        last_fetched REAL NOT NULL,
+        PRIMARY KEY(symbol, timeframe, adjusted)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bar_cache_lookup
+        ON bar_cache(symbol, timeframe, adjusted, timestamp);
+    `);
+    console.log(`[barCache] SQLite initialized at ${dbPath}`);
+    return sqliteDb;
+  } catch (err: any) {
+    sqliteInitError = err.message;
+    sqliteDb = null;
+    console.error(`[barCache] Failed to initialize SQLite persistence at ${dbPath}: ${err.message}`);
+    throw new Error(`Failed to initialize SQLite persistence: ${err.message}`);
+  }
 }
 
 // ----- Postgres -----

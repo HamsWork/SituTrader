@@ -43,6 +43,9 @@ function hasInternalGaps(
   return false;
 }
 
+let cacheDisabled = false;
+let cacheDisabledLoggedAt = 0;
+
 export async function getBars(params: GetBarsParams): Promise<Bar[]> {
   const { symbol, timeframe, adjusted, startTs, endTs, fetcher } = params;
 
@@ -50,10 +53,18 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
   const memHit = memGet(memKey);
   if (memHit) return memHit;
 
+  if (cacheDisabled) {
+    const bars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
+    if (bars.length > 0) memSet(memKey, bars);
+    return bars;
+  }
+
   const lockKey = makeLockKey(symbol, timeframe, adjusted);
-  const releaseLock = await acquireLock(lockKey);
+  let releaseLock: (() => void) | null = null;
 
   try {
+    releaseLock = await acquireLock(lockKey);
+
     const memHit2 = memGet(memKey);
     if (memHit2) return memHit2;
 
@@ -133,7 +144,20 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
     const finalBars = await queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);
     memSet(memKey, finalBars);
     return finalBars;
+  } catch (err: any) {
+    if (err.message?.includes("SQLite") || err.message?.includes("persistence") || err.message?.includes("SQLITE")) {
+      const now = Date.now();
+      if (!cacheDisabled || now - cacheDisabledLoggedAt > 60_000) {
+        console.error(`[barCache] Cache layer failed, falling back to direct Polygon fetch: ${err.message}`);
+        cacheDisabledLoggedAt = now;
+      }
+      cacheDisabled = true;
+      const bars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
+      if (bars.length > 0) memSet(memKey, bars);
+      return bars;
+    }
+    throw err;
   } finally {
-    releaseLock();
+    if (releaseLock) releaseLock();
   }
 }
