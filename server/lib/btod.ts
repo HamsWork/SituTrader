@@ -624,10 +624,7 @@ export async function executeBtodMultiInstrument(
       } = await import("./tradesync");
 
       if (!isTradeSyncEnabled()) {
-        // throw new Error("TradeSync disabled");
-        console.log(
-          `TradeSync disabled, skipping BTOD execution for signal ${signalId}`,
-        );
+        throw new Error("TradeSync disabled");
       }
 
       log(
