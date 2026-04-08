@@ -645,6 +645,14 @@ export async function executeBtodMultiInstrument(
         optionExpiry = optData?.candidate?.expiry;
         optionStrike = optData?.candidate?.strike;
         optionRight = optData?.candidate?.right === "P" ? "PUT" : "CALL";
+        if (!optionExpiry || optionStrike == null) {
+          const m = inst.ticker.match(/O:\w+(\d{6})(C|P)(\d{8})$/);
+          if (m) {
+            optionExpiry = optionExpiry || m[1];
+            optionStrike = optionStrike ?? parseInt(m[3], 10) / 1000;
+            optionRight = m[2] === "P" ? "PUT" : "CALL";
+          }
+        }
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
         optionExpiry = letfOptionContract.expiry;
         optionStrike = letfOptionContract.strike;

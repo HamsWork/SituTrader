@@ -359,18 +359,51 @@ export function buildTradeSyncPayloadFromSignal(
     payloadTicker = signal.ticker;
   }
 
+  const isOptionType =
+    instrumentType === "OPTION" || instrumentType === "LETF_OPTIONS";
+  const useUnderlyingBased = isOptionType && stockEntry > 0;
+
+  let effectiveStop: number | undefined;
+  let effectiveTargetMap = targetMap;
+  if (useUnderlyingBased) {
+    const stockStop = signal.stopPrice ?? 0;
+    effectiveStop =
+      stockStop > 0 ? parseFloat(stockStop.toFixed(2)) : undefined;
+    const stockT1 = tp?.t1 ?? null;
+    const stockT2 = tp?.t2 ?? null;
+    effectiveTargetMap = {};
+    if (stockT1 != null) {
+      effectiveTargetMap.tp1 = {
+        price: parseFloat(Number(stockT1).toFixed(2)),
+        take_off_percent: 50,
+        raise_stop_loss: { price: parseFloat(stockEntry.toFixed(2)) },
+      };
+    }
+    if (stockT2 != null) {
+      effectiveTargetMap.tp2 = {
+        price: parseFloat(Number(stockT2).toFixed(2)),
+        take_off_percent: 100,
+      };
+    }
+  } else {
+    effectiveStop =
+      targets.stop != null ? parseFloat(targets.stop.toFixed(2)) : undefined;
+  }
+
   const payload: TradeSyncSignalData = {
     ticker: payloadTicker,
     instrument_type: mappedInstrument,
     direction,
     entry_price:
       instrumentEntry > 0 ? parseFloat(instrumentEntry.toFixed(2)) : null,
-    stop_loss:
-      targets.stop != null ? parseFloat(targets.stop.toFixed(2)) : undefined,
+    stop_loss: effectiveStop,
     auto_track: true,
-    underlying_price_based: false,
+    underlying_price_based: useUnderlyingBased,
     trade_type: "Swing",
-    targets: Object.keys(targetMap).length > 0 ? targetMap : undefined,
+    targets:
+      Object.keys(effectiveTargetMap).length > 0
+        ? effectiveTargetMap
+        : undefined,
   };
 
   if (stockEntry > 0) {
