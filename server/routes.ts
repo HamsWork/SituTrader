@@ -48,6 +48,7 @@ import {
   cancelBacktestRun, clearBacktestRun, isBacktestRunActive,
 } from "./jobs/backtestRunner";
 import type { SetupType, OptionLive } from "@shared/schema";
+import { runAllDetectSetupTests } from "./lib/testDetectSetups";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
 
@@ -1428,6 +1429,15 @@ export async function registerRoutes(
       const { sendToTradeSync } = await import("./lib/tradesync");
       const result = await sendToTradeSync(payload);
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/test/detect-setups", async (_req, res) => {
+    try {
+      const report = runAllDetectSetupTests();
+      res.json(report);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
