@@ -153,16 +153,33 @@ function setupCTests(): TestCase[] {
       },
     },
     {
-      name: "C: gap down > 0.3% → should detect (up-to-magnet)",
+      name: "C: AAPL real data gap down -2.75% on 2026-04-07 → should detect (up-to-magnet)",
       expectDetect: true,
       run: () => {
-        const dailyBar = makeBar({ date: "2026-04-07", close: 100 });
+        const dailyBar = makeBar({
+          date: "2026-04-06",
+          ticker: "AAPL",
+          open: 256.51,
+          high: 262.16,
+          low: 256.46,
+          close: 258.86,
+          volume: 29329911,
+        });
         const intradayBar = makeIntradayBar({
-          ts: "2026-04-08T14:30:00.000Z",
-          close: 99,
+          ts: "2026-04-07T18:15:00.000Z",
+          ticker: "AAPL",
+          open: 251.69,
+          high: 251.89,
+          low: 251.65,
+          close: 251.73,
+          volume: 189567,
         });
         const results = detectSetupC([dailyBar], [intradayBar]);
-        return { detected: results.length > 0, results };
+        const ok =
+          results.length === 1 &&
+          results[0].direction === "up-to-magnet" &&
+          results[0].magnetPrice === 258.86;
+        return { detected: ok, results };
       },
     },
     {
