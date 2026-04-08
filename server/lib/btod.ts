@@ -474,16 +474,12 @@ export interface BtodInstrumentResult {
 }
 
 export async function executeBtodMultiInstrument(
-  signalId: number,
+  refreshedSignal: Signal,
   qty: number = 1,
 ): Promise<BtodInstrumentResult[]> {
   const results: BtodInstrumentResult[] = [];
-  const sigs = await storage.getSignals(undefined, 5000);
-  const signal = sigs.find((s) => s.id === signalId);
-  if (!signal) {
-    log(`BTOD multi-instrument: signal ${signalId} not found`, "btod");
-    return results;
-  }
+  const signal = refreshedSignal;
+  const signalId = signal.id;
 
   const tp = signal.tradePlanJson as any;
   if (!tp) {
@@ -494,71 +490,9 @@ export async function executeBtodMultiInstrument(
   const isBuy = tp.bias === "BUY";
   const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
 
-  if (
-    !signal.optionContractTicker &&
-    !(signal.optionsJson as any)?.candidate?.contractSymbol
-  ) {
-    try {
-      const { enrichOptionData } = await import("./options");
-      await enrichOptionData(
-        signal.ticker,
-        signal,
-        tp,
-        signal.activatedTs ?? undefined,
-      );
-      const refreshed = (await storage.getSignals(undefined, 5000)).find(
-        (s) => s.id === signalId,
-      );
-      if (refreshed) {
-        Object.assign(signal, refreshed);
-      }
-      log(`BTOD: Re-enriched option/LETF data for signal ${signalId}`, "btod");
-    } catch (err: any) {
-      log(
-        `BTOD: Re-enrichment failed for signal ${signalId}: ${err.message}`,
-        "btod",
-      );
-    }
-  }
-
   let optionTicker =
     signal.optionContractTicker ||
     (signal.optionsJson as any)?.candidate?.contractSymbol;
-  const optionsJson = signal.optionsJson as any;
-  const optionHadNoQuote =
-    optionsJson?.checks?.reasonIfFail?.includes("NO_QUOTE") ||
-    (optionsJson?.checks?.bid === 0 && optionsJson?.checks?.ask === 0);
-
-  if (optionTicker && optionHadNoQuote) {
-    try {
-      const { fetchOptionSnapshot } = await import("./polygon");
-      const liveSnap = await fetchOptionSnapshot(signal.ticker, optionTicker);
-      if (
-        liveSnap &&
-        liveSnap.bid != null &&
-        liveSnap.bid > 0 &&
-        liveSnap.ask != null &&
-        liveSnap.ask > 0
-      ) {
-        log(
-          `BTOD: Live option quote found for ${optionTicker} — bid=${liveSnap.bid} ask=${liveSnap.ask}, including OPTION`,
-          "btod",
-        );
-      } else {
-        log(
-          `BTOD: Live option quote still unavailable for ${optionTicker}, skipping OPTION`,
-          "btod",
-        );
-        optionTicker = null;
-      }
-    } catch (err: any) {
-      log(
-        `BTOD: Failed to re-check option quote for ${optionTicker}: ${err.message}`,
-        "btod",
-      );
-      optionTicker = null;
-    }
-  }
 
   const letfJson = signal.leveragedEtfJson as any;
   const letfTicker = signal.instrumentTicker || letfJson?.ticker;
@@ -590,9 +524,7 @@ export async function executeBtodMultiInstrument(
   let letfOptionContract: LetfOptionContractResult | null = null;
   if (letfTicker) {
     try {
-      const { fetchSnapshot } = await import("./polygon");
-      const letfSnap = await fetchSnapshot(letfTicker);
-      const letfPrice = letfSnap?.lastPrice ?? signal.instrumentEntryPrice ?? 0;
+      const letfPrice = signal.instrumentEntryPrice ?? 0;
       if (letfPrice > 0) {
         letfOptionContract = await findLetfOptionContract(
           letfTicker,
@@ -625,76 +557,16 @@ export async function executeBtodMultiInstrument(
     "btod",
   );
 
-  let stockEntry = signal.entryPriceAtActivation ?? 0;
-  const staleEntry = stockEntry;
-  try {
-    const { fetchSnapshot } = await import("./polygon");
-    const snap = await fetchSnapshot(signal.ticker);
-    if (snap?.lastPrice && snap.lastPrice > 0) {
-      stockEntry = snap.lastPrice;
-      log(
-        `BTOD: Live stock price for ${signal.ticker}: $${stockEntry.toFixed(2)} (was $${staleEntry.toFixed(2)})`,
-        "btod",
-      );
-      await storage.updateSignalActivation(
-        signal.id,
-        signal.activationStatus ?? "ACTIVE",
-        undefined,
-        stockEntry,
-      );
-    } else {
-      log(
-        `BTOD: No live stock price for ${signal.ticker}, keeping activation price $${stockEntry}`,
-        "btod",
-      );
-    }
-  } catch (err: any) {
-    log(
-      `BTOD: Error fetching live stock price for ${signal.ticker}: ${err.message}, keeping $${stockEntry}`,
-      "btod",
-    );
+  const stockEntry = signal.entryPriceAtActivation ?? 0;
+  if (stockEntry <= 0) {
+    log(`BTOD: ❌ No valid stock entry price for signal ${signalId} — aborting`, "btod");
+    return results;
   }
 
-  let freshOptionMark: number | null = null;
-  const optTickerForFresh = optionTicker;
-  if (optTickerForFresh) {
-    const fetchStart = Date.now();
-    try {
-      const { fetchOptionLastTrade } = await import("./polygon");
-      const lastTrade = await fetchOptionLastTrade(optTickerForFresh);
-      if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
-        freshOptionMark = lastTrade.mark;
-        const ageMs = lastTrade.ts != null ? Date.now() - lastTrade.ts : null;
-        log(
-          `BTOD: Option last trade for ${optTickerForFresh}: $${freshOptionMark} (age ${ageMs != null ? Math.round(ageMs / 1000) + "s" : "unknown"}, fetched in ${Date.now() - fetchStart}ms)`,
-          "btod",
-        );
-      } else {
-        log(
-          `BTOD: ⚠ No option last trade for ${optTickerForFresh} (fetched in ${Date.now() - fetchStart}ms)`,
-          "btod",
-        );
-      }
-      if (freshOptionMark != null && freshOptionMark > 0) {
-        await storage.updateSignalOptionTracking(signal.id, {
-          optionEntryMark: freshOptionMark,
-        });
-        log(
-          `BTOD: Updated optionEntryMark for signal ${signalId}: $${freshOptionMark}`,
-          "btod",
-        );
-      }
-    } catch (err: any) {
-      log(
-        `BTOD: Error fetching option last trade for ${optTickerForFresh}: ${err.message}`,
-        "btod",
-      );
-    }
-  }
-
-  if (optTickerForFresh && (freshOptionMark == null || freshOptionMark <= 0)) {
+  const freshOptionMark = signal.optionEntryMark ?? null;
+  if (optionTicker && (freshOptionMark == null || freshOptionMark <= 0)) {
     log(
-      `BTOD: ❌ No fresh option last trade for ${optTickerForFresh} — aborting entire BTOD execution for signal ${signalId}`,
+      `BTOD: ❌ No fresh option mark for ${optionTicker} — aborting entire BTOD execution for signal ${signalId}`,
       "btod",
     );
     return results;
@@ -733,33 +605,6 @@ export async function executeBtodMultiInstrument(
       } else if (inst.type === "LEVERAGED_ETF") {
         instrumentEntry = signal.instrumentEntryPrice ?? 0;
         leverage = (signal.leveragedEtfJson as any)?.leverage ?? 1;
-        try {
-          const { fetchSnapshot } = await import("./polygon");
-          const letfSnap = await fetchSnapshot(inst.ticker!);
-          if (letfSnap?.lastPrice && letfSnap.lastPrice > 0) {
-            instrumentEntry = letfSnap.lastPrice;
-            log(
-              `BTOD: Fresh LETF price for ${inst.ticker}: $${instrumentEntry.toFixed(2)}`,
-              "btod",
-            );
-            await storage.updateSignalInstrument(
-              signal.id,
-              "LEVERAGED_ETF",
-              inst.ticker!,
-              instrumentEntry,
-            );
-          } else {
-            log(
-              `BTOD: No fresh LETF price for ${inst.ticker}, using cached $${instrumentEntry}`,
-              "btod",
-            );
-          }
-        } catch (err: any) {
-          log(
-            `BTOD: Error fetching fresh LETF price for ${inst.ticker}: ${err.message}`,
-            "btod",
-          );
-        }
       } else if (inst.type === "LETF_OPTIONS" && letfOptionContract) {
         instrumentEntry = 0;
         const fetchStart = Date.now();

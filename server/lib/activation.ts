@@ -10,6 +10,7 @@ import {
   type ActivationMutation,
   checkActivationForTicker,
   monitorActivatedSignalsForTicker,
+  refreshAndValidateSignal,
 } from "./signalHelper";
 import type { Signal, TradePlan, IntradayBar } from "@shared/schema";
 
@@ -142,28 +143,43 @@ async function handlePostActivation(
 
     if (btodActive && btodAllowed) {
       try {
+        const refreshResult = await refreshAndValidateSignal(sig);
+        const refreshedSig = refreshResult.signal;
 
-        
-        const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
-
-        const qty =
-          parseInt(
-            (await storage.getSetting("ibkrDefaultQuantity")) || "1",
-          ) || 1;
-        const results = await executeBtodMultiInstrument(sig.id, qty);
-        const successCount = results.filter((r) => r.success).length;
-        log(
-          `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
-          "activation",
-        );
-
-        if (results.length > 0 && successCount > 0) {
-          await onBtodTradeExecuted(sig.id);
-        } else {
+        if (refreshResult.invalidated) {
           log(
-            `BTOD: No successful instruments for signal ${sig.id} — skipping onBtodTradeExecuted`,
+            `BTOD: Signal ${sig.id} invalidated during refresh: ${refreshResult.invalidationReason} — skipping execution`,
             "activation",
           );
+        } else {
+          if (refreshResult.warnings.length > 0) {
+            log(`BTOD: Refresh warnings for signal ${sig.id}: ${refreshResult.warnings.join("; ")}`, "activation");
+          }
+          if (refreshResult.tradePlanRegenerated) {
+            log(`BTOD: Trade plan regenerated for signal ${sig.id} during refresh`, "activation");
+          }
+
+          const { executeBtodMultiInstrument, onBtodTradeExecuted } = await import("./btod");
+
+          const qty =
+            parseInt(
+              (await storage.getSetting("ibkrDefaultQuantity")) || "1",
+            ) || 1;
+          const results = await executeBtodMultiInstrument(refreshedSig, qty);
+          const successCount = results.filter((r) => r.success).length;
+          log(
+            `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
+            "activation",
+          );
+
+          if (results.length > 0 && successCount > 0) {
+            await onBtodTradeExecuted(sig.id);
+          } else {
+            log(
+              `BTOD: No successful instruments for signal ${sig.id} — skipping onBtodTradeExecuted`,
+              "activation",
+            );
+          }
         }
       } catch (btodExecErr: any) {
         log(
