@@ -1454,11 +1454,9 @@ export async function registerRoutes(
         1,
         refreshResult.letfOptionContract,
         refreshResult.letfOptionMark,
-        true,
       );
 
       res.json({
-        dryRun: true,
         signalId,
         ticker: sig.ticker,
         setupType: sig.setupType,

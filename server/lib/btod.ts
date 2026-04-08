@@ -485,7 +485,6 @@ export async function executeBtodMultiInstrument(
   qty: number = 1,
   preLetfOptionContract: LetfOptionContractResult | null = null,
   preLetfOptionMark: number | null = null,
-  dryRun: boolean = false,
 ): Promise<BtodInstrumentResult[]> {
   const results: BtodInstrumentResult[] = [];
   const signal = refreshedSignal;
@@ -651,21 +650,6 @@ export async function executeBtodMultiInstrument(
         optionExpiry || optionStrike || optionRight
           ? { expiry: optionExpiry, strike: optionStrike, right: optionRight }
           : undefined;
-
-      if (dryRun) {
-        results.push({
-          instrumentType: inst.type,
-          ticker: inst.ticker,
-          success: true,
-          entry: instrumentEntry,
-          targets: { t1: tradeTarget1, t2: tradeTarget2, stop: tradeStopPrice },
-          delta,
-          leverage,
-          optionMeta: optMeta,
-          tradeSyncPayload: tsPayload,
-        });
-        continue;
-      }
 
       if (!isTradeSyncEnabled()) {
         throw new Error("TradeSync disabled");
