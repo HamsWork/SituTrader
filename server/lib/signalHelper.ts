@@ -774,8 +774,77 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         warnings.push(`No live stock price for ${signal.ticker}`);
     }
 
-    // check and refresh trade plan
-    
+    const currentPrice = freshStockPrice ?? signal.entryPriceAtActivation ?? 0;
+    const expectedBias = inferBias(signal);
+    const biasMatches = tp.bias === expectedBias;
+
+    const entryRef = currentPrice > 0 ? currentPrice : (signal.entryPriceAtActivation ?? 0);
+    const isSell = expectedBias === "SELL";
+    const t1Valid = entryRef > 0 && tp.t1 > 0
+        ? (isSell ? tp.t1 < entryRef : tp.t1 > entryRef)
+        : true;
+    const stopValid = entryRef > 0 && signal.stopPrice != null && signal.stopPrice > 0
+        ? (isSell ? signal.stopPrice > entryRef : signal.stopPrice < entryRef)
+        : true;
+
+    if (!biasMatches || !t1Valid || !stopValid) {
+        const reasons: string[] = [];
+        if (!biasMatches) reasons.push(`bias mismatch: tp.bias=${tp.bias} expected=${expectedBias}`);
+        if (!t1Valid) reasons.push(`t1 wrong side: t1=$${tp.t1.toFixed(2)} entry=$${entryRef.toFixed(2)} bias=${expectedBias}`);
+        if (!stopValid) reasons.push(`stop wrong side: stop=$${signal.stopPrice?.toFixed(2)} entry=$${entryRef.toFixed(2)} bias=${expectedBias}`);
+        log(`[refresh] #${signal.id} ${signal.ticker} trade plan INVALID: ${reasons.join("; ")}`, "refresh");
+
+        const today = formatDate(new Date());
+        const from200 = getTradingDaysBack(today, 200);
+        const dailyBars = await fetchDailyBarsFromPolygon(signal.ticker, from200, today);
+
+        if (dailyBars.length >= 5 && entryRef > 0) {
+            const newTp = generateTradePlan(
+                entryRef, signal.magnetPrice, dailyBars,
+                "conservative",
+                "atr",
+                0.25,
+                signal.direction,
+            );
+
+            const newStopPrice = newTp.stopDistance
+                ? (newTp.bias === "SELL"
+                    ? entryRef + newTp.stopDistance
+                    : entryRef - newTp.stopDistance)
+                : signal.stopPrice;
+
+            signal = {
+                ...signal,
+                tradePlanJson: newTp as any,
+                stopPrice: newStopPrice ?? signal.stopPrice,
+            };
+            tradePlanRegenerated = true;
+
+            await storage.upsertSignal(signal as any);
+            log(`[refresh] #${signal.id} trade plan REGENERATED: bias=${newTp.bias} t1=$${newTp.t1.toFixed(2)} stop=$${newStopPrice?.toFixed(2) ?? "null"}`, "refresh");
+            warnings.push(`Trade plan regenerated: ${reasons.join("; ")}`);
+        } else {
+            warnings.push(`Trade plan invalid but cannot regenerate: ${reasons.join("; ")} (bars=${dailyBars.length}, price=${entryRef})`);
+        }
+    }
+
+    const updatedTp = signal.tradePlanJson as TradePlan;
+    if (signal.activationStatus === "ACTIVE" && signal.stopPrice != null && currentPrice > 0) {
+        const entryPrice = signal.entryPriceAtActivation ?? currentPrice;
+        if (checkInvalidation(currentPrice, updatedTp, entryPrice, signal.stopPrice)) {
+            invalidated = true;
+            invalidationReason = updatedTp.bias === "SELL"
+                ? `Price $${currentPrice.toFixed(2)} above stop $${signal.stopPrice.toFixed(2)}`
+                : `Price $${currentPrice.toFixed(2)} below stop $${signal.stopPrice.toFixed(2)}`;
+            warnings.push(`Signal invalidated: ${invalidationReason}`);
+            log(`[refresh] #${signal.id} INVALIDATED: ${invalidationReason}`, "refresh");
+
+            const nowIso = new Date().toISOString();
+            await storage.updateSignalActivation(signal.id, "INVALIDATED");
+            await storage.updateSignalInvalidation(signal.id, nowIso);
+            signal = { ...signal, activationStatus: "INVALIDATED", invalidationTs: nowIso };
+        }
+    }
 
     // fresh option price
     const optionTicker = signal.optionContractTicker;
