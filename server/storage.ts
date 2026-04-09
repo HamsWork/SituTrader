@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lt, sql, asc, count } from "drizzle-orm";
+import { eq, and, desc, gte, lt, lte, sql, asc, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
@@ -326,7 +326,7 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(signals.status, "pending"),
         eq(signals.activationStatus, "ACTIVE"),
-        lt(signals.targetDate, today)
+        lte(signals.targetDate, today)
       ))
       .orderBy(desc(signals.asofDate));
   }
