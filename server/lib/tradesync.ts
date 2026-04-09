@@ -106,6 +106,55 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   return payload;
 }
 
+const TRADESYNC_MAX_RETRIES = 3;
+const TRADESYNC_RETRY_BASE_MS = 2_000;
+const TRADESYNC_TIMEOUT_MS = 60_000;
+
+async function sendOnce(
+  payload: Record<string, any>,
+  ticker: string,
+): Promise<TradeSyncResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TRADESYNC_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${TRADESYNC_BASE_URL}/api/ingest/signals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (fetchErr: any) {
+    clearTimeout(timer);
+    if (fetchErr.name === "AbortError") {
+      return {
+        ok: false,
+        error: `TradeSync request timed out after ${TRADESYNC_TIMEOUT_MS}ms`,
+      };
+    }
+    return { ok: false, error: fetchErr.message || "Network error" };
+  }
+  clearTimeout(timer);
+
+  const body = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const msg = body?.message || `TradeSync API error (${res.status})`;
+    return { ok: false, error: msg };
+  }
+
+  const tradeSyncId = body?.id || body?.signal?.id || body?.signalId;
+  log(
+    `TradeSync: Signal accepted for ${ticker}, id=${tradeSyncId}`,
+    "tradesync",
+  );
+  return { ok: true, data: body };
+}
+
 export async function sendToTradeSync(
   signal: TradeSyncSignalData,
 ): Promise<TradeSyncResult> {
@@ -122,54 +171,54 @@ export async function sendToTradeSync(
     "tradesync",
   );
 
-  const TRADESYNC_TIMEOUT_MS = 60_000;
+  let lastResult: TradeSyncResult = { ok: false, error: "No attempts made" };
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TRADESYNC_TIMEOUT_MS);
-
-    let res: Response;
+  for (let attempt = 1; attempt <= TRADESYNC_MAX_RETRIES; attempt++) {
     try {
-      res = await fetch(`${TRADESYNC_BASE_URL}/api/ingest/signals`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } catch (fetchErr: any) {
-      clearTimeout(timer);
-      if (fetchErr.name === "AbortError") {
-        log(`TradeSync: Request timed out after ${TRADESYNC_TIMEOUT_MS}ms for ${signal.ticker}`, "tradesync");
-        return { ok: false, error: `TradeSync request timed out after ${TRADESYNC_TIMEOUT_MS}ms` };
+      lastResult = await sendOnce(payload, signal.ticker);
+
+      if (lastResult.ok) {
+        if (attempt > 1) {
+          log(
+            `TradeSync: Succeeded on attempt ${attempt}/${TRADESYNC_MAX_RETRIES} for ${signal.ticker}`,
+            "tradesync",
+          );
+        }
+        return lastResult;
       }
-      throw fetchErr;
+
+      log(
+        `TradeSync: Attempt ${attempt}/${TRADESYNC_MAX_RETRIES} failed for ${signal.ticker}: ${lastResult.error}`,
+        "tradesync",
+      );
+    } catch (err: any) {
+      lastResult = {
+        ok: false,
+        error: err.message || "Failed to reach TradeSync API",
+      };
+      log(
+        `TradeSync: Attempt ${attempt}/${TRADESYNC_MAX_RETRIES} error for ${signal.ticker}: ${lastResult.error}`,
+        "tradesync",
+      );
     }
-    clearTimeout(timer);
 
-    const body = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      const msg = body?.message || `TradeSync API error (${res.status})`;
-      log(`TradeSync: Send failed for ${signal.ticker}: ${msg}`, "tradesync");
-      return { ok: false, error: msg };
+    if (attempt < TRADESYNC_MAX_RETRIES) {
+      const delayMs =
+        TRADESYNC_RETRY_BASE_MS * Math.pow(2, attempt - 1) +
+        Math.floor(Math.random() * 1000);
+      log(
+        `TradeSync: Retrying ${signal.ticker} in ${delayMs}ms (attempt ${attempt + 1}/${TRADESYNC_MAX_RETRIES})`,
+        "tradesync",
+      );
+      await new Promise((r) => setTimeout(r, delayMs));
     }
-
-    const tradeSyncId = body?.id || body?.signal?.id || body?.signalId;
-    log(
-      `TradeSync: Signal accepted for ${signal.ticker}, id=${tradeSyncId}`,
-      "tradesync",
-    );
-    return { ok: true, data: body };
-  } catch (err: any) {
-    log(
-      `TradeSync: Network error sending ${signal.ticker}: ${err.message}`,
-      "tradesync",
-    );
-    return { ok: false, error: err.message || "Failed to reach TradeSync API" };
   }
+
+  log(
+    `TradeSync: All ${TRADESYNC_MAX_RETRIES} attempts failed for ${signal.ticker}: ${lastResult.error}`,
+    "tradesync",
+  );
+  return lastResult;
 }
 
 export async function fetchDiscordTemplates(): Promise<TradeSyncResult> {
