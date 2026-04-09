@@ -165,18 +165,44 @@ async function handlePostActivation(
             parseInt(
               (await storage.getSetting("ibkrDefaultQuantity")) || "1",
             ) || 1;
+
+          log(
+            `BTOD EXEC: Starting multi-instrument execution for signal ${sig.id} (${sig.ticker} ${sig.setupType} ${sig.direction} QS=${sig.qualityScore ?? 0} tier=${sig.tier ?? "?"}) entry=$${refreshedSig.entryPriceAtActivation ?? "?"} stop=$${refreshedSig.stopPrice ?? "?"} target=$${refreshedSig.magnetPrice ?? "?"}`,
+            "activation",
+          );
+
           const results = await executeBtodMultiInstrument(refreshedSig, qty, refreshResult.letfOptionContract, refreshResult.letfOptionMark);
           const successCount = results.filter((r) => r.success).length;
+          const failCount = results.length - successCount;
+
+          for (const r of results) {
+            if (r.success) {
+              log(
+                `BTOD EXEC: ✅ ${r.instrumentType} ${r.ticker ?? sig.ticker} — entry=$${r.entry?.toFixed(2) ?? "?"} stop=$${r.targets?.stop?.toFixed(2) ?? "?"} t1=$${r.targets?.t1?.toFixed(2) ?? "?"} t2=$${r.targets?.t2?.toFixed(2) ?? "?"} delta=${r.delta?.toFixed(3) ?? "n/a"} leverage=${r.leverage ?? 1} ts_id=${r.tradesyncSignalId ?? "none"}`,
+                "activation",
+              );
+            } else {
+              log(
+                `BTOD EXEC: ❌ ${r.instrumentType} ${r.ticker ?? sig.ticker} — error: ${r.error}`,
+                "activation",
+              );
+            }
+          }
+
           log(
-            `BTOD: Multi-instrument execution for signal ${sig.id}: ${successCount}/${results.length} instruments spawned`,
+            `BTOD EXEC: Signal ${sig.id} (${sig.ticker}) result: ${successCount} succeeded, ${failCount} failed out of ${results.length} instruments`,
             "activation",
           );
 
           if (results.length > 0 && successCount > 0) {
             await onBtodTradeExecuted(sig.id);
+            log(
+              `BTOD EXEC: trades_executed incremented for signal ${sig.id} (${sig.ticker})`,
+              "activation",
+            );
           } else {
             log(
-              `BTOD: No successful instruments for signal ${sig.id} — skipping onBtodTradeExecuted`,
+              `BTOD EXEC: No successful instruments for signal ${sig.id} (${sig.ticker}) — skipping onBtodTradeExecuted`,
               "activation",
             );
           }
