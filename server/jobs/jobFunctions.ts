@@ -62,8 +62,9 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
 
     log(`AfterClose: Scanning ${tickersToScan.length} tickers...`, "scheduler");
 
-    // validate hit or miss
+    // validate hit or miss for on-deck signals (NOT_ACTIVE with today's target date)
     const onDeckSignals = await storage.getOnDeckSignals();
+    let resolvedCount = 0;
     for (const sig of onDeckSignals) {
       const intradayBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
       const validateResult = validateMagnetTouch(
@@ -71,14 +72,25 @@ export async function runAfterCloseScan(): Promise<ScanSummary> {
         sig.magnetPrice,
         sig.direction,
       );
-      let status = "pending";
-      if (validateResult.hit) {
-        sig.status = "hit";
-      } else {
-        sig.status = "miss";
-      }
-      await storage.updateSignalStatus(sig.id, status, undefined, validateResult.hit ? "MAGNET_TOUCHED" : "MAGNET_NOT_TOUCHED");
+      const resolvedStatus = validateResult.hit ? "hit" : "miss";
+      await storage.updateSignalStatus(sig.id, resolvedStatus, validateResult.hitTs, validateResult.hit ? "MAGNET_TOUCHED" : "MAGNET_NOT_TOUCHED");
+      resolvedCount++;
     }
+
+    // validate hit or miss for ACTIVE signals whose target date has passed
+    const unresolvedActive = await storage.getUnresolvedActiveSignals(today);
+    for (const sig of unresolvedActive) {
+      const intradayBars = await fetchIntradayBarsCached(sig.ticker, sig.targetDate, sig.targetDate, timeframe);
+      const validateResult = validateMagnetTouch(
+        intradayBars.map((b) => ({ ts: new Date(b.t).toISOString(), high: b.h, low: b.l })),
+        sig.magnetPrice,
+        sig.direction,
+      );
+      const resolvedStatus = validateResult.hit ? "hit" : "miss";
+      await storage.updateSignalStatus(sig.id, resolvedStatus, validateResult.hitTs, validateResult.hit ? "MAGNET_TOUCHED" : "MAGNET_NOT_TOUCHED");
+      resolvedCount++;
+    }
+    log(`AfterClose: Resolved ${resolvedCount} signals (${onDeckSignals.length} on-deck + ${unresolvedActive.length} active)`, "scheduler");
 
     const scanConfig: ScanTickerConfig = {
       setups: ["A", "B", "D", "E", "F"],

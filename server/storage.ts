@@ -42,6 +42,7 @@ export interface IStorage {
   getSignalById(id: number): Promise<Signal | null>;
   getSignals(ticker?: string, limit?: number): Promise<Signal[]>;
   getActiveSignals(): Promise<Signal[]>;
+  getUnresolvedActiveSignals(today: string): Promise<Signal[]>;
   getAlertEligibleSignals(): Promise<Signal[]>;
   updateSignalStatus(id: number, status: string, hitTs?: string, missReason?: string): Promise<void>;
   updateSignalAlert(id: number, alertState: string, nextEligibleAt: string | null): Promise<void>;
@@ -317,6 +318,16 @@ export class DatabaseStorage implements IStorage {
   async getOnDeckSignals(): Promise<Signal[]> {
     return db.select().from(signals)
       .where(and(eq(signals.status, "pending"), eq(signals.activationStatus, "NOT_ACTIVE")))
+      .orderBy(desc(signals.asofDate));
+  }
+
+  async getUnresolvedActiveSignals(today: string): Promise<Signal[]> {
+    return db.select().from(signals)
+      .where(and(
+        eq(signals.status, "pending"),
+        eq(signals.activationStatus, "ACTIVE"),
+        lt(signals.targetDate, today)
+      ))
       .orderBy(desc(signals.asofDate));
   }
 
