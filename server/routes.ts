@@ -4844,6 +4844,55 @@ export async function registerRoutes(
         }
       }
 
+      const tsLogs = await storage.getTradesyncLogs({ limit: 500 });
+      const tsLogsBySignal = new Map<number, typeof tsLogs>();
+      for (const tl of tsLogs) {
+        const arr = tsLogsBySignal.get(tl.signalId) ?? [];
+        arr.push(tl);
+        tsLogsBySignal.set(tl.signalId, arr);
+      }
+
+      for (const [sigId, logs] of tsLogsBySignal) {
+        const successLogs = logs.filter(l => l.success);
+        const failLogs = logs.filter(l => !l.success);
+        const firstLog = logs[logs.length - 1];
+        const ticker = firstLog.ticker;
+        const instruments = logs.map(l => l.instrumentType);
+        const uniqueInstruments = [...new Set(instruments)];
+
+        const sig = recentSignals.find(s => s.id === sigId);
+
+        activities.push({
+          id: `btod-exec-${sigId}`,
+          type: "btod_exec",
+          timestamp: firstLog.createdAt ? new Date(firstLog.createdAt).toISOString() : new Date().toISOString(),
+          ticker,
+          title: `${ticker} BTOD Exec — ${successLogs.length}/${logs.length} sent`,
+          detail: `[${uniqueInstruments.join(', ')}] | ${successLogs.length > 0 ? 'ts_ids: ' + successLogs.map(l => l.tradesyncSignalId).join(', ') : ''} ${failLogs.length > 0 ? '| Errors: ' + failLogs.map(l => l.errorMessage).join('; ') : ''}`.trim(),
+          meta: {
+            signalId: sigId,
+            setupType: sig?.setupType,
+            direction: sig?.direction,
+            qualityScore: sig?.qualityScore,
+            tier: sig?.tier,
+            successCount: successLogs.length,
+            failCount: failLogs.length,
+            instruments: logs.map(l => ({
+              type: l.instrumentType,
+              success: l.success,
+              entry: l.entryPrice,
+              stop: l.stopPrice,
+              t1: l.target1Price,
+              t2: l.target2Price,
+              delta: l.delta,
+              durationMs: l.durationMs,
+              tsId: l.tradesyncSignalId,
+              error: l.errorMessage,
+            })),
+          },
+        });
+      }
+
       activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       const typeCounts: Record<string, number> = {};

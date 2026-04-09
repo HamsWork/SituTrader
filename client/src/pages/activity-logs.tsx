@@ -28,6 +28,10 @@ import {
   ArrowUpCircle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Rocket,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 interface ActivityItem {
@@ -61,6 +65,7 @@ const typeConfig: Record<string, { label: string; icon: any; color: string; bgCo
   trade_closed: { label: "Trade Closed", icon: TrendingUp, color: "text-amber-400", bgColor: "bg-amber-500/10 border-amber-500/20" },
   discord: { label: "Discord", icon: Send, color: "text-indigo-400", bgColor: "bg-indigo-500/10 border-indigo-500/20" },
   btod: { label: "BTOD", icon: Trophy, color: "text-orange-400", bgColor: "bg-orange-500/10 border-orange-500/20" },
+  btod_exec: { label: "BTOD Exec", icon: Rocket, color: "text-yellow-400", bgColor: "bg-yellow-500/10 border-yellow-500/20" },
 };
 
 function formatTimestamp(ts: string): { time: string; date: string } {
@@ -81,6 +86,16 @@ export default function ActivityLogsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState("");
   const [page, setPage] = useState(1);
+  const [expandedExecs, setExpandedExecs] = useState<Set<string>>(new Set());
+
+  function toggleExec(id: string) {
+    setExpandedExecs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const { data, isLoading, isError, refetch } = useQuery<FeedResponse>({
     queryKey: ["/api/activity-feed", typeFilter !== "all" ? typeFilter : "", page],
@@ -207,58 +222,125 @@ export default function ActivityLogsPage() {
                   const { time, date } = formatTimestamp(item.timestamp);
                   const pnlPct = item.meta?.pnlPct;
                   const rMultiple = item.meta?.rMultiple;
+                  const isBtodExec = item.type === "btod_exec";
+                  const isExpanded = expandedExecs.has(item.id);
+                  const instruments = (item.meta?.instruments ?? []) as Array<{
+                    type: string; success: boolean; entry?: number; stop?: number;
+                    t1?: number; t2?: number; delta?: number; durationMs?: number;
+                    tsId?: number; error?: string;
+                  }>;
 
                   return (
-                    <div
-                      key={item.id}
-                      className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
-                      data-testid={`activity-${item.id}`}
-                    >
-                      <div className={`mt-0.5 p-1.5 rounded-md ${cfg.bgColor}`}>
-                        <Icon className={`w-3.5 h-3.5 ${cfg.color}`} />
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm">{item.ticker}</span>
-                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${cfg.bgColor} ${cfg.color}`}>
-                            {cfg.label}
-                          </Badge>
-                          {item.meta?.tier && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
-                              {item.meta.tier}
-                            </Badge>
-                          )}
-                          {item.meta?.setupType && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-                              Setup {item.meta.setupType}
-                            </Badge>
-                          )}
-                          {pnlPct != null && (
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] px-1.5 py-0 h-4 ${
-                                pnlPct >= 0
-                                  ? "bg-green-500/10 text-green-400 border-green-500/20"
-                                  : "bg-red-500/10 text-red-400 border-red-500/20"
-                              }`}
-                            >
-                              {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%
-                            </Badge>
-                          )}
-                          {rMultiple != null && (
-                            <span className={`text-[10px] ${rMultiple >= 0 ? "text-green-400" : "text-red-400"}`}>
-                              {rMultiple >= 0 ? "+" : ""}{rMultiple.toFixed(2)}R
-                            </span>
-                          )}
+                    <div key={item.id} data-testid={`activity-${item.id}`}>
+                      <div
+                        className={`flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors ${isBtodExec ? "cursor-pointer" : ""}`}
+                        onClick={isBtodExec ? () => toggleExec(item.id) : undefined}
+                      >
+                        <div className={`mt-0.5 p-1.5 rounded-md ${cfg.bgColor}`}>
+                          <Icon className={`w-3.5 h-3.5 ${cfg.color}`} />
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</p>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm">{item.ticker}</span>
+                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${cfg.bgColor} ${cfg.color}`}>
+                              {cfg.label}
+                            </Badge>
+                            {item.meta?.tier && (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                                {item.meta.tier}
+                              </Badge>
+                            )}
+                            {item.meta?.setupType && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                                Setup {item.meta.setupType}
+                              </Badge>
+                            )}
+                            {isBtodExec && item.meta?.successCount != null && (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 h-4 ${
+                                  item.meta.failCount === 0
+                                    ? "bg-green-500/10 text-green-400 border-green-500/20"
+                                    : item.meta.successCount === 0
+                                    ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                    : "bg-yellow-500/10 text-yellow-400 border-yellow-500/20"
+                                }`}
+                              >
+                                {item.meta.successCount}/{item.meta.successCount + item.meta.failCount} sent
+                              </Badge>
+                            )}
+                            {pnlPct != null && (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 h-4 ${
+                                  pnlPct >= 0
+                                    ? "bg-green-500/10 text-green-400 border-green-500/20"
+                                    : "bg-red-500/10 text-red-400 border-red-500/20"
+                                }`}
+                              >
+                                {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%
+                              </Badge>
+                            )}
+                            {rMultiple != null && (
+                              <span className={`text-[10px] ${rMultiple >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {rMultiple >= 0 ? "+" : ""}{rMultiple.toFixed(2)}R
+                              </span>
+                            )}
+                            {isBtodExec && instruments.length > 0 && (
+                              <ChevronDown className={`w-3 h-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{item.detail}</p>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <div className="text-xs text-muted-foreground">{time} <span className="text-[9px] text-muted-foreground/50">CT</span></div>
+                          <div className="text-[10px] text-muted-foreground/60">{date}</div>
+                        </div>
                       </div>
 
-                      <div className="text-right shrink-0">
-                        <div className="text-xs text-muted-foreground">{time} <span className="text-[9px] text-muted-foreground/50">CT</span></div>
-                        <div className="text-[10px] text-muted-foreground/60">{date}</div>
-                      </div>
+                      {isBtodExec && isExpanded && instruments.length > 0 && (
+                        <div className="ml-12 mr-4 mb-3 rounded-lg border border-border/50 overflow-hidden" data-testid={`exec-detail-${item.id}`}>
+                          <div className="grid grid-cols-[100px_1fr_80px_80px_80px_70px_70px_60px] gap-0 text-[10px] font-medium text-muted-foreground bg-muted/30 px-3 py-1.5 border-b border-border/30">
+                            <span>Instrument</span>
+                            <span>Status</span>
+                            <span className="text-right">Entry</span>
+                            <span className="text-right">Stop</span>
+                            <span className="text-right">T1</span>
+                            <span className="text-right">Delta</span>
+                            <span className="text-right">TS ID</span>
+                            <span className="text-right">Time</span>
+                          </div>
+                          {instruments.map((inst, idx) => (
+                            <div
+                              key={idx}
+                              className={`grid grid-cols-[100px_1fr_80px_80px_80px_70px_70px_60px] gap-0 text-xs px-3 py-2 border-b border-border/20 last:border-b-0 ${
+                                inst.success ? "bg-green-500/5" : "bg-red-500/5"
+                              }`}
+                              data-testid={`exec-instrument-${item.id}-${idx}`}
+                            >
+                              <span className="font-medium flex items-center gap-1">
+                                {inst.success ? (
+                                  <CheckCircle2 className="w-3 h-3 text-green-400" />
+                                ) : (
+                                  <XCircle className="w-3 h-3 text-red-400" />
+                                )}
+                                {inst.type}
+                              </span>
+                              <span className={inst.success ? "text-green-400" : "text-red-400"}>
+                                {inst.success ? "Sent" : inst.error || "Failed"}
+                              </span>
+                              <span className="text-right font-mono">{inst.entry != null ? `$${inst.entry.toFixed(2)}` : "—"}</span>
+                              <span className="text-right font-mono">{inst.stop != null ? `$${inst.stop.toFixed(2)}` : "—"}</span>
+                              <span className="text-right font-mono">{inst.t1 != null ? `$${inst.t1.toFixed(2)}` : "—"}</span>
+                              <span className="text-right font-mono">{inst.delta != null ? inst.delta.toFixed(3) : "—"}</span>
+                              <span className="text-right font-mono">{inst.tsId ?? "—"}</span>
+                              <span className="text-right text-muted-foreground">{inst.durationMs != null ? `${(inst.durationMs / 1000).toFixed(1)}s` : "—"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
