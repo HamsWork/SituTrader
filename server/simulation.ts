@@ -598,7 +598,7 @@ export async function simulateAllTradeTracking(
         const letfOptStop_dist = Math.abs(letfStop - letfEntryPrice);
         const letfOptT1_dist = Math.abs(letfT1 - letfEntryPrice);
 
-        const letfContractType = letfIsBuy ? "call" as const : "put" as const;
+        const letfContractType = "call" as const;
         const letfMinExp = activationDate;
         const letfMaxExpD = new Date(activationDate);
         letfMaxExpD.setDate(letfMaxExpD.getDate() + 14);

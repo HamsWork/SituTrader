@@ -351,8 +351,8 @@ export async function findLetfOptionContract(
       "./polygon"
     );
 
-    const contractType: "call" | "put" = bias === "BUY" ? "call" : "put";
-    const right: "C" | "P" = bias === "BUY" ? "C" : "P";
+    const contractType: "call" | "put" = "call";
+    const right: "C" | "P" = "C";
 
     const now = new Date();
     const minExpDate = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000)
