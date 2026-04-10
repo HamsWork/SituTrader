@@ -124,13 +124,15 @@ async function sendOnce(
     return { ok: false, error: fetchErr.message || "Network error" };
   }
 
+  
+
   const body = await res.json().catch(() => null);
 
   if (!res.ok) {
     const msg = body?.message || `TradeSync API error (${res.status})`;
     return { ok: false, error: msg };
   }
-
+  
   const tradeSyncId = body?.id || body?.signal?.id || body?.signalId;
   log(
     `TradeSync: Signal accepted for ${ticker}, id=${tradeSyncId}`,
