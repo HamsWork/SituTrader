@@ -1058,14 +1058,14 @@ function BtodStatusPanel() {
               )}
             </div>
 
-            {data.selectedSignalId && (
+            {((data.executedSignalIds as number[] | undefined) ?? []).length > 0 && (
               <div className="flex items-center gap-2 text-xs bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-1.5" data-testid="text-btod-selected">
                 <Crosshair className="w-3.5 h-3.5 text-emerald-600" />
                 <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                  Selected: Signal #{data.selectedSignalId}
-                  {data.rankedQueue?.find((r: any) => r.signalId === data.selectedSignalId)
-                    ? ` (${data.rankedQueue.find((r: any) => r.signalId === data.selectedSignalId)?.ticker} QS=${data.rankedQueue.find((r: any) => r.signalId === data.selectedSignalId)?.qualityScore})`
-                    : ""}
+                  Executed: {((data.executedSignalIds as number[]) ?? []).map((sid: number) => {
+                    const match = data.rankedQueue?.find((r: any) => r.signalId === sid);
+                    return `#${sid}${match ? ` (${match.ticker} QS=${match.qualityScore})` : ""}`;
+                  }).join(", ")}
                 </span>
               </div>
             )}
@@ -1080,7 +1080,7 @@ function BtodStatusPanel() {
                       className={`flex items-center justify-between text-xs px-2 py-1 rounded ${
                         entry.isTop3
                           ? "bg-amber-500/10 border border-amber-500/20"
-                          : data.selectedSignalId === entry.signalId
+                          : ((data.executedSignalIds as number[] | undefined) ?? []).includes(entry.signalId)
                             ? "bg-emerald-500/10 border border-emerald-500/20"
                             : "bg-muted/30"
                       }`}

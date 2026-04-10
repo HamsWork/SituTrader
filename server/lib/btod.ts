@@ -52,7 +52,7 @@ const SELECTIVE_END_MINUTES = 10 * 60;
 /** Highest-ranked signals allowed during BTOD SELECTIVE phase (persisted as `top3Ids` in schema). */
 export const BTOD_TOP_N = 15;
 
-/** Max BTOD auto-trades per session (`selectedSignalId` / `secondSignalId` support up to two). */
+/** Max BTOD auto-trades per session (tracked via `executedSignalIds` array). */
 export const BTOD_MAX_TRADES = 3;
 
 export function rankOnDeckSignals(
@@ -248,19 +248,21 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
     ? [...prevTickers, ticker]
     : prevTickers;
 
+  const prevSignalIds = (state.executedSignalIds ?? []) as number[];
+  const newSignalIds = prevSignalIds.includes(signalId)
+    ? prevSignalIds
+    : [...prevSignalIds, signalId];
+
   const updates: any = {
     tradeDate,
     tradesExecuted: newCount,
     gateOpen: newCount < BTOD_MAX_TRADES,
     executedTickers: newTickers,
+    executedSignalIds: newSignalIds,
+    selectedSignalId: newSignalIds[0] ?? null,
+    secondSignalId: newSignalIds.length > 1 ? newSignalIds[newSignalIds.length - 1] : null,
     updatedAt: new Date(),
   };
-
-  if (!state.selectedSignalId) {
-    updates.selectedSignalId = signalId;
-  } else {
-    updates.secondSignalId = signalId;
-  }
 
   await storage.upsertBtodState(updates);
   log(
@@ -277,9 +279,10 @@ export async function transitionToOpenPhase(): Promise<void> {
     return;
   }
 
-  if (state.selectedSignalId) {
+  const executedIds = (state.executedSignalIds ?? []) as number[];
+  if (executedIds.length > 0) {
     log(
-      "BTOD: Trade already selected before 10am CT, skipping transition",
+      "BTOD: Trade already executed before 10am CT, skipping transition",
       "btod",
     );
     return;

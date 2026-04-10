@@ -174,7 +174,8 @@ export async function initScheduler() {
           const { isSelectivePhaseOver, transitionToOpenPhase, getBtodStatus } = await import("../lib/btod");
           if (isSelectivePhaseOver()) {
             const btodStatus = await getBtodStatus();
-            if (btodStatus && btodStatus.phase === "SELECTIVE" && !btodStatus.selectedSignalId) {
+            const executedIds = (btodStatus?.executedSignalIds ?? []) as number[];
+            if (btodStatus && btodStatus.phase === "SELECTIVE" && executedIds.length === 0) {
               await transitionToOpenPhase();
             }
           }

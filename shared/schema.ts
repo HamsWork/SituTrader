@@ -688,6 +688,7 @@ export const btodState = pgTable("btod_state", {
   top3Ids: jsonb("top3_ids").notNull().default([]),
   selectedSignalId: integer("selected_signal_id"),
   secondSignalId: integer("second_signal_id"),
+  executedSignalIds: jsonb("executed_signal_ids").notNull().default([]),
   gateOpen: boolean("gate_open").notNull().default(true),
   tradesExecuted: integer("trades_executed").notNull().default(0),
   executedTickers: jsonb("executed_tickers").notNull().default([]),
