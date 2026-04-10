@@ -552,9 +552,9 @@ export async function simulateAllTradeTracking(
 
   const { selectBestLeveragedEtf } = await import("./lib/leveragedEtf");
   const letfJson = sig.leveragedEtfJson as import("@shared/schema").LeveragedEtfSuggestion | null;
-  let letfTicker = sig.instrumentTicker ?? letfJson?.ticker ?? null;
+  let letfTicker = letfJson?.ticker ?? null;
   let letfLeverage = letfJson?.leverage ?? null;
-  let letfEntryPrice = sig.instrumentEntryPrice ?? null;
+  let letfEntryPrice = null;
 
   if (!letfTicker) {
     const suggestion = await selectBestLeveragedEtf(sig.ticker, isBuy ? "BUY" : "SELL");
