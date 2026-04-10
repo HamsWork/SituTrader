@@ -348,8 +348,12 @@ export function buildTradeSyncPayloadFromSignal(
   const mappedInstrument = instrumentTypeMap[instrumentType] || instrumentType;
 
   let direction: string;
-  if (instrumentType === "OPTION" || instrumentType === "LETF_OPTIONS") {
+  if (instrumentType === "OPTION") {
     direction = isBuy ? "Call" : "Put";
+  } else if (instrumentType === "LETF_OPTIONS") {
+    direction = "Call";
+  } else if (instrumentType === "LEVERAGED_ETF") {
+    direction = "Long";
   } else {
     direction = isBuy ? "Long" : "Short";
   }

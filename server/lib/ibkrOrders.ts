@@ -50,7 +50,7 @@ export function convertStockTargetsToInstrument(
     };
   }
 
-  if (instrumentType === "LEVERAGED_ETF" && leverage > 0 && stockEntry > 0) {
+  if (instrumentType === "LEVERAGED_ETF" && leverage !== 0 && stockEntry > 0) {
     const t1 =
       stockT1 != null
         ? instrumentEntry *
@@ -77,7 +77,7 @@ export function convertStockTargetsToInstrument(
     instrumentType === "LETF_OPTIONS" &&
     delta != null &&
     Math.abs(delta) > 0 &&
-    leverage > 0 &&
+    leverage !== 0 &&
     stockEntry > 0
   ) {
     const effectiveDelta = leverage * delta;

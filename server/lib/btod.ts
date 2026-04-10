@@ -794,7 +794,7 @@ export async function executeBtodMultiInstrument(
           storage.createTradesyncLog({
             ...tsLogData,
             success: true,
-            tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : null,
+            tradesyncSignalId: tradeSyncId && !isNaN(Number(tradeSyncId)) ? Number(tradeSyncId) : null,
             errorMessage: null,
             responseJson: tsResult.data ?? null,
           }),
@@ -808,7 +808,7 @@ export async function executeBtodMultiInstrument(
             ticker: signal.ticker,
             instrumentType: inst.type,
             instrumentTicker: inst.ticker ?? signal.ticker,
-            side: action,
+            side: (inst.type === "LEVERAGED_ETF" || inst.type === "LETF_OPTIONS") ? "BUY" : action,
             quantity: qty,
             originalQuantity: qty,
             remainingQuantity: qty,
@@ -817,7 +817,7 @@ export async function executeBtodMultiInstrument(
             target1Price: tradeTarget1 ?? undefined,
             target2Price: tradeTarget2 ?? undefined,
             status: "SUBMITTED",
-            tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined,
+            tradesyncSignalId: tradeSyncId && !isNaN(Number(tradeSyncId)) ? Number(tradeSyncId) : undefined,
             detailsJson: {
               entryUnderlyingPrice: stockEntry,
               optionExpiry: optionExpiry ?? null,
