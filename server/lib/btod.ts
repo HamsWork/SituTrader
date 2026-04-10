@@ -430,10 +430,13 @@ export async function findLetfOptionContract(
           bestByOI = { contract, snapshot };
         }
 
+        const mark = bid > 0 && ask > 0
+          ? (bid + ask) / 2
+          : (snapshot.lastTradePrice ?? snapshot.dayClose ?? 0);
+
         if (oi >= MIN_OI && spread <= MAX_SPREAD) {
-          const mark = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
           log(
-            `BTOD: Found LETF option contract ${contract.ticker} — strike ${contract.strike_price}, OI ${oi}, spread ${(spread * 100).toFixed(1)}%, delta ${snapshot.delta?.toFixed(3) ?? "?"}`,
+            `BTOD: Found LETF option contract ${contract.ticker} — strike ${contract.strike_price}, OI ${oi}, spread ${(spread * 100).toFixed(1)}%, delta ${snapshot.delta?.toFixed(3) ?? "?"}, mark $${mark.toFixed(2)}`,
             "btod",
           );
           return {
@@ -457,9 +460,11 @@ export async function findLetfOptionContract(
       const s = bestByOI.snapshot;
       const bid = s.bid ?? 0;
       const ask = s.ask ?? 0;
-      const mark = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+      const mark = bid > 0 && ask > 0
+        ? (bid + ask) / 2
+        : (s.lastTradePrice ?? s.dayClose ?? 0);
       log(
-        `BTOD: Using best-available LETF option ${bestByOI.contract.ticker} (OI ${s.openInterest ?? 0}, fallback)`,
+        `BTOD: Using best-available LETF option ${bestByOI.contract.ticker} (OI ${s.openInterest ?? 0}, mark $${mark.toFixed(2)}, fallback)`,
         "btod",
       );
       return {
@@ -655,12 +660,15 @@ export async function executeBtodMultiInstrument(
         const letfSnap = await fetchOptionSnapshot(letfUnderlying, letfOptionContract.contractTicker);
         if (letfSnap?.delta != null) {
           delta = letfSnap.delta;
-          if (letfSnap.bid != null && letfSnap.ask != null) {
-            const freshMark = (letfSnap.bid + letfSnap.ask) / 2;
-            if (freshMark > 0) instrumentEntry = freshMark;
-          }
+          const bidAskMark = (letfSnap.bid ?? 0) > 0 && (letfSnap.ask ?? 0) > 0
+            ? ((letfSnap.bid! + letfSnap.ask!) / 2)
+            : 0;
+          const freshMark = bidAskMark > 0
+            ? bidAskMark
+            : (letfSnap.lastTradePrice ?? letfSnap.dayClose ?? 0);
+          if (freshMark > 0) instrumentEntry = freshMark;
           log(
-            `BTOD: Fresh LETF option snapshot ${letfOptionContract.contractTicker}: delta=${delta!.toFixed(3)} mark=$${instrumentEntry.toFixed(2)}`,
+            `BTOD: Fresh LETF option snapshot ${letfOptionContract.contractTicker}: delta=${delta!.toFixed(3)} mark=$${instrumentEntry.toFixed(2)}${bidAskMark <= 0 ? ' (lastTrade/dayClose fallback)' : ''}`,
             "btod",
           );
         } else {

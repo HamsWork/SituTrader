@@ -463,6 +463,8 @@ export async function fetchOptionSnapshot(
   volume: number | null;
   impliedVol: number | null;
   delta: number | null;
+  lastTradePrice: number | null;
+  dayClose: number | null;
 } | null> {
   try {
     const encoded = encodeURIComponent(contractSymbol);
@@ -478,6 +480,8 @@ export async function fetchOptionSnapshot(
       volume: r.day?.volume ?? null,
       impliedVol: r.implied_volatility ?? null,
       delta: r.greeks?.delta ?? null,
+      lastTradePrice: r.last_trade?.price ?? null,
+      dayClose: r.day?.close ?? null,
     };
   } catch (err: any) {
     log(
