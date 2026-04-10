@@ -1198,6 +1198,12 @@ export default function Dashboard() {
     refetchInterval: 60000,
   });
 
+  const { data: btodStatus } = useQuery<any>({
+    queryKey: ["/api/btod/status"],
+    refetchInterval: 30000,
+  });
+  const btodExecutedIds = new Set<number>((btodStatus?.executedSignalIds ?? []) as number[]);
+
   const activateProfile = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/profiles/${id}/activate`),
     onSuccess: () => {
@@ -1381,6 +1387,9 @@ export default function Dashboard() {
   const tradeNowSignals = (showAll ? allActiveSignals : allActiveSignals.filter(s => passesProfile(s, activeProfile)))
     .filter(qFilter)
     .sort((a, b) => {
+      const aBtod = btodExecutedIds.has(a.id) ? 0 : 1;
+      const bBtod = btodExecutedIds.has(b.id) ? 0 : 1;
+      if (aBtod !== bBtod) return aBtod - bBtod;
       const tierDiff = (TIER_ORDER[a.tier] ?? 3) - (TIER_ORDER[b.tier] ?? 3);
       if (tierDiff !== 0) return tierDiff;
       const qualDiff = b.qualityScore - a.qualityScore;
