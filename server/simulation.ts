@@ -594,50 +594,43 @@ export async function simulateAllTradeTracking(
       results.push(runNormalTrack("LETF", letfEntryPrice, letfStop, letfT1, letfT2, letfIsBuy, letfBars, actTs));
 
       try {
-        const letfOptDelta = 0.5;
-        const letfOptStop_dist = Math.abs(letfStop - letfEntryPrice);
-        const letfOptT1_dist = Math.abs(letfT1 - letfEntryPrice);
+        const { findLetfOptionContract } = await import("./lib/btod");
+        const { convertStockTargetsToInstrument } = await import("./lib/ibkrOrders");
 
-        const letfContractType = "call" as const;
-        const letfMinExp = activationDate;
-        const letfMaxExpD = new Date(activationDate);
-        letfMaxExpD.setDate(letfMaxExpD.getDate() + 14);
-        const letfMaxExp = letfMaxExpD.toISOString().slice(0, 10);
+        const letfOptAction: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
+        ctx.emit("log", { message: `[LETF Options] Finding ATM call contract for ${letfTicker} @ $${letfEntryPrice!.toFixed(2)}`, type: "info" });
 
-        ctx.emit("log", { message: `[LETF Options] Fetching ${letfContractType} contracts for ${letfTicker} (${letfMinExp} to ${letfMaxExp})`, type: "info" });
+        const letfOptContract = await findLetfOptionContract(letfTicker!, letfOptAction, letfEntryPrice!);
 
-        const letfContracts = await fetchOptionsChainManually(
-          letfTicker, letfContractType, letfMinExp, letfMaxExp, 50, letfEntryPrice
-        );
-
-        if (letfContracts.length === 0) {
-          ctx.emit("log", { message: `[LETF Options] No contracts found for ${letfTicker} — skipping`, type: "info" });
+        if (!letfOptContract || letfOptContract.markPrice <= 0) {
+          ctx.emit("log", { message: `[LETF Options] No valid contract found for ${letfTicker} — skipping`, type: "info" });
         } else {
-          const letfSorted = [...letfContracts]
-            .sort((a, b) => Math.abs(a.strike_price - letfEntryPrice!) - Math.abs(b.strike_price - letfEntryPrice!));
+          const letfOptContractUsed = letfOptContract.contractTicker;
+          const letfOptDelta = letfOptContract.delta ?? 0.5;
+          const effectiveDelta = leverage * letfOptDelta;
 
-          ctx.emit("log", { message: `[LETF Options] Found ${letfContracts.length} contracts, trying top ${Math.min(3, letfSorted.length)} for bars`, type: "info" });
+          ctx.emit("log", { message: `[LETF Options] Contract: ${letfOptContractUsed} strike=$${letfOptContract.strike} delta=${letfOptDelta.toFixed(3)} effectiveDelta=${effectiveDelta.toFixed(3)}`, type: "info" });
 
-          let letfOptBars: import("./lib/polygon").PolygonBar[] = [];
-          let letfOptContractUsed = "";
-          for (const contract of letfSorted.slice(0, 3)) {
-            const sym = contract.ticker;
-            const bars = await fetchIntradayBars(sym, activationDate, ctx.config.endDate, "1");
-            if (bars.length > 0) {
-              letfOptBars = bars;
-              letfOptContractUsed = sym;
-              break;
-            }
-          }
+          const letfOptBars = await fetchIntradayBars(letfOptContractUsed, activationDate, ctx.config.endDate, "1");
 
           if (letfOptBars.length > 0) {
             const letfOptEntryBar = actTs
               ? letfOptBars.find(b => b.t >= actTs) ?? letfOptBars[0]
               : letfOptBars[0];
             const letfOptEntry = (letfOptEntryBar.o + letfOptEntryBar.c) / 2;
-            const letfOptStop = Math.max(0, letfOptEntry - letfOptDelta * letfOptStop_dist);
-            const letfOptT1 = letfOptEntry + letfOptDelta * letfOptT1_dist;
-            const letfOptT2 = letfT2 != null ? letfOptEntry + letfOptDelta * Math.abs(letfT2 - letfEntryPrice!) : null;
+
+            const stockT1 = tp?.t1 ?? sig.magnetPrice;
+            const stockT2 = tp?.t2 ?? null;
+            const stockStop = sig.stopPrice ?? adjustedStop;
+
+            const converted = convertStockTargetsToInstrument(
+              entryPrice, letfOptEntry, stockT1, stockT2, stockStop,
+              letfOptDelta, leverage, "LETF_OPTIONS"
+            );
+
+            const letfOptStop = converted.stop ?? Math.max(0.01, letfOptEntry * 0.5);
+            const letfOptT1 = converted.t1 ?? letfOptEntry * 1.5;
+            const letfOptT2 = converted.t2 ?? null;
 
             ctx.emit("log", { message: `[LETF Options] ${letfOptContractUsed}: entry=$${letfOptEntry.toFixed(2)} stop=$${letfOptStop.toFixed(2)} t1=$${letfOptT1.toFixed(2)}`, type: "success" });
 
@@ -645,7 +638,7 @@ export async function simulateAllTradeTracking(
             results.push(runTenPercentTrack("LETF Options", letfOptEntry, letfOptStop, true, letfOptBars, actTs));
             results.push(runNormalTrack("LETF Options", letfOptEntry, letfOptStop, letfOptT1, letfOptT2, true, letfOptBars, actTs));
           } else {
-            ctx.emit("log", { message: `[LETF Options] No bars found for any ${letfTicker} option contract — skipping`, type: "info" });
+            ctx.emit("log", { message: `[LETF Options] No bars found for ${letfOptContractUsed} — skipping`, type: "info" });
           }
         }
       } catch (letfOptErr: any) {
