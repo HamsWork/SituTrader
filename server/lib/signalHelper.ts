@@ -1,14 +1,36 @@
-import type { Signal, TradePlan, DailyBar, SetupType, IntradayBar } from "@shared/schema";
+import type {
+    Signal,
+    TradePlan,
+    DailyBar,
+    SetupType,
+    IntradayBar,
+} from "@shared/schema";
 import { storage } from "../storage";
 import { detectAllSetups, type SetupResult } from "./rules";
 import { computeConfidence, computeATR, computeAvgVolume } from "./confidence";
-import { computeQualityScore, qualityScoreToTier, computeAvgDollarVolume } from "./quality";
+import {
+    computeQualityScore,
+    qualityScoreToTier,
+    computeAvgDollarVolume,
+} from "./quality";
 import { generateTradePlan } from "./tradeplan";
 import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
-import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar, fetchSnapshot, fetchOptionLastTrade } from "./polygon";
+import {
+    fetchDailyBarsCached,
+    fetchDailyBarsFromPolygon,
+    fetchIntradayBars,
+    fetchIntradayBarsCached,
+    PolygonBar,
+    fetchSnapshot,
+    fetchOptionLastTrade,
+} from "./polygon";
 import { enrichOptionData } from "./options";
 import { findLetfOptionContract, type LetfOptionContractResult } from "./btod";
-import { hasLeveragedEtfMapping, selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
+import {
+    hasLeveragedEtfMapping,
+    selectBestLeveragedEtf,
+    fetchStockNbbo,
+} from "./leveragedEtf";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 import { log } from "../index";
@@ -18,15 +40,11 @@ interface OnDeckFilterable {
     activationStatus: string;
 }
 
-
-
-
-
 export function inferBias(signal: Signal): "BUY" | "SELL" {
-  const dir = signal.direction.toLowerCase();
-  if (dir.includes("up")) return "BUY";
-  if (dir.includes("down")) return "SELL";
-  return "BUY";
+    const dir = signal.direction.toLowerCase();
+    if (dir.includes("up")) return "BUY";
+    if (dir.includes("down")) return "SELL";
+    return "BUY";
 }
 
 export function computeRNow(
@@ -117,7 +135,7 @@ export async function scanTickerSetups(
 
     const recentBars = dailyBars.slice(-30);
     const rawIntradayBars = await fetchIntradayBars(ticker, today, today, "5");
-    const recentIntradayBars: IntradayBar[] = rawIntradayBars.map(bar => ({
+    const recentIntradayBars: IntradayBar[] = rawIntradayBars.map((bar) => ({
         id: 0,
         ticker,
         open: bar.o,
@@ -129,38 +147,62 @@ export async function scanTickerSetups(
         timeframe: "5",
         source: "polygon",
     }));
-    const setups = detectAllSetups(recentBars, recentIntradayBars, config.setups, config.gapThreshold)
-        .filter(setup => isPreOpen ? setup.targetDate >= today : setup.targetDate > today);
-
+    const setups = detectAllSetups(
+        recentBars,
+        recentIntradayBars,
+        config.setups,
+        config.gapThreshold,
+    ).filter((setup) =>
+        isPreOpen ? setup.targetDate >= today : setup.targetDate > today,
+    );
 
     if (setups.length === 0) return [];
 
     const atr = computeATR(dailyBars);
     const avgVol = computeAvgVolume(dailyBars);
     const avgDollarVol = computeAvgDollarVolume(dailyBars);
-    const lastBar = isPreOpen ? recentIntradayBars[recentIntradayBars.length - 1] : dailyBars[dailyBars.length - 1]; //TODO
+    const lastBar = isPreOpen
+        ? recentIntradayBars[recentIntradayBars.length - 1]
+        : dailyBars[dailyBars.length - 1]; //TODO
     const slice20 = dailyBars.slice(-20);
-    const avgRange20d = slice20.length > 0
-        ? slice20.reduce((s, b) => s + (b.high - b.low), 0) / slice20.length
-        : 0;
-    const avgRange = recentBars.length > 0
-        ? recentBars.reduce((s, b) => s + (b.high - b.low), 0) / recentBars.length
-        : 0;
+    const avgRange20d =
+        slice20.length > 0
+            ? slice20.reduce((s, b) => s + (b.high - b.low), 0) / slice20.length
+            : 0;
+    const avgRange =
+        recentBars.length > 0
+            ? recentBars.reduce((s, b) => s + (b.high - b.low), 0) /
+              recentBars.length
+            : 0;
 
     const results: ScoredSetup[] = [];
 
     for (const setup of setups) {
         const triggerDayBar = recentBars.find((b) => b.date === setup.asofDate);
         const triggerDayVolume = triggerDayBar?.volume ?? 0;
-        const triggerDayRange = triggerDayBar ? triggerDayBar.high - triggerDayBar.low : 0;
+        const triggerDayRange = triggerDayBar
+            ? triggerDayBar.high - triggerDayBar.low
+            : 0;
 
         const confidence = computeConfidence(
-            lastBar.close, setup.magnetPrice, setup.triggerMargin,
-            triggerDayVolume, avgVol, triggerDayRange, avgRange, atr,
+            lastBar.close,
+            setup.magnetPrice,
+            setup.triggerMargin,
+            triggerDayVolume,
+            avgVol,
+            triggerDayRange,
+            avgRange,
+            atr,
         );
 
-        const historicalHitRate = await storage.getHitRateForTickerSetup(ticker, setup.setupType);
-        const tthStats = await storage.getTimeToHitStats(ticker, setup.setupType);
+        const historicalHitRate = await storage.getHitRateForTickerSetup(
+            ticker,
+            setup.setupType,
+        );
+        const tthStats = await storage.getTimeToHitStats(
+            ticker,
+            setup.setupType,
+        );
 
         const qualityResult = computeQualityScore({
             setupType: setup.setupType as SetupType,
@@ -185,7 +227,8 @@ export async function scanTickerSetups(
 
         let universePass = true;
         if (config.alertGateEnabled) {
-            universePass = isOnWatchlist || avgDollarVol >= config.liquidityFloor;
+            universePass =
+                isOnWatchlist || avgDollarVol >= config.liquidityFloor;
         }
 
         let tier = qualityScoreToTier(qualityResult.total, sigP60, sigP120);
@@ -193,24 +236,38 @@ export async function scanTickerSetups(
         else if (isOnWatchlist && tier === "C") tier = "B";
 
         const tradePlan = generateTradePlan(
-            lastBar.close, setup.magnetPrice, dailyBars,
-            config.entryMode, config.stopMode, config.atrMultiplier,
+            lastBar.close,
+            setup.magnetPrice,
+            dailyBars,
+            config.entryMode,
+            config.stopMode,
+            config.atrMultiplier,
             setup.direction,
         );
 
         // TODO: This is a hack to ensure the signal direction matches the trade plan bias.
-        if (setup.direction === null || setup.direction !== (tradePlan.bias === "SELL" ? "down-to-magnet" : "up-to-magnet")) {
-            console.log(`setup.direction: ${setup.direction}, tradePlan.bias: ${tradePlan.bias}`);
-            console.error(`Signal direction ${setup.direction} does not match bias ${tradePlan.bias}`);
+        if (
+            setup.direction === null ||
+            setup.direction !==
+                (tradePlan.bias === "SELL" ? "down-to-magnet" : "up-to-magnet")
+        ) {
+            console.log(
+                `setup.direction: ${setup.direction}, tradePlan.bias: ${tradePlan.bias}`,
+            );
+            console.error(
+                `Signal direction ${setup.direction} does not match bias ${tradePlan.bias}`,
+            );
             continue;
         } else {
-            console.log(`Signal direction ${setup.direction} matches bias ${tradePlan.bias}`);
+            console.log(
+                `Signal direction ${setup.direction} matches bias ${tradePlan.bias}`,
+            );
         }
 
         const stopPrice = tradePlan.stopDistance
-            ? (tradePlan.bias === "SELL"
+            ? tradePlan.bias === "SELL"
                 ? lastBar.close + tradePlan.stopDistance
-                : lastBar.close - tradePlan.stopDistance)
+                : lastBar.close - tradePlan.stopDistance
             : null;
 
         results.push({
@@ -254,7 +311,6 @@ export interface ProcessTickerOptions {
     from200: string;
 }
 
-
 export async function processDetectSetups(
     opts: ProcessTickerOptions,
     isPreOpen: boolean = false,
@@ -263,8 +319,14 @@ export async function processDetectSetups(
 
     const dailyBars = await fetchDailyBarsFromPolygon(ticker, from200, today);
 
-
-    const scoredSetups = await scanTickerSetups(ticker, dailyBars, config, isOnWatchlist, today, isPreOpen);
+    const scoredSetups = await scanTickerSetups(
+        ticker,
+        dailyBars,
+        config,
+        isOnWatchlist,
+        today,
+        isPreOpen,
+    );
     const results: ProcessedSetup[] = [];
 
     for (const scored of scoredSetups) {
@@ -342,7 +404,8 @@ export function checkEntryTrigger(
     const firstClose = rthBars[0]?.close;
     const stopDistance =
         tradePlan.stopDistance ??
-        ((firstClose != null ? Math.abs(magnetPrice - firstClose) * 0.5 : 1) || 1);
+        ((firstClose != null ? Math.abs(magnetPrice - firstClose) * 0.5 : 1) ||
+            1);
 
     if (entryMode === "aggressive") {
         for (const bar of rthBars) {
@@ -388,7 +451,10 @@ export function checkEntryTrigger(
                 }
             } else {
                 if (isSell) {
-                    if (bar.high >= breakoutPrice && bar.close <= breakoutPrice) {
+                    if (
+                        bar.high >= breakoutPrice &&
+                        bar.close <= breakoutPrice
+                    ) {
                         return {
                             triggered: true,
                             triggerTs: bar.ts,
@@ -400,7 +466,10 @@ export function checkEntryTrigger(
                         breakoutSeen = false;
                     }
                 } else {
-                    if (bar.low <= breakoutPrice && bar.close >= breakoutPrice) {
+                    if (
+                        bar.low <= breakoutPrice &&
+                        bar.close >= breakoutPrice
+                    ) {
                         return {
                             triggered: true,
                             triggerTs: bar.ts,
@@ -435,7 +504,12 @@ export interface ActivationMutation {
     signalId: number;
     ticker: string;
     setupType: string;
-    type: "activated" | "invalidated" | "stop_to_be" | "time_stop" | "entry_invalidated";
+    type:
+        | "activated"
+        | "invalidated"
+        | "stop_to_be"
+        | "time_stop"
+        | "entry_invalidated";
     activatedTs?: string;
     entryPrice?: number;
     entryTriggerPrice?: number;
@@ -474,39 +548,85 @@ export function runActivationCheck(
             const entryPrice = sig.entryPriceAtActivation ?? 0;
             const isSell = tp.bias === "SELL";
 
-            if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
+            if (
+                currentPrice &&
+                checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)
+            ) {
                 const msg = `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice.toFixed(2)}`;
                 events.push({
-                    signalId: sig.id, ticker, type: "invalidated", tier: sig.tier,
-                    qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                    signalId: sig.id,
+                    ticker,
+                    type: "invalidated",
+                    tier: sig.tier,
+                    qualityScore: sig.qualityScore,
+                    entryPrice,
+                    message: msg,
+                    timestamp: nowIso,
                 });
                 mutations.push({
-                    signalId: sig.id, ticker, setupType: sig.setupType,
-                    type: "invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                    signalId: sig.id,
+                    ticker,
+                    setupType: sig.setupType,
+                    type: "invalidated",
+                    tier: sig.tier,
+                    qualityScore: sig.qualityScore,
+                    message: msg,
                 });
                 continue;
             }
 
             if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
-                const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
-                const progress = computeProgressToTarget(currentPrice, entryPrice, tp.t1, isSell);
-                const timingAnchor = sig.activatedTs ? new Date(sig.activatedTs).getTime() : 0;
-                const activeMinutes = timingAnchor > 0
-                    ? Math.floor((config.now.getTime() - timingAnchor) / 60000)
+                const rNow = computeRNow(
+                    currentPrice,
+                    entryPrice,
+                    sig.stopPrice,
+                    isSell,
+                );
+                const progress = computeProgressToTarget(
+                    currentPrice,
+                    entryPrice,
+                    tp.t1,
+                    isSell,
+                );
+                const timingAnchor = sig.activatedTs
+                    ? new Date(sig.activatedTs).getTime()
                     : 0;
+                const activeMinutes =
+                    timingAnchor > 0
+                        ? Math.floor(
+                              (config.now.getTime() - timingAnchor) / 60000,
+                          )
+                        : 0;
 
-                if (shouldApplyBE(config.stopMode) && sig.stopStage === "INITIAL") {
-                    const beEarned = rNow >= config.beRThreshold || progress >= config.beProgressThreshold;
+                if (
+                    shouldApplyBE(config.stopMode) &&
+                    sig.stopStage === "INITIAL"
+                ) {
+                    const beEarned =
+                        rNow >= config.beRThreshold ||
+                        progress >= config.beProgressThreshold;
                     if (beEarned) {
                         const msg = `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`;
                         events.push({
-                            signalId: sig.id, ticker, type: "stop_to_be", tier: sig.tier,
-                            qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                            signalId: sig.id,
+                            ticker,
+                            type: "stop_to_be",
+                            tier: sig.tier,
+                            qualityScore: sig.qualityScore,
+                            entryPrice,
+                            message: msg,
+                            timestamp: nowIso,
                         });
                         mutations.push({
-                            signalId: sig.id, ticker, setupType: sig.setupType, type: "stop_to_be",
-                            stopPrice: entryPrice, stopStage: "BE",
-                            tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                            signalId: sig.id,
+                            ticker,
+                            setupType: sig.setupType,
+                            type: "stop_to_be",
+                            stopPrice: entryPrice,
+                            stopStage: "BE",
+                            tier: sig.tier,
+                            qualityScore: sig.qualityScore,
+                            message: msg,
                         });
                         continue;
                     }
@@ -517,20 +637,38 @@ export function runActivationCheck(
                     sig.stopStage !== "TIME_TIGHTENED" &&
                     !sig.timeStopTriggeredTs
                 ) {
-                    if (activeMinutes >= config.timeStopMinutes && progress < config.timeStopProgressThreshold) {
+                    if (
+                        activeMinutes >= config.timeStopMinutes &&
+                        progress < config.timeStopProgressThreshold
+                    ) {
                         const stopDist = Math.abs(entryPrice - sig.stopPrice);
-                        const tightenedDist = stopDist * config.timeStopTightenFactor;
-                        const newStop = isSell ? entryPrice + tightenedDist : entryPrice - tightenedDist;
+                        const tightenedDist =
+                            stopDist * config.timeStopTightenFactor;
+                        const newStop = isSell
+                            ? entryPrice + tightenedDist
+                            : entryPrice - tightenedDist;
 
                         const msg = `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress * 100).toFixed(0)}% progress`;
                         events.push({
-                            signalId: sig.id, ticker, type: "time_stop", tier: sig.tier,
-                            qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                            signalId: sig.id,
+                            ticker,
+                            type: "time_stop",
+                            tier: sig.tier,
+                            qualityScore: sig.qualityScore,
+                            entryPrice,
+                            message: msg,
+                            timestamp: nowIso,
                         });
                         mutations.push({
-                            signalId: sig.id, ticker, setupType: sig.setupType, type: "time_stop",
-                            stopPrice: newStop, stopStage: "TIME_TIGHTENED",
-                            tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                            signalId: sig.id,
+                            ticker,
+                            setupType: sig.setupType,
+                            type: "time_stop",
+                            stopPrice: newStop,
+                            stopStage: "TIME_TIGHTENED",
+                            tier: sig.tier,
+                            qualityScore: sig.qualityScore,
+                            message: msg,
                         });
                         continue;
                     }
@@ -556,28 +694,47 @@ export function runActivationCheck(
             if (result.triggered && result.entryPrice) {
                 let stopPrice: number | undefined;
                 if (sigTp.stopDistance && sigTp.stopDistance > 0) {
-                    stopPrice = sigTp.bias === "SELL"
-                        ? result.entryPrice + sigTp.stopDistance
-                        : result.entryPrice - sigTp.stopDistance;
+                    stopPrice =
+                        sigTp.bias === "SELL"
+                            ? result.entryPrice + sigTp.stopDistance
+                            : result.entryPrice - sigTp.stopDistance;
                 }
 
                 const msg = `ACTIVATED (${sigTp.bias}) ${ticker} ${sig.setupType} - Entry: $${result.entryPrice.toFixed(2)}, Target: $${sigTp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`;
                 events.push({
-                    signalId: sig.id, ticker, type: "activated", tier: sig.tier,
-                    qualityScore: sig.qualityScore, entryPrice: result.entryPrice,
-                    message: msg, timestamp: nowIso,
+                    signalId: sig.id,
+                    ticker,
+                    type: "activated",
+                    tier: sig.tier,
+                    qualityScore: sig.qualityScore,
+                    entryPrice: result.entryPrice,
+                    message: msg,
+                    timestamp: nowIso,
                 });
                 mutations.push({
-                    signalId: sig.id, ticker, setupType: sig.setupType, type: "activated",
-                    activatedTs: result.triggerTs, entryPrice: result.entryPrice,
-                    entryTriggerPrice: result.entryTriggerPrice, stopPrice, stopStage: "INITIAL",
-                    tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                    signalId: sig.id,
+                    ticker,
+                    setupType: sig.setupType,
+                    type: "activated",
+                    activatedTs: result.triggerTs,
+                    entryPrice: result.entryPrice,
+                    entryTriggerPrice: result.entryTriggerPrice,
+                    stopPrice,
+                    stopStage: "INITIAL",
+                    tier: sig.tier,
+                    qualityScore: sig.qualityScore,
+                    message: msg,
                 });
             } else if (result.invalidated) {
                 const msg = `Entry trigger invalidated for ${ticker} ${sig.setupType}`;
                 mutations.push({
-                    signalId: sig.id, ticker, setupType: sig.setupType,
-                    type: "entry_invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                    signalId: sig.id,
+                    ticker,
+                    setupType: sig.setupType,
+                    type: "entry_invalidated",
+                    tier: sig.tier,
+                    qualityScore: sig.qualityScore,
+                    message: msg,
                 });
             }
         }
@@ -586,9 +743,12 @@ export function runActivationCheck(
     return { events, mutations };
 }
 
-
 export function monitorActivatedSignalsForTicker(
-    ticker: string, activeSignals: Signal[], currentPrice: number | null, freshBars: IntradayBar[], config: ActivationScanConfig,
+    ticker: string,
+    activeSignals: Signal[],
+    currentPrice: number | null,
+    freshBars: IntradayBar[],
+    config: ActivationScanConfig,
 ): { events: ActivationEvent[]; mutations: ActivationMutation[] } {
     const events: ActivationEvent[] = [];
     const mutations: ActivationMutation[] = [];
@@ -603,39 +763,80 @@ export function monitorActivatedSignalsForTicker(
         const entryPrice = sig.entryPriceAtActivation ?? 0;
         const isSell = tp.bias === "SELL";
 
-        if (currentPrice && checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)) {
+        if (
+            currentPrice &&
+            checkInvalidation(currentPrice, tp, entryPrice, sig.stopPrice)
+        ) {
             const msg = `INVALIDATED: ${ticker} ${sig.setupType} entry at ${entryPrice.toFixed(2)} stopped out at ${currentPrice.toFixed(2)}`;
             events.push({
-                signalId: sig.id, ticker, type: "invalidated", tier: sig.tier,
-                qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                signalId: sig.id,
+                ticker,
+                type: "invalidated",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                entryPrice,
+                message: msg,
+                timestamp: nowIso,
             });
             mutations.push({
-                signalId: sig.id, ticker, setupType: sig.setupType,
-                type: "invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                signalId: sig.id,
+                ticker,
+                setupType: sig.setupType,
+                type: "invalidated",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                message: msg,
             });
             continue;
         }
 
         if (currentPrice && entryPrice > 0 && sig.stopPrice != null) {
-            const rNow = computeRNow(currentPrice, entryPrice, sig.stopPrice, isSell);
-            const progress = computeProgressToTarget(currentPrice, entryPrice, tp.t1, isSell);
-            const timingAnchor = sig.activatedTs ? new Date(sig.activatedTs).getTime() : 0;
-            const activeMinutes = timingAnchor > 0
-                ? Math.floor((config.now.getTime() - timingAnchor) / 60000)
+            const rNow = computeRNow(
+                currentPrice,
+                entryPrice,
+                sig.stopPrice,
+                isSell,
+            );
+            const progress = computeProgressToTarget(
+                currentPrice,
+                entryPrice,
+                tp.t1,
+                isSell,
+            );
+            const timingAnchor = sig.activatedTs
+                ? new Date(sig.activatedTs).getTime()
                 : 0;
+            const activeMinutes =
+                timingAnchor > 0
+                    ? Math.floor((config.now.getTime() - timingAnchor) / 60000)
+                    : 0;
 
             if (shouldApplyBE(config.stopMode) && sig.stopStage === "INITIAL") {
-                const beEarned = rNow >= config.beRThreshold || progress >= config.beProgressThreshold;
+                const beEarned =
+                    rNow >= config.beRThreshold ||
+                    progress >= config.beProgressThreshold;
                 if (beEarned) {
                     const msg = `STOP→BE: ${ticker} ${sig.setupType} stop moved to breakeven at $${entryPrice.toFixed(2)} (R=${rNow.toFixed(2)}, progress=${(progress * 100).toFixed(0)}%)`;
                     events.push({
-                        signalId: sig.id, ticker, type: "stop_to_be", tier: sig.tier,
-                        qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                        signalId: sig.id,
+                        ticker,
+                        type: "stop_to_be",
+                        tier: sig.tier,
+                        qualityScore: sig.qualityScore,
+                        entryPrice,
+                        message: msg,
+                        timestamp: nowIso,
                     });
                     mutations.push({
-                        signalId: sig.id, ticker, setupType: sig.setupType, type: "stop_to_be",
-                        stopPrice: entryPrice, stopStage: "BE",
-                        tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                        signalId: sig.id,
+                        ticker,
+                        setupType: sig.setupType,
+                        type: "stop_to_be",
+                        stopPrice: entryPrice,
+                        stopStage: "BE",
+                        tier: sig.tier,
+                        qualityScore: sig.qualityScore,
+                        message: msg,
                     });
                     continue;
                 }
@@ -646,20 +847,38 @@ export function monitorActivatedSignalsForTicker(
                 sig.stopStage !== "TIME_TIGHTENED" &&
                 !sig.timeStopTriggeredTs
             ) {
-                if (activeMinutes >= config.timeStopMinutes && progress < config.timeStopProgressThreshold) {
+                if (
+                    activeMinutes >= config.timeStopMinutes &&
+                    progress < config.timeStopProgressThreshold
+                ) {
                     const stopDist = Math.abs(entryPrice - sig.stopPrice);
-                    const tightenedDist = stopDist * config.timeStopTightenFactor;
-                    const newStop = isSell ? entryPrice + tightenedDist : entryPrice - tightenedDist;
+                    const tightenedDist =
+                        stopDist * config.timeStopTightenFactor;
+                    const newStop = isSell
+                        ? entryPrice + tightenedDist
+                        : entryPrice - tightenedDist;
 
                     const msg = `TIME STOP: ${ticker} ${sig.setupType} stop tightened to $${newStop.toFixed(2)} after ${activeMinutes}min with ${(progress * 100).toFixed(0)}% progress`;
                     events.push({
-                        signalId: sig.id, ticker, type: "time_stop", tier: sig.tier,
-                        qualityScore: sig.qualityScore, entryPrice, message: msg, timestamp: nowIso,
+                        signalId: sig.id,
+                        ticker,
+                        type: "time_stop",
+                        tier: sig.tier,
+                        qualityScore: sig.qualityScore,
+                        entryPrice,
+                        message: msg,
+                        timestamp: nowIso,
                     });
                     mutations.push({
-                        signalId: sig.id, ticker, setupType: sig.setupType, type: "time_stop",
-                        stopPrice: newStop, stopStage: "TIME_TIGHTENED",
-                        tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                        signalId: sig.id,
+                        ticker,
+                        setupType: sig.setupType,
+                        type: "time_stop",
+                        stopPrice: newStop,
+                        stopStage: "TIME_TIGHTENED",
+                        tier: sig.tier,
+                        qualityScore: sig.qualityScore,
+                        message: msg,
                     });
                     continue;
                 }
@@ -691,37 +910,60 @@ export function checkActivationForTicker(
         const tp = sig.tradePlanJson as TradePlan;
         if (!tp) continue;
 
-        const triggerResult = checkEntryTrigger(freshBars, tp, config.entryMode);
+        const triggerResult = checkEntryTrigger(
+            freshBars,
+            tp,
+            config.entryMode,
+        );
 
         if (triggerResult.triggered && triggerResult.entryPrice) {
             let stopPrice: number | undefined;
             if (tp.stopDistance && tp.stopDistance > 0) {
-                stopPrice = tp.bias === "SELL"
-                    ? triggerResult.entryPrice + tp.stopDistance
-                    : triggerResult.entryPrice - tp.stopDistance;
+                stopPrice =
+                    tp.bias === "SELL"
+                        ? triggerResult.entryPrice + tp.stopDistance
+                        : triggerResult.entryPrice - tp.stopDistance;
             }
 
             const msg = `ACTIVATED (${tp.bias}) ${ticker} ${sig.setupType} - Entry: $${triggerResult.entryPrice.toFixed(2)}, Target: $${tp.t1.toFixed(2)}${stopPrice ? `, Stop: $${stopPrice.toFixed(2)}` : ""}`;
             events.push({
-                signalId: sig.id, ticker: sig.ticker, type: "activated", tier: sig.tier,
-                qualityScore: sig.qualityScore, entryPrice: triggerResult.entryPrice,
-                message: msg, timestamp: nowIso,
+                signalId: sig.id,
+                ticker: sig.ticker,
+                type: "activated",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                entryPrice: triggerResult.entryPrice,
+                message: msg,
+                timestamp: nowIso,
             });
             mutations.push({
-                signalId: sig.id, ticker: sig.ticker, setupType: sig.setupType, type: "activated",
-                activatedTs: triggerResult.triggerTs ?? undefined, entryPrice: triggerResult.entryPrice,
-                entryTriggerPrice: triggerResult.entryTriggerPrice, stopPrice, stopStage: "INITIAL",
-                tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                signalId: sig.id,
+                ticker: sig.ticker,
+                setupType: sig.setupType,
+                type: "activated",
+                activatedTs: triggerResult.triggerTs ?? undefined,
+                entryPrice: triggerResult.entryPrice,
+                entryTriggerPrice: triggerResult.entryTriggerPrice,
+                stopPrice,
+                stopStage: "INITIAL",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                message: msg,
             });
         } else if (triggerResult.invalidated) {
             const msg = `Entry trigger invalidated for ${sig.ticker} ${sig.setupType}`;
             mutations.push({
-                signalId: sig.id, ticker: sig.ticker, setupType: sig.setupType,
-                type: "entry_invalidated", tier: sig.tier, qualityScore: sig.qualityScore, message: msg,
+                signalId: sig.id,
+                ticker: sig.ticker,
+                setupType: sig.setupType,
+                type: "entry_invalidated",
+                tier: sig.tier,
+                qualityScore: sig.qualityScore,
+                message: msg,
             });
-        }  
+        }
     }
-    
+
     return { events, mutations };
 }
 
@@ -738,7 +980,9 @@ export interface RefreshResult {
     warnings: string[];
 }
 
-export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshResult> {
+export async function refreshAndValidateSignal(
+    signal: Signal,
+): Promise<RefreshResult> {
     const warnings: string[] = [];
     let freshStockPrice: number | null = null;
     let freshOptionMark: number | null = null;
@@ -748,7 +992,6 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
     let tradePlanRegenerated = false;
     let invalidated = false;
     let invalidationReason: string | null = null;
-    
 
     // check tp exist
     const tp = signal.tradePlanJson as TradePlan | null;
@@ -757,20 +1000,27 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         invalidated = true;
         invalidationReason = "NO_TRADE_PLAN";
         return {
-            signal, freshStockPrice, freshOptionMark, freshLetfPrice,
-            letfOptionContract, letfOptionMark,
-            tradePlanRegenerated, invalidated, invalidationReason, warnings,
+            signal,
+            freshStockPrice,
+            freshOptionMark,
+            freshLetfPrice,
+            letfOptionContract,
+            letfOptionMark,
+            tradePlanRegenerated,
+            invalidated,
+            invalidationReason,
+            warnings,
         };
     }
-
-
-
 
     // fresh stock price
     const snap = await fetchSnapshot(signal.ticker);
     if (snap?.lastPrice && snap.lastPrice > 0) {
         freshStockPrice = snap.lastPrice;
-        log(`[refresh] ${signal.ticker} #${signal.id} live price: $${freshStockPrice.toFixed(2)}`, "refresh");
+        log(
+            `[refresh] ${signal.ticker} #${signal.id} live price: $${freshStockPrice.toFixed(2)}`,
+            "refresh",
+        );
         await storage.updateSignalActivation(
             signal.id,
             signal.activationStatus,
@@ -786,76 +1036,130 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
     const expectedBias = inferBias(signal);
     const biasMatches = tp.bias === expectedBias;
 
-    const entryRef = currentPrice > 0 ? currentPrice : (signal.entryPriceAtActivation ?? 0);
+    const entryRef =
+        currentPrice > 0 ? currentPrice : (signal.entryPriceAtActivation ?? 0);
     const isSell = expectedBias === "SELL";
-    const t1Valid = entryRef > 0 && tp.t1 > 0
-        ? (isSell ? tp.t1 < entryRef : tp.t1 > entryRef)
-        : true;
-    const stopValid = entryRef > 0 && signal.stopPrice != null && signal.stopPrice > 0
-        ? (isSell ? signal.stopPrice > entryRef : signal.stopPrice < entryRef)
-        : true;
+    const t1Valid =
+        entryRef > 0 && tp.t1 > 0
+            ? isSell
+                ? tp.t1 < entryRef
+                : tp.t1 > entryRef
+            : true;
+    const stopValid =
+        entryRef > 0 && signal.stopPrice != null && signal.stopPrice > 0
+            ? isSell
+                ? signal.stopPrice > entryRef
+                : signal.stopPrice < entryRef
+            : true;
 
     if (!biasMatches || !t1Valid || !stopValid) {
         const reasons: string[] = [];
-        if (!biasMatches) reasons.push(`bias mismatch: tp.bias=${tp.bias} expected=${expectedBias}`);
-        if (!t1Valid) reasons.push(`t1 wrong side: t1=$${tp.t1.toFixed(2)} entry=$${entryRef.toFixed(2)} bias=${expectedBias}`);
-        if (!stopValid) reasons.push(`stop wrong side: stop=$${signal.stopPrice?.toFixed(2)} entry=$${entryRef.toFixed(2)} bias=${expectedBias}`);
+        if (!biasMatches)
+            reasons.push(
+                `bias mismatch: tp.bias=${tp.bias} expected=${expectedBias}`,
+            );
+        if (!t1Valid)
+            reasons.push(
+                `t1 wrong side: t1=$${tp.t1.toFixed(2)} entry=$${entryRef.toFixed(2)} bias=${expectedBias}`,
+            );
+        if (!stopValid)
+            reasons.push(
+                `stop wrong side: stop=$${signal.stopPrice?.toFixed(2)} entry=$${entryRef.toFixed(2)} bias=${expectedBias}`,
+            );
 
         invalidated = true;
         invalidationReason = `TRADE_PLAN_MISMATCH: ${reasons.join("; ")}`;
-        log(`[refresh] #${signal.id} ${signal.ticker} INVALIDATED — trade plan mismatch: ${reasons.join("; ")}`, "refresh");
+        log(
+            `[refresh] #${signal.id} ${signal.ticker} INVALIDATED — trade plan mismatch: ${reasons.join("; ")}`,
+            "refresh",
+        );
 
         const nowIso = new Date().toISOString();
         await storage.updateSignalActivation(signal.id, "INVALIDATED");
         await storage.updateSignalInvalidation(signal.id, nowIso);
-        signal = { ...signal, activationStatus: "INVALIDATED", invalidationTs: nowIso };
+        signal = {
+            ...signal,
+            activationStatus: "INVALIDATED",
+            invalidationTs: nowIso,
+        };
 
         return {
-            signal, freshStockPrice, freshOptionMark, freshLetfPrice,
-            letfOptionContract, letfOptionMark,
-            tradePlanRegenerated, invalidated, invalidationReason, warnings,
+            signal,
+            freshStockPrice,
+            freshOptionMark,
+            freshLetfPrice,
+            letfOptionContract,
+            letfOptionMark,
+            tradePlanRegenerated,
+            invalidated,
+            invalidationReason,
+            warnings,
         };
     }
 
-    if (signal.activationStatus === "ACTIVE" && signal.stopPrice != null && currentPrice > 0) {
+    if (
+        signal.activationStatus === "ACTIVE" &&
+        signal.stopPrice != null &&
+        currentPrice > 0
+    ) {
         const entryPrice = signal.entryPriceAtActivation ?? currentPrice;
         if (checkInvalidation(currentPrice, tp, entryPrice, signal.stopPrice)) {
             invalidated = true;
-            invalidationReason = tp.bias === "SELL"
-                ? `Price $${currentPrice.toFixed(2)} above stop $${signal.stopPrice.toFixed(2)}`
-                : `Price $${currentPrice.toFixed(2)} below stop $${signal.stopPrice.toFixed(2)}`;
-            log(`[refresh] #${signal.id} INVALIDATED: ${invalidationReason}`, "refresh");
+            invalidationReason =
+                tp.bias === "SELL"
+                    ? `Price $${currentPrice.toFixed(2)} above stop $${signal.stopPrice.toFixed(2)}`
+                    : `Price $${currentPrice.toFixed(2)} below stop $${signal.stopPrice.toFixed(2)}`;
+            log(
+                `[refresh] #${signal.id} INVALIDATED: ${invalidationReason}`,
+                "refresh",
+            );
 
             const nowIso = new Date().toISOString();
             await storage.updateSignalActivation(signal.id, "INVALIDATED");
             await storage.updateSignalInvalidation(signal.id, nowIso);
-            signal = { ...signal, activationStatus: "INVALIDATED", invalidationTs: nowIso };
+            signal = {
+                ...signal,
+                activationStatus: "INVALIDATED",
+                invalidationTs: nowIso,
+            };
         }
     }
 
     const optionTicker = signal.optionContractTicker;
     const optionsJson = signal.optionsJson as Record<string, any> | null;
-    const hasOptionData = optionTicker || optionsJson?.candidate?.contractSymbol;
+    const hasOptionData =
+        optionTicker || optionsJson?.candidate?.contractSymbol;
 
     if (hasOptionData) {
-        const tickerToFetch = optionTicker || optionsJson?.candidate?.contractSymbol;
+        const tickerToFetch =
+            optionTicker || optionsJson?.candidate?.contractSymbol;
         try {
             const lastTrade = await fetchOptionLastTrade(tickerToFetch);
             if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
                 freshOptionMark = lastTrade.mark;
-                await storage.updateSignalOptionTracking(signal.id, { optionEntryMark: freshOptionMark });
+                await storage.updateSignalOptionTracking(signal.id, {
+                    optionEntryMark: freshOptionMark,
+                });
                 signal = { ...signal, optionEntryMark: freshOptionMark };
-                log(`[refresh] #${signal.id} option ${tickerToFetch} mark: $${freshOptionMark.toFixed(2)}`, "refresh");
+                log(
+                    `[refresh] #${signal.id} option ${tickerToFetch} mark: $${freshOptionMark.toFixed(2)}`,
+                    "refresh",
+                );
             } else {
                 warnings.push(`No live option mark for ${tickerToFetch}`);
             }
         } catch (err: any) {
-            warnings.push(`Option fetch failed for ${tickerToFetch}: ${err.message}`);
+            warnings.push(
+                `Option fetch failed for ${tickerToFetch}: ${err.message}`,
+            );
         }
     } else {
         if (tp) {
             try {
-                log(`[refresh] #${signal.id} ${signal.ticker} no option data — enriching options`, "refresh");
+                log(
+                    `[refresh] #${signal.id} ${signal.ticker} no option data — enriching options`,
+                    "refresh",
+                );
                 const instrumentType = await enrichOptionData(
                     signal.ticker,
                     signal,
@@ -874,43 +1178,63 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
                         instrumentEntryPrice: refreshed.instrumentEntryPrice,
                         leveragedEtfJson: refreshed.leveragedEtfJson,
                     };
-                    if (refreshed.optionEntryMark != null && refreshed.optionEntryMark > 0) {
+                    if (
+                        refreshed.optionEntryMark != null &&
+                        refreshed.optionEntryMark > 0
+                    ) {
                         freshOptionMark = refreshed.optionEntryMark;
                     }
-                    log(`[refresh] #${signal.id} option enrichment complete: contract=${refreshed.optionContractTicker ?? "none"} mark=$${refreshed.optionEntryMark?.toFixed(2) ?? "null"} type=${instrumentType}`, "refresh");
+                    log(
+                        `[refresh] #${signal.id} option enrichment complete: contract=${refreshed.optionContractTicker ?? "none"} mark=$${refreshed.optionEntryMark?.toFixed(2) ?? "null"} type=${instrumentType}`,
+                        "refresh",
+                    );
                 }
             } catch (err: any) {
-                warnings.push(`Option enrichment failed for ${signal.ticker}: ${err.message}`);
+                warnings.push(
+                    `Option enrichment failed for ${signal.ticker}: ${err.message}`,
+                );
             }
         }
     }
 
+    // fresh LETF
     const letfJson = signal.leveragedEtfJson as any;
-    let letfTicker = letfJson?.ticker || (signal.instrumentType === "LEVERAGED_ETF" ? signal.instrumentTicker : null);
+    let letfTicker =
+        letfJson?.ticker ||
+        (signal.instrumentType === "LEVERAGED_ETF"
+            ? signal.instrumentTicker
+            : null);
 
-    if (!letfTicker && hasLeveragedEtfMapping(signal.ticker)) {
+    if (!letfTicker) {
         try {
             const bias: "BUY" | "SELL" = tp.bias === "SELL" ? "SELL" : "BUY";
-            const suggestion = await selectBestLeveragedEtf(signal.ticker, bias);
+            const suggestion = await selectBestLeveragedEtf(
+                signal.ticker,
+                bias,
+            );
             if (suggestion) {
-                log(`[refresh] #${signal.id} ${signal.ticker} no letfJson — enriching LETF: ${suggestion.ticker} (${suggestion.leverage}x ${suggestion.direction})`, "refresh");
+                log(
+                    `[refresh] #${signal.id} ${signal.ticker} no letfJson — enriching LETF: ${suggestion.ticker} (${suggestion.leverage}x ${suggestion.direction})`,
+                    "refresh",
+                );
                 await storage.updateSignalLeveragedEtf(signal.id, suggestion);
-                const letfQuote = await fetchStockNbbo(suggestion.ticker);
-                const letfEntry = letfQuote?.mid ?? null;
-                await storage.updateSignalInstrument(signal.id, "LEVERAGED_ETF", suggestion.ticker, letfEntry);
                 signal = {
                     ...signal,
                     leveragedEtfJson: suggestion,
                     instrumentType: "LEVERAGED_ETF",
                     instrumentTicker: suggestion.ticker,
-                    instrumentEntryPrice: letfEntry,
                 };
                 letfTicker = suggestion.ticker;
             } else {
-                log(`[refresh] #${signal.id} ${signal.ticker} has LETF mapping but no viable ETF found`, "refresh");
+                log(
+                    `[refresh] #${signal.id} ${signal.ticker} has LETF mapping but no viable ETF found`,
+                    "refresh",
+                );
             }
         } catch (err: any) {
-            warnings.push(`LETF enrichment failed for ${signal.ticker}: ${err.message}`);
+            warnings.push(
+                `LETF enrichment failed for ${signal.ticker}: ${err.message}`,
+            );
         }
     }
 
@@ -919,44 +1243,84 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
             const letfSnap = await fetchSnapshot(letfTicker);
             if (letfSnap?.lastPrice && letfSnap.lastPrice > 0) {
                 freshLetfPrice = letfSnap.lastPrice;
-                await storage.updateSignalInstrument(signal.id, signal.instrumentType, letfTicker, freshLetfPrice);
+                await storage.updateSignalInstrument(
+                    signal.id,
+                    signal.instrumentType,
+                    letfTicker,
+                    freshLetfPrice,
+                );
                 signal = { ...signal, instrumentEntryPrice: freshLetfPrice };
-                log(`[refresh] #${signal.id} LETF ${letfTicker} price: $${freshLetfPrice.toFixed(2)}`, "refresh");
+                log(
+                    `[refresh] #${signal.id} LETF ${letfTicker} price: $${freshLetfPrice.toFixed(2)}`,
+                    "refresh",
+                );
             } else {
                 warnings.push(`No live LETF price for ${letfTicker}`);
             }
         } catch (err: any) {
-            warnings.push(`LETF fetch failed for ${letfTicker}: ${err.message}`);
+            warnings.push(
+                `LETF fetch failed for ${letfTicker}: ${err.message}`,
+            );
         }
 
+        // fresh LETF option
         const letfPrice = signal.instrumentEntryPrice ?? 0;
         if (letfPrice > 0) {
             const isBuy = tp.bias === "BUY";
             const action: "BUY" | "SELL" = isBuy ? "BUY" : "SELL";
             try {
-                letfOptionContract = await findLetfOptionContract(letfTicker, action, letfPrice);
+                letfOptionContract = await findLetfOptionContract(
+                    letfTicker,
+                    action,
+                    letfPrice,
+                );
                 if (letfOptionContract && letfOptionContract.markPrice > 0) {
-                    log(`[refresh] #${signal.id} LETF option contract: ${letfOptionContract.contractTicker} strike=$${letfOptionContract.strike} mark=$${letfOptionContract.markPrice.toFixed(2)}`, "refresh");
+                    log(
+                        `[refresh] #${signal.id} LETF option contract: ${letfOptionContract.contractTicker} strike=$${letfOptionContract.strike} mark=$${letfOptionContract.markPrice.toFixed(2)}`,
+                        "refresh",
+                    );
 
                     try {
-                        const lastTrade = await fetchOptionLastTrade(letfOptionContract.contractTicker);
-                        if (lastTrade && lastTrade.mark != null && lastTrade.mark > 0) {
+                        const lastTrade = await fetchOptionLastTrade(
+                            letfOptionContract.contractTicker,
+                        );
+                        if (
+                            lastTrade &&
+                            lastTrade.mark != null &&
+                            lastTrade.mark > 0
+                        ) {
                             letfOptionMark = lastTrade.mark;
-                            log(`[refresh] #${signal.id} LETF option last trade: $${letfOptionMark.toFixed(2)}`, "refresh");
+                            log(
+                                `[refresh] #${signal.id} LETF option last trade: $${letfOptionMark.toFixed(2)}`,
+                                "refresh",
+                            );
                         } else {
                             letfOptionMark = letfOptionContract.markPrice;
-                            log(`[refresh] #${signal.id} LETF option no last trade, using snapshot mark: $${letfOptionMark.toFixed(2)}`, "refresh");
+                            log(
+                                `[refresh] #${signal.id} LETF option no last trade, using snapshot mark: $${letfOptionMark.toFixed(2)}`,
+                                "refresh",
+                            );
                         }
                     } catch (err: any) {
                         letfOptionMark = letfOptionContract.markPrice;
-                        warnings.push(`LETF option last trade fetch failed: ${err.message}, using snapshot mark`);
+                        warnings.push(
+                            `LETF option last trade fetch failed: ${err.message}, using snapshot mark`,
+                        );
                     }
-                } else if (letfOptionContract && letfOptionContract.markPrice <= 0) {
-                    log(`[refresh] #${signal.id} LETF option contract ${letfOptionContract.contractTicker} has no valid mark — skipping`, "refresh");
+                } else if (
+                    letfOptionContract &&
+                    letfOptionContract.markPrice <= 0
+                ) {
+                    log(
+                        `[refresh] #${signal.id} LETF option contract ${letfOptionContract.contractTicker} has no valid mark — skipping`,
+                        "refresh",
+                    );
                     letfOptionContract = null;
                 }
             } catch (err: any) {
-                warnings.push(`LETF option contract lookup failed for ${letfTicker}: ${err.message}`);
+                warnings.push(
+                    `LETF option contract lookup failed for ${letfTicker}: ${err.message}`,
+                );
             }
         }
     }
