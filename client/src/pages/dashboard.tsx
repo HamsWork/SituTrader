@@ -796,6 +796,7 @@ function TradeNowCard({ signal }: { signal: SignalApi }) {
           {signal.activatedTs && (
             <span className="flex items-center gap-0.5">
               <Clock className="w-2.5 h-2.5" />
+              {new Date(signal.activatedTs).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "America/Chicago" })}{" "}
               {new Date(signal.activatedTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" })} CT
             </span>
           )}
