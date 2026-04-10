@@ -106,8 +106,6 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   return payload;
 }
 
-const TRADESYNC_MAX_RETRIES = 3;
-const TRADESYNC_RETRY_BASE_MS = 2_000;
 const TRADESYNC_TIMEOUT_MS = 60_000;
 
 async function sendOnce(
@@ -171,54 +169,26 @@ export async function sendToTradeSync(
     "tradesync",
   );
 
-  let lastResult: TradeSyncResult = { ok: false, error: "No attempts made" };
-
-  for (let attempt = 1; attempt <= TRADESYNC_MAX_RETRIES; attempt++) {
-    try {
-      lastResult = await sendOnce(payload, signal.ticker);
-
-      if (lastResult.ok) {
-        if (attempt > 1) {
-          log(
-            `TradeSync: Succeeded on attempt ${attempt}/${TRADESYNC_MAX_RETRIES} for ${signal.ticker}`,
-            "tradesync",
-          );
-        }
-        return lastResult;
-      }
-
+  try {
+    const result = await sendOnce(payload, signal.ticker);
+    if (!result.ok) {
       log(
-        `TradeSync: Attempt ${attempt}/${TRADESYNC_MAX_RETRIES} failed for ${signal.ticker}: ${lastResult.error}`,
-        "tradesync",
-      );
-    } catch (err: any) {
-      lastResult = {
-        ok: false,
-        error: err.message || "Failed to reach TradeSync API",
-      };
-      log(
-        `TradeSync: Attempt ${attempt}/${TRADESYNC_MAX_RETRIES} error for ${signal.ticker}: ${lastResult.error}`,
+        `TradeSync: Failed for ${signal.ticker}: ${result.error}`,
         "tradesync",
       );
     }
-
-    if (attempt < TRADESYNC_MAX_RETRIES) {
-      const delayMs =
-        TRADESYNC_RETRY_BASE_MS * Math.pow(2, attempt - 1) +
-        Math.floor(Math.random() * 1000);
-      log(
-        `TradeSync: Retrying ${signal.ticker} in ${delayMs}ms (attempt ${attempt + 1}/${TRADESYNC_MAX_RETRIES})`,
-        "tradesync",
-      );
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
+    return result;
+  } catch (err: any) {
+    const result: TradeSyncResult = {
+      ok: false,
+      error: err.message || "Failed to reach TradeSync API",
+    };
+    log(
+      `TradeSync: Error for ${signal.ticker}: ${result.error}`,
+      "tradesync",
+    );
+    return result;
   }
-
-  log(
-    `TradeSync: All ${TRADESYNC_MAX_RETRIES} attempts failed for ${signal.ticker}: ${lastResult.error}`,
-    "tradesync",
-  );
-  return lastResult;
 }
 
 export async function fetchDiscordTemplates(): Promise<TradeSyncResult> {
