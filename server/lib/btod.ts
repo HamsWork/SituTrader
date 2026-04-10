@@ -180,6 +180,15 @@ export async function shouldExecuteActivation(
   const topN = state.top3Ids as number[];
   const ranked = state.rankedQueue as RankedSignalEntry[];
   const entry = ranked.find((r) => r.signalId === signalId);
+
+  const executedTickers = (state.executedTickers ?? []) as string[];
+  if (entry?.ticker && executedTickers.includes(entry.ticker)) {
+    log(
+      `BTOD: Rejecting signal ${signalId} (${entry.ticker} rank #${entry.rank}) — ticker already executed today`,
+      "btod",
+    );
+    return { execute: false, reason: "duplicate_ticker" };
+  }
   const rank = entry?.rank;
 
   if (state.phase === "SELECTIVE") {
@@ -230,14 +239,23 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
   if (!state) return;
 
   const newCount = state.tradesExecuted + 1;
+  const ranked = state.rankedQueue as RankedSignalEntry[];
+  const entry = ranked.find((r) => r.signalId === signalId);
+
+  const prevTickers = (state.executedTickers ?? []) as string[];
+  const ticker = entry?.ticker;
+  const newTickers = ticker && !prevTickers.includes(ticker)
+    ? [...prevTickers, ticker]
+    : prevTickers;
+
   const updates: any = {
     tradeDate,
     tradesExecuted: newCount,
     gateOpen: newCount < BTOD_MAX_TRADES,
+    executedTickers: newTickers,
     updatedAt: new Date(),
   };
 
-  // TODO: selectedSingalId should be array
   if (!state.selectedSignalId) {
     updates.selectedSignalId = signalId;
   } else {
@@ -245,9 +263,6 @@ export async function onBtodTradeExecuted(signalId: number): Promise<void> {
   }
 
   await storage.upsertBtodState(updates);
-
-  const ranked = state.rankedQueue as RankedSignalEntry[];
-  const entry = ranked.find((r) => r.signalId === signalId);
   log(
     `BTOD: Trade #${newCount}/${BTOD_MAX_TRADES} executed — signal ${signalId} (${entry?.ticker ?? "?"} rank #${entry?.rank ?? "?"})`,
     "btod",

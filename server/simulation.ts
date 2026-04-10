@@ -284,6 +284,7 @@ export interface SimDayContext {
   totalDays: number;
   btodTradesExecuted: number;
   btodSignalIds: Set<number>;
+  btodExecutedTickers: Set<string>;
   dayResult: SimDayResult;
   prefetchedBars: Map<string, import("./lib/polygon").PolygonBar[]>;
 
@@ -361,9 +362,11 @@ export async function handlePostActivationSim(
       if (!sig) continue;
 
       const isBtodCandidate = ctx.btodSignalIds.has(sig.id);
-      const btodGateOpen = isBtodCandidate && ctx.btodTradesExecuted < BTOD_MAX_TRADES;
+      const tickerAlreadyExecuted = ctx.btodExecutedTickers.has(sig.ticker);
+      const btodGateOpen = isBtodCandidate && ctx.btodTradesExecuted < BTOD_MAX_TRADES && !tickerAlreadyExecuted;
 
       if (btodGateOpen) {
+        ctx.btodExecutedTickers.add(sig.ticker);
         ctx.btodTradesExecuted++;
 
         applyActivationToCtx(ctx, mut);
@@ -929,6 +932,7 @@ export async function runSimulation(
     currentMin: SIM_BEFORE_PRE_OPEN_CT,
     btodTradesExecuted: 0,
     btodSignalIds: new Set(),
+    btodExecutedTickers: new Set(),
     dayResult: emptyDayResult,
     today: tradingDays[0],
     dayIdx: 0,
@@ -1002,6 +1006,7 @@ export async function runSimulation(
     currentDayCtx.dayIdx = dayIdx;
     currentDayCtx.totalDays = tradingDays.length;
     currentDayCtx.btodTradesExecuted = 0;
+    currentDayCtx.btodExecutedTickers = new Set();
     currentDayCtx.prefetchedBars = new Map();
 
     currentDayCtx.currentMin = SIM_BEFORE_PRE_OPEN_CT;
