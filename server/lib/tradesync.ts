@@ -106,15 +106,10 @@ function toApiPayload(signal: TradeSyncSignalData): Record<string, any> {
   return payload;
 }
 
-const TRADESYNC_TIMEOUT_MS = 60_000;
-
 async function sendOnce(
   payload: Record<string, any>,
   ticker: string,
 ): Promise<TradeSyncResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TRADESYNC_TIMEOUT_MS);
-
   let res: Response;
   try {
     res = await fetch(`${TRADESYNC_BASE_URL}/api/ingest/signals`, {
@@ -124,19 +119,10 @@ async function sendOnce(
         Authorization: `Bearer ${TRADESYNC_API_KEY}`,
       },
       body: JSON.stringify(payload),
-      signal: controller.signal,
     });
   } catch (fetchErr: any) {
-    clearTimeout(timer);
-    if (fetchErr.name === "AbortError") {
-      return {
-        ok: false,
-        error: `TradeSync request timed out after ${TRADESYNC_TIMEOUT_MS}ms`,
-      };
-    }
     return { ok: false, error: fetchErr.message || "Network error" };
   }
-  clearTimeout(timer);
 
   const body = await res.json().catch(() => null);
 
