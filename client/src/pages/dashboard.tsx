@@ -46,6 +46,8 @@ import {
   Timer,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Radio,
   Eye,
   Database,
@@ -1125,6 +1127,10 @@ export default function Dashboard() {
   const [showHistory, setShowHistory] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [q80Only, setQ80Only] = useState(false);
+  const [activeTradesPage, setActiveTradesPage] = useState(1);
+  const [onDeckPage, setOnDeckPage] = useState(1);
+  const ACTIVE_PAGE_SIZE = 5;
+  const ON_DECK_PAGE_SIZE = 10;
   const [liveStatus, setLiveStatus] = useState<"connected" | "refreshing" | "error">("connected");
   const autoRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAutoRefreshRef = useRef<number>(0);
@@ -1171,6 +1177,11 @@ export default function Dashboard() {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [doAutoRefresh]);
+
+  useEffect(() => {
+    setActiveTradesPage(1);
+    setOnDeckPage(1);
+  }, [filterTier, filterSetup, filterTicker, filterStatus, showAll, q80Only]);
 
   const { data: profiles } = useQuery<SignalProfile[]>({
     queryKey: ["/api/profiles"],
@@ -1776,13 +1787,49 @@ export default function Dashboard() {
               </p>
             </CardContent>
           </Card>
-        ) : (
-          <div className="space-y-3">
-            {tradeNowSignals.map(signal => (
-              <TradeNowCard key={signal.id} signal={signal} />
-            ))}
-          </div>
-        )}
+        ) : (() => {
+          const totalActivePages = Math.ceil(tradeNowSignals.length / ACTIVE_PAGE_SIZE);
+          const pagedActive = tradeNowSignals.slice((activeTradesPage - 1) * ACTIVE_PAGE_SIZE, activeTradesPage * ACTIVE_PAGE_SIZE);
+          return (
+            <>
+              <div className="space-y-3">
+                {pagedActive.map(signal => (
+                  <TradeNowCard key={signal.id} signal={signal} />
+                ))}
+              </div>
+              {totalActivePages > 1 && (
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-muted-foreground">
+                    {(activeTradesPage - 1) * ACTIVE_PAGE_SIZE + 1}–{Math.min(activeTradesPage * ACTIVE_PAGE_SIZE, tradeNowSignals.length)} of {tradeNowSignals.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={activeTradesPage <= 1}
+                      onClick={() => setActiveTradesPage(p => p - 1)}
+                      data-testid="btn-active-prev"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </Button>
+                    <span className="text-xs px-2">{activeTradesPage}/{totalActivePages}</span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={activeTradesPage >= totalActivePages}
+                      onClick={() => setActiveTradesPage(p => p + 1)}
+                      data-testid="btn-active-next"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <div id="section-on-deck" className="scroll-mt-4">
@@ -1810,43 +1857,84 @@ export default function Dashboard() {
             const tp = s.tradePlanJson as TradePlan | null;
             return tp?.bias === "BUY" || (!tp && !s.direction.toLowerCase().includes("down") && s.direction !== "SELL");
           };
-          const bullish = onDeckSignals
+          const allBullish = onDeckSignals
             .filter(s => isBuySignal(s))
             .sort((a, b) => b.qualityScore - a.qualityScore);
-          const bearish = onDeckSignals
+          const allBearish = onDeckSignals
             .filter(s => !isBuySignal(s))
             .sort((a, b) => b.qualityScore - a.qualityScore);
+          const totalOnDeckPages = Math.ceil(onDeckSignals.length / ON_DECK_PAGE_SIZE);
+          const startIdx = (onDeckPage - 1) * ON_DECK_PAGE_SIZE;
+          const pagedSignals = onDeckSignals
+            .sort((a, b) => b.qualityScore - a.qualityScore)
+            .slice(startIdx, startIdx + ON_DECK_PAGE_SIZE);
+          const pagedBullishSet = new Set(pagedSignals.filter(s => isBuySignal(s)).map(s => s.id));
+          const pagedBearishSet = new Set(pagedSignals.filter(s => !isBuySignal(s)).map(s => s.id));
+          const bullish = allBullish.filter(s => pagedBullishSet.has(s.id));
+          const bearish = allBearish.filter(s => pagedBearishSet.has(s.id));
           return (
-            <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide" data-testid="text-bullish-header">Bullish</span>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{bullish.length}</Badge>
+            <>
+              <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide" data-testid="text-bullish-header">Bullish</span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">{allBullish.length}</Badge>
+                  </div>
+                  {bullish.length === 0 ? (
+                    <p className="text-xs text-muted-foreground pl-5">No bullish signals</p>
+                  ) : (
+                    bullish.map(signal => (
+                      <OnDeckCard key={signal.id} signal={signal} />
+                    ))
+                  )}
                 </div>
-                {bullish.length === 0 ? (
-                  <p className="text-xs text-muted-foreground pl-5">No bullish signals</p>
-                ) : (
-                  bullish.map(signal => (
-                    <OnDeckCard key={signal.id} signal={signal} />
-                  ))
-                )}
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingDown className="w-3.5 h-3.5 text-red-500" />
-                  <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide" data-testid="text-bearish-header">Bearish</span>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{bearish.length}</Badge>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                    <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide" data-testid="text-bearish-header">Bearish</span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">{allBearish.length}</Badge>
+                  </div>
+                  {bearish.length === 0 ? (
+                    <p className="text-xs text-muted-foreground pl-5">No bearish signals</p>
+                  ) : (
+                    bearish.map(signal => (
+                      <OnDeckCard key={signal.id} signal={signal} />
+                    ))
+                  )}
                 </div>
-                {bearish.length === 0 ? (
-                  <p className="text-xs text-muted-foreground pl-5">No bearish signals</p>
-                ) : (
-                  bearish.map(signal => (
-                    <OnDeckCard key={signal.id} signal={signal} />
-                  ))
-                )}
               </div>
-            </div>
+              {totalOnDeckPages > 1 && (
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-muted-foreground">
+                    {startIdx + 1}–{Math.min(startIdx + ON_DECK_PAGE_SIZE, onDeckSignals.length)} of {onDeckSignals.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={onDeckPage <= 1}
+                      onClick={() => setOnDeckPage(p => p - 1)}
+                      data-testid="btn-ondeck-prev"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </Button>
+                    <span className="text-xs px-2">{onDeckPage}/{totalOnDeckPages}</span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={onDeckPage >= totalOnDeckPages}
+                      onClick={() => setOnDeckPage(p => p + 1)}
+                      data-testid="btn-ondeck-next"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           );
         })()}
       </div>
