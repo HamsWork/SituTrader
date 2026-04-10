@@ -1132,7 +1132,7 @@ export default function Dashboard() {
   const [bullishPage, setBullishPage] = useState(1);
   const [bearishPage, setBearishPage] = useState(1);
   const ACTIVE_PAGE_SIZE = 5;
-  const ON_DECK_PAGE_SIZE = 10;
+  const ON_DECK_PAGE_SIZE = 5;
   const [liveStatus, setLiveStatus] = useState<"connected" | "refreshing" | "error">("connected");
   const autoRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAutoRefreshRef = useRef<number>(0);
