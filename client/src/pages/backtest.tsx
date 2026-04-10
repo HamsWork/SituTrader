@@ -1699,25 +1699,25 @@ export default function BacktestPage() {
                                 On Deck ({onDeckSignals.length})
                               </div>
                               {onDeckSignals.length > 0 ? (
-                                <div className="overflow-x-auto">
+                                <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
                                   <table className="w-full text-xs" data-testid="table-ondeck-signals">
                                     <thead>
                                       <tr className="border-b border-zinc-800 text-muted-foreground">
-                                        <th className="text-left py-1.5 pr-2 font-medium">Ticker</th>
-                                        <th className="text-left py-1.5 pr-2 font-medium">Setup</th>
-                                        <th className="text-left py-1.5 pr-2 font-medium">Bias</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Magnet</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">QS</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Tier</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Option</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Strike</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Exp</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Bid/Ask</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Mark</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Delta</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">OI</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Tradable</th>
-                                        <th className="text-center py-1.5 px-2 font-medium">Status</th>
+                                        <th className="text-left py-1.5 pr-2 font-medium sticky top-0 bg-zinc-950 z-10">Ticker</th>
+                                        <th className="text-left py-1.5 pr-2 font-medium sticky top-0 bg-zinc-950 z-10">Setup</th>
+                                        <th className="text-left py-1.5 pr-2 font-medium sticky top-0 bg-zinc-950 z-10">Bias</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Magnet</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">QS</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Tier</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Option</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Strike</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Exp</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Bid/Ask</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Mark</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Delta</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">OI</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Tradable</th>
+                                        <th className="text-center py-1.5 px-2 font-medium sticky top-0 bg-zinc-950 z-10">Status</th>
                                       </tr>
                                     </thead>
                                     <tbody>
