@@ -8,6 +8,7 @@ import { validateMagnetTouch, filterRTHBars, timestampToET } from "./validate";
 import { fetchDailyBarsCached, fetchDailyBarsFromPolygon, fetchIntradayBars, fetchIntradayBarsCached, PolygonBar, fetchSnapshot, fetchOptionLastTrade } from "./polygon";
 import { enrichOptionData } from "./options";
 import { findLetfOptionContract, type LetfOptionContractResult } from "./btod";
+import { hasLeveragedEtfMapping, selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
 import { formatDate, getTradingDaysBack } from "./calendar";
 import { SimDayContext } from "server/simulation";
 import { log } from "../index";
@@ -884,7 +885,35 @@ export async function refreshAndValidateSignal(signal: Signal): Promise<RefreshR
         }
     }
 
-    const letfTicker = signal.instrumentTicker || (signal.leveragedEtfJson as any)?.ticker;
+    const letfJson = signal.leveragedEtfJson as any;
+    let letfTicker = letfJson?.ticker || (signal.instrumentType === "LEVERAGED_ETF" ? signal.instrumentTicker : null);
+
+    if (!letfTicker && hasLeveragedEtfMapping(signal.ticker)) {
+        try {
+            const bias: "BUY" | "SELL" = tp.bias === "SELL" ? "SELL" : "BUY";
+            const suggestion = await selectBestLeveragedEtf(signal.ticker, bias);
+            if (suggestion) {
+                log(`[refresh] #${signal.id} ${signal.ticker} no letfJson — enriching LETF: ${suggestion.ticker} (${suggestion.leverage}x ${suggestion.direction})`, "refresh");
+                await storage.updateSignalLeveragedEtf(signal.id, suggestion);
+                const letfQuote = await fetchStockNbbo(suggestion.ticker);
+                const letfEntry = letfQuote?.mid ?? null;
+                await storage.updateSignalInstrument(signal.id, "LEVERAGED_ETF", suggestion.ticker, letfEntry);
+                signal = {
+                    ...signal,
+                    leveragedEtfJson: suggestion,
+                    instrumentType: "LEVERAGED_ETF",
+                    instrumentTicker: suggestion.ticker,
+                    instrumentEntryPrice: letfEntry,
+                };
+                letfTicker = suggestion.ticker;
+            } else {
+                log(`[refresh] #${signal.id} ${signal.ticker} has LETF mapping but no viable ETF found`, "refresh");
+            }
+        } catch (err: any) {
+            warnings.push(`LETF enrichment failed for ${signal.ticker}: ${err.message}`);
+        }
+    }
+
     if (letfTicker) {
         try {
             const letfSnap = await fetchSnapshot(letfTicker);
