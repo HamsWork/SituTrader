@@ -13,6 +13,10 @@ interface EtfCandidate {
   direction: "BULL" | "BEAR";
 }
 
+const discoveryCache = new Map<string, { candidates: EtfCandidate[]; ts: number }>();
+const DISCOVERY_CACHE_TTL = 24 * 60 * 60 * 1000;
+const DISCOVERY_NEGATIVE_TTL = 4 * 60 * 60 * 1000;
+
 const LEVERAGED_ETF_MAP: Record<string, EtfCandidate[]> = {
 
   // ── Major Index ETFs ──────────────────────────────────────────────
@@ -237,12 +241,145 @@ function resolveUnderlying(ticker: string): string {
   return UNDERLYING_ALIASES[ticker] ?? ticker;
 }
 
+function parseLeverageFromName(name: string): { leverage: 1 | 2 | 3; direction: "BULL" | "BEAR" } | null {
+  const n = name.toUpperCase();
+
+  const hasLeverageKeyword =
+    /\b(2X|3X|1X|ULTRA|LEVERAGED|BULL|BEAR|INVERSE|SHORT)\b/i.test(n);
+  if (!hasLeverageKeyword) return null;
+
+  const bearWords = /\b(BEAR|SHORT|INVERSE|DECLINE)\b/.test(n);
+  const bullWords = /\b(BULL|LONG)\b/.test(n);
+
+  let direction: "BULL" | "BEAR";
+  if (/ULTRAPRO\s*SHORT/.test(n)) {
+    direction = "BEAR";
+  } else if (/ULTRASHORT/.test(n)) {
+    direction = "BEAR";
+  } else if (bearWords && !bullWords) {
+    direction = "BEAR";
+  } else if (bullWords && !bearWords) {
+    direction = "BULL";
+  } else {
+    direction = "BULL";
+  }
+
+  let leverage: 1 | 2 | 3 = 1;
+  if (/\b3X\b/.test(n) || /\bTRIPLE\b/.test(n) || /ULTRAPRO/.test(n)) {
+    leverage = 3;
+  } else if (/\b2X\b/.test(n) || /\bDOUBLE\b/.test(n) || /ULTRASHORT/.test(n) || /\bULTRA\b/.test(n)) {
+    leverage = 2;
+  } else if (/\b1X\b/.test(n)) {
+    leverage = 1;
+  }
+
+  return { leverage, direction };
+}
+
+async function polygonSearch(searchTerm: string): Promise<any[]> {
+  if (!API_KEY) return [];
+  try {
+    const url = new URL(`${POLYGON_BASE}/v3/reference/tickers`);
+    url.searchParams.set("apiKey", API_KEY);
+    url.searchParams.set("search", searchTerm);
+    url.searchParams.set("type", "ETF");
+    url.searchParams.set("market", "stocks");
+    url.searchParams.set("active", "true");
+    url.searchParams.set("limit", "100");
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      log(`Polygon LETF discovery search failed (${res.status}) for "${searchTerm}"`, "leveragedEtf");
+      return [];
+    }
+    const data = await res.json();
+    return data.results ?? [];
+  } catch (err: any) {
+    log(`Polygon LETF discovery error for "${searchTerm}": ${err.message}`, "leveragedEtf");
+    return [];
+  }
+}
+
+async function discoverLeveragedEtfs(underlyingTicker: string): Promise<EtfCandidate[]> {
+  const results = await polygonSearch(underlyingTicker);
+
+  const candidates: EtfCandidate[] = [];
+  const seenTickers = new Set<string>();
+
+  for (const r of results) {
+    const etfTicker: string = r.ticker;
+    const name: string = r.name || "";
+
+    if (etfTicker === underlyingTicker) continue;
+    if (seenTickers.has(etfTicker)) continue;
+
+    const nameUpper = name.toUpperCase();
+    const tickerUpper = underlyingTicker.toUpperCase();
+    if (!nameUpper.includes(tickerUpper)) continue;
+
+    const parsed = parseLeverageFromName(name);
+    if (!parsed) continue;
+
+    seenTickers.add(etfTicker);
+    candidates.push({
+      ticker: etfTicker,
+      leverage: parsed.leverage,
+      direction: parsed.direction,
+    });
+  }
+
+  if (candidates.length > 0) {
+    log(
+      `LETF discovery: found ${candidates.length} leveraged ETF(s) for ${underlyingTicker} via Polygon: [${candidates.map(c => `${c.ticker}(${c.leverage}x ${c.direction})`).join(", ")}]`,
+      "leveragedEtf",
+    );
+  } else {
+    log(`LETF discovery: no leveraged ETFs found for ${underlyingTicker} via Polygon`, "leveragedEtf");
+  }
+
+  return candidates;
+}
+
 export function getCandidates(underlyingTicker: string, bias: "BUY" | "SELL"): EtfCandidate[] {
   const resolved = resolveUnderlying(underlyingTicker);
-  const all = LEVERAGED_ETF_MAP[resolved];
-  if (!all) return [];
   const direction = bias === "BUY" ? "BULL" : "BEAR";
-  return all.filter(c => c.direction === direction);
+
+  const hardcoded = LEVERAGED_ETF_MAP[resolved];
+  if (hardcoded && hardcoded.length > 0) {
+    return hardcoded.filter(c => c.direction === direction);
+  }
+
+  const cached = discoveryCache.get(resolved);
+  if (cached) {
+    const ttl = cached.candidates.length > 0 ? DISCOVERY_CACHE_TTL : DISCOVERY_NEGATIVE_TTL;
+    if (Date.now() - cached.ts < ttl) {
+      return cached.candidates.filter(c => c.direction === direction);
+    }
+  }
+
+  return [];
+}
+
+async function getCandidatesAsync(underlyingTicker: string, bias: "BUY" | "SELL"): Promise<EtfCandidate[]> {
+  const resolved = resolveUnderlying(underlyingTicker);
+  const direction = bias === "BUY" ? "BULL" : "BEAR";
+
+  const hardcoded = LEVERAGED_ETF_MAP[resolved];
+  if (hardcoded && hardcoded.length > 0) {
+    return hardcoded.filter(c => c.direction === direction);
+  }
+
+  const cached = discoveryCache.get(resolved);
+  if (cached) {
+    const ttl = cached.candidates.length > 0 ? DISCOVERY_CACHE_TTL : DISCOVERY_NEGATIVE_TTL;
+    if (Date.now() - cached.ts < ttl) {
+      return cached.candidates.filter(c => c.direction === direction);
+    }
+  }
+
+  const discovered = await discoverLeveragedEtfs(resolved);
+  discoveryCache.set(resolved, { candidates: discovered, ts: Date.now() });
+  return discovered.filter(c => c.direction === direction);
 }
 
 export interface StockQuoteResult {
@@ -338,7 +475,7 @@ export async function selectBestLeveragedEtf(
   underlyingTicker: string,
   bias: "BUY" | "SELL"
 ): Promise<LeveragedEtfSuggestion | null> {
-  const candidates = getCandidates(underlyingTicker, bias);
+  const candidates = await getCandidatesAsync(underlyingTicker, bias);
   if (candidates.length === 0) return null;
 
   const tier3 = candidates.filter(c => c.leverage === 3);
@@ -375,5 +512,37 @@ export async function selectBestLeveragedEtf(
 
 export function hasLeveragedEtfMapping(ticker: string): boolean {
   const resolved = resolveUnderlying(ticker);
-  return resolved in LEVERAGED_ETF_MAP;
+  if (resolved in LEVERAGED_ETF_MAP) return true;
+  const cached = discoveryCache.get(resolved);
+  return cached != null && cached.candidates.length > 0 && (Date.now() - cached.ts < DISCOVERY_CACHE_TTL);
+}
+
+export async function hasLeveragedEtfMappingAsync(ticker: string): Promise<boolean> {
+  const resolved = resolveUnderlying(ticker);
+  if (resolved in LEVERAGED_ETF_MAP) return true;
+
+  const cached = discoveryCache.get(resolved);
+  if (cached) {
+    const ttl = cached.candidates.length > 0 ? DISCOVERY_CACHE_TTL : DISCOVERY_NEGATIVE_TTL;
+    if (Date.now() - cached.ts < ttl) {
+      return cached.candidates.length > 0;
+    }
+  }
+
+  const discovered = await discoverLeveragedEtfs(resolved);
+  discoveryCache.set(resolved, { candidates: discovered, ts: Date.now() });
+  return discovered.length > 0;
+}
+
+export function getDiscoveryCacheStats(): { entries: number; tickers: string[] } {
+  const tickers: string[] = [];
+  discoveryCache.forEach((val, key) => {
+    if (val.candidates.length > 0) tickers.push(key);
+  });
+  return { entries: discoveryCache.size, tickers };
+}
+
+export function clearDiscoveryCache(): void {
+  discoveryCache.clear();
+  log("LETF discovery cache cleared", "leveragedEtf");
 }

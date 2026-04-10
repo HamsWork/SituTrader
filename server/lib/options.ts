@@ -13,7 +13,6 @@ import {
 import {
   selectBestLeveragedEtf,
   fetchStockNbbo,
-  hasLeveragedEtfMapping,
 } from "./leveragedEtf";
 import { log } from "../index";
 import type { Signal, TradePlan, OptionsData, OptionsCandidate, OptionsChecks } from "@shared/schema";
@@ -1130,7 +1129,6 @@ export async function enrichOptionData(
   }
 
   if (
-    hasLeveragedEtfMapping(ticker) &&
     (!sig.instrumentType || sig.instrumentType === "OPTION") &&
     !sig.instrumentTicker
   ) {

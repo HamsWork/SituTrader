@@ -21,7 +21,7 @@ import { enrichPendingSignalsWithOptions } from "./lib/options";
 import { startBacktestWorker, pauseBacktestWorker, resumeBacktestWorker, isBacktestWorkerRunning, isBacktestWorkerPaused, autoStartBacktestWorker } from "./jobs/backtestWorker";
 import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSignals } from "./lib/optionMonitor";
 import { fetchOptionMark } from "./lib/polygon";
-import { selectBestLeveragedEtf, fetchStockNbbo, hasLeveragedEtfMapping, getCandidates } from "./lib/leveragedEtf";
+import { selectBestLeveragedEtf, fetchStockNbbo, getCandidates } from "./lib/leveragedEtf";
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
 import { isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
@@ -651,19 +651,17 @@ export async function registerRoutes(
               leveragedEtfJson: null,
             });
 
-            if (hasLeveragedEtfMapping(ticker)) {
-              try {
-                const suggestion = await selectBestLeveragedEtf(ticker, tradePlan.bias as "BUY" | "SELL");
-                if (suggestion) {
-                  const newSigs = await storage.getSignals(undefined, 1);
-                  const newest = newSigs.find(s => s.ticker === ticker && s.setupType === setup.setupType);
-                  if (newest) {
-                    await storage.updateSignalLeveragedEtf(newest.id, suggestion);
-                  }
+            try {
+              const suggestion = await selectBestLeveragedEtf(ticker, tradePlan.bias as "BUY" | "SELL");
+              if (suggestion) {
+                const newSigs = await storage.getSignals(undefined, 1);
+                const newest = newSigs.find(s => s.ticker === ticker && s.setupType === setup.setupType);
+                if (newest) {
+                  await storage.updateSignalLeveragedEtf(newest.id, suggestion);
                 }
-              } catch (e: any) {
-                log(`LETF auto-suggest failed for ${ticker}: ${e.message}`, "refresh");
               }
+            } catch (e: any) {
+              log(`LETF auto-suggest failed for ${ticker}: ${e.message}`, "refresh");
             }
           }
 
@@ -1638,8 +1636,7 @@ export async function registerRoutes(
       const allSigs = await storage.getSignals(undefined, 500);
       const needLetf = allSigs.filter(s =>
         (s.status === "pending" || s.status === "active") &&
-        !s.leveragedEtfJson &&
-        hasLeveragedEtfMapping(s.ticker)
+        !s.leveragedEtfJson
       );
 
       let updated = 0;

@@ -346,7 +346,7 @@ export async function runActivationScan(): Promise<ActivationEvent[]> {
   return events;
 }
 
-import { hasLeveragedEtfMapping, selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
+import { selectBestLeveragedEtf, fetchStockNbbo } from "./leveragedEtf";
 import { SimDayContext, applyMutationsToCtx, handlePostActivationSim } from "server/simulation";
 
 export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null> {
@@ -357,7 +357,6 @@ export async function ensureLetfForSignal(signal: Signal): Promise<Signal | null
     return s ?? signal;
   }
   const ticker = signal.ticker;
-  if (!hasLeveragedEtfMapping(ticker)) return null;
   const tp = signal.tradePlanJson as TradePlan | null;
   if (!tp) return null;
   try {

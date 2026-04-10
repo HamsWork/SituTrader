@@ -27,7 +27,6 @@ import {
 import { enrichOptionData } from "./options";
 import { findLetfOptionContract, type LetfOptionContractResult } from "./btod";
 import {
-    hasLeveragedEtfMapping,
     selectBestLeveragedEtf,
     fetchStockNbbo,
 } from "./leveragedEtf";
