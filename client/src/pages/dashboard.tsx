@@ -1771,12 +1771,14 @@ export default function Dashboard() {
         </TabsList>
 
         <TabsContent value="tracker">
-          <TradeTracker />
+          <div className="space-y-6">
+            <BtodStatusPanel />
+            <TradeTracker />
+          </div>
         </TabsContent>
 
         <TabsContent value="signals">
           <div className="space-y-6">
-            <BtodStatusPanel />
 
       {universeStatus && universeStatus.memberCount > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap" data-testid="text-universe-info">
