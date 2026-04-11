@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, boolean, timestamp, unique, serial, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, doublePrecision, boolean, timestamp, unique, serial, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -258,7 +258,7 @@ export const ibkrTrades = pgTable("ibkr_trades", {
   stopMovedToBe: boolean("stop_moved_to_be").notNull().default(false),
   discordAlertSent: boolean("discord_alert_sent").notNull().default(false),
   discordUpdateSent: boolean("discord_update_sent").notNull().default(false),
-  tradesyncSignalId: integer("tradesync_signal_id"),
+  tradesyncSignalId: text("tradesync_signal_id"),
   notes: text("notes"),
   detailsJson: jsonb("details_json"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -292,13 +292,47 @@ export const tradesyncLogs = pgTable("tradesync_logs", {
   target2Price: real("target2_price"),
   delta: real("delta"),
   success: boolean("success").notNull(),
-  tradesyncSignalId: integer("tradesync_signal_id"),
+  tradesyncSignalId: text("tradesync_signal_id"),
   errorMessage: text("error_message"),
   payloadJson: jsonb("payload_json"),
   responseJson: jsonb("response_json"),
   durationMs: integer("duration_ms"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+export const tradesyncSignalCache = pgTable("tradesync_signal_cache", {
+  id: serial("id").primaryKey(),
+  tradesyncSignalId: text("tradesync_signal_id").notNull().unique(),
+  ibkrTradeId: integer("ibkr_trade_id"),
+  signalId: integer("signal_id"),
+  ticker: text("ticker").notNull(),
+  instrumentType: text("instrument_type").notNull(),
+  tsStatus: text("ts_status").notNull().default("unknown"),
+  dataStatus: text("data_status"),
+  autoTrack: boolean("auto_track").notNull().default(false),
+  currentStopLoss: real("current_stop_loss"),
+  currentTpNumber: integer("current_tp_number").notNull().default(0),
+  trailingStopActive: boolean("trailing_stop_active").notNull().default(false),
+  trailingStopHigh: real("trailing_stop_high"),
+  trailingStopPercent: real("trailing_stop_percent"),
+  currentTrackingPrice: real("current_tracking_price"),
+  currentInstrumentPrice: real("current_instrument_price"),
+  remainQuantity: integer("remain_quantity"),
+  stopLossHit: boolean("stop_loss_hit").notNull().default(false),
+  stopLossHitAt: text("stop_loss_hit_at"),
+  lastMilestoneAlerted: integer("last_milestone_alerted"),
+  currentStopLossPercent: real("current_stop_loss_percent"),
+  pnlPercent: real("pnl_percent"),
+  hitTargetsJson: jsonb("hit_targets_json"),
+  targetsJson: jsonb("targets_json"),
+  rawJson: jsonb("raw_json"),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type TradesyncSignalCache = typeof tradesyncSignalCache.$inferSelect;
+export const insertTradesyncSignalCacheSchema = createInsertSchema(tradesyncSignalCache).omit({ id: true, fetchedAt: true, createdAt: true });
+export type InsertTradesyncSignalCache = z.infer<typeof insertTradesyncSignalCacheSchema>;
 
 export type TradesyncLog = typeof tradesyncLogs.$inferSelect;
 export type IbkrTrade = typeof ibkrTrades.$inferSelect;
@@ -707,12 +741,12 @@ export const barCache = pgTable(
     symbol: text("symbol").notNull(),
     timeframe: text("timeframe").notNull(),
     adjusted: integer("adjusted").notNull(),
-    timestamp: real("timestamp").notNull(),
-    open: real("open").notNull(),
-    high: real("high").notNull(),
-    low: real("low").notNull(),
-    close: real("close").notNull(),
-    volume: real("volume").notNull(),
+    timestamp: doublePrecision("timestamp").notNull(),
+    open: doublePrecision("open").notNull(),
+    high: doublePrecision("high").notNull(),
+    low: doublePrecision("low").notNull(),
+    close: doublePrecision("close").notNull(),
+    volume: doublePrecision("volume").notNull(),
   },
   (table) => [unique("bar_cache_symbol_tf_adj_ts").on(table.symbol, table.timeframe, table.adjusted, table.timestamp)],
 );
@@ -721,7 +755,7 @@ export const barCacheMeta = pgTable("bar_cache_meta", {
   symbol: text("symbol").notNull(),
   timeframe: text("timeframe").notNull(),
   adjusted: integer("adjusted").notNull(),
-  lastFetched: real("last_fetched").notNull(),
+  lastFetched: doublePrecision("last_fetched").notNull(),
 }, (table) => [unique("bar_cache_meta_pkey").on(table.symbol, table.timeframe, table.adjusted)]);
 
 export const simDayCache = pgTable("sim_day_cache", {

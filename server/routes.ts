@@ -23,6 +23,7 @@ import { startOptionMonitor, getOptionLiveData, refreshOptionQuotesForActiveSign
 import { fetchOptionMark } from "./lib/polygon";
 import { selectBestLeveragedEtf, fetchStockNbbo, getCandidates } from "./lib/leveragedEtf";
 import { startLetfMonitor, getLetfLiveData, refreshLetfQuotesForActiveSignals } from "./lib/letfMonitor";
+import { startTradeSyncPoller } from "./lib/tradeSyncPoller";
 import { isConnected, getPositions, getAccountSummary } from "./lib/ibkr";
 import { executeTradeForSignal, monitorActiveTrades, closeTradeManually, getIbkrDashboardData } from "./lib/ibkrOrders";
 import { postOptionsAlert, postLetfAlert, postSharesAlert, postTradeUpdate } from "./lib/discord";
@@ -72,6 +73,7 @@ export async function registerRoutes(
   await initScheduler();
   startOptionMonitor();
   startLetfMonitor();
+  startTradeSyncPoller();
   autoStartBacktestWorker();
 
   app.get("/api/profiles", async (_req, res) => {
@@ -1821,14 +1823,14 @@ export async function registerRoutes(
           .map(t => t.instrumentTicker || t.ticker)
           .filter((tk): tk is string => !!tk && !tk.startsWith("O:"))
       )];
-      const { fetchLiveSignalStatuses } = await import("./lib/tradesync");
+
       const tradeSyncIds = [...new Set(
         trades
           .map(t => t.tradesyncSignalId)
-          .filter((id): id is number => id != null)
+          .filter((id): id is string => id != null && id !== "")
       )];
 
-      const [, tsLiveMap] = await Promise.all([
+      const [, tsCacheRows] = await Promise.all([
         Promise.all(uniqueTickers.map(async (ticker) => {
           try {
             const snap = await fetchSnapshot(ticker);
@@ -1837,8 +1839,10 @@ export async function registerRoutes(
             priceCache.set(ticker, null);
           }
         })),
-        fetchLiveSignalStatuses(tradeSyncIds),
+        storage.getTradesyncSignalCacheByIds(tradeSyncIds),
       ]);
+
+      const tsCacheMap = new Map(tsCacheRows.map(c => [c.tradesyncSignalId, c]));
 
       for (const trade of trades) {
         const signalId = trade.signalId;
@@ -1873,7 +1877,7 @@ export async function registerRoutes(
         }
 
         const tsId = trade.tradesyncSignalId;
-        const tsLiveData = tsId != null ? tsLiveMap.get(String(tsId)) : null;
+        const cached = tsId ? tsCacheMap.get(tsId) : null;
 
         signalGroups[signalId].trades.push({
           id: trade.id,
@@ -1895,15 +1899,15 @@ export async function registerRoutes(
           tradesyncSent: tsLog?.success ?? false,
           tradesyncSentAt: tsLog?.createdAt ?? null,
           currentPrice,
-          tsLive: tsLiveData ? {
-            status: tsLiveData.status,
-            autoTrack: tsLiveData.auto_track,
-            currentStopLoss: tsLiveData.current_stop_loss,
-            currentTpNumber: tsLiveData.current_tp_number,
-            trailingStopActive: tsLiveData.trailing_stop_active,
-            currentPrice: tsLiveData.current_price,
-            remainQuantity: tsLiveData.remain_quantity,
-            pnlPercent: tsLiveData.pnl_percent,
+          tsLive: cached ? {
+            status: cached.tsStatus,
+            autoTrack: cached.autoTrack,
+            currentStopLoss: cached.currentStopLoss,
+            currentTpNumber: cached.currentTpNumber,
+            trailingStopActive: cached.trailingStopActive,
+            currentPrice: cached.currentInstrumentPrice ?? cached.currentTrackingPrice,
+            remainQuantity: cached.remainQuantity,
+            pnlPercent: cached.pnlPercent,
           } : null,
         });
       }

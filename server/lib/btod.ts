@@ -522,7 +522,7 @@ export interface BtodInstrumentResult {
   ticker?: string | null;
   success: boolean;
   tradeId?: number;
-  tradesyncSignalId?: number;
+  tradesyncSignalId?: string;
   error?: string;
   entry?: number;
   targets?: { t1: number | null; t2: number | null; stop: number | null };
@@ -802,7 +802,7 @@ export async function executeBtodMultiInstrument(
           storage.createTradesyncLog({
             ...tsLogData,
             success: true,
-            tradesyncSignalId: tradeSyncId && !isNaN(Number(tradeSyncId)) ? Number(tradeSyncId) : null,
+            tradesyncSignalId: tradeSyncId ?? null,
             errorMessage: null,
             responseJson: tsResult.data ?? null,
           }),
@@ -825,7 +825,7 @@ export async function executeBtodMultiInstrument(
             target1Price: tradeTarget1 ?? undefined,
             target2Price: tradeTarget2 ?? undefined,
             status: "SUBMITTED",
-            tradesyncSignalId: tradeSyncId && !isNaN(Number(tradeSyncId)) ? Number(tradeSyncId) : undefined,
+            tradesyncSignalId: tradeSyncId ?? undefined,
             detailsJson: {
               entryUnderlyingPrice: stockEntry,
               optionExpiry: optionExpiry ?? null,
@@ -849,7 +849,7 @@ export async function executeBtodMultiInstrument(
         instrumentType: inst.type,
         ticker: inst.ticker,
         success: true,
-        tradesyncSignalId: tradeSyncId ? Number(tradeSyncId) : undefined,
+        tradesyncSignalId: tradeSyncId ?? undefined,
         entry: instrumentEntry,
         targets: { t1: tradeTarget1, t2: tradeTarget2, stop: tradeStopPrice },
         delta,

@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lt, lte, sql, asc, count } from "drizzle-orm";
+import { eq, and, desc, gte, lt, lte, sql, asc, count, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
@@ -18,6 +18,8 @@ import {
   type PwTradeCache, type InsertPwTradeCache, type PwCacheMeta,
   type BtodState, type InsertBtodState,
   type SimDayCache,
+  tradesyncSignalCache,
+  type TradesyncSignalCache, type InsertTradesyncSignalCache,
 } from "@shared/schema";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -163,6 +165,11 @@ export interface IStorage {
   getSimDayCache(cacheKey: string): Promise<SimDayCache | null>;
   upsertSimDayCache(cacheKey: string, tradeDate: string, configHash: string, dayResultJson: any, signalsSnapshot: any): Promise<void>;
   clearSimDayCache(): Promise<void>;
+
+  upsertTradesyncSignalCache(data: InsertTradesyncSignalCache): Promise<TradesyncSignalCache>;
+  getTradesyncSignalCacheByIds(tsIds: string[]): Promise<TradesyncSignalCache[]>;
+  getTradesyncSignalCacheByTradeIds(ibkrTradeIds: number[]): Promise<TradesyncSignalCache[]>;
+  getAllActiveTradesyncSignalCache(): Promise<TradesyncSignalCache[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1237,6 +1244,56 @@ export class DatabaseStorage implements IStorage {
 
   async clearSimDayCache(): Promise<void> {
     await db.delete(simDayCache);
+  }
+
+  async upsertTradesyncSignalCache(data: InsertTradesyncSignalCache): Promise<TradesyncSignalCache> {
+    const [result] = await db.insert(tradesyncSignalCache).values({
+      ...data,
+      fetchedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [tradesyncSignalCache.tradesyncSignalId],
+      set: {
+        tsStatus: data.tsStatus,
+        dataStatus: data.dataStatus,
+        autoTrack: data.autoTrack,
+        currentStopLoss: data.currentStopLoss,
+        currentTpNumber: data.currentTpNumber,
+        trailingStopActive: data.trailingStopActive,
+        trailingStopHigh: data.trailingStopHigh,
+        trailingStopPercent: data.trailingStopPercent,
+        currentTrackingPrice: data.currentTrackingPrice,
+        currentInstrumentPrice: data.currentInstrumentPrice,
+        remainQuantity: data.remainQuantity,
+        stopLossHit: data.stopLossHit,
+        stopLossHitAt: data.stopLossHitAt,
+        lastMilestoneAlerted: data.lastMilestoneAlerted,
+        currentStopLossPercent: data.currentStopLossPercent,
+        pnlPercent: data.pnlPercent,
+        hitTargetsJson: data.hitTargetsJson,
+        targetsJson: data.targetsJson,
+        rawJson: data.rawJson,
+        fetchedAt: new Date(),
+      },
+    }).returning();
+    return result;
+  }
+
+  async getTradesyncSignalCacheByIds(tsIds: string[]): Promise<TradesyncSignalCache[]> {
+    if (tsIds.length === 0) return [];
+    return db.select().from(tradesyncSignalCache)
+      .where(inArray(tradesyncSignalCache.tradesyncSignalId, tsIds));
+  }
+
+  async getTradesyncSignalCacheByTradeIds(ibkrTradeIds: number[]): Promise<TradesyncSignalCache[]> {
+    if (ibkrTradeIds.length === 0) return [];
+    return db.select().from(tradesyncSignalCache)
+      .where(inArray(tradesyncSignalCache.ibkrTradeId, ibkrTradeIds));
+  }
+
+  async getAllActiveTradesyncSignalCache(): Promise<TradesyncSignalCache[]> {
+    return db.select().from(tradesyncSignalCache)
+      .where(sql`${tradesyncSignalCache.tsStatus} NOT IN ('stopped_out', 'cancelled')`)
+      .orderBy(desc(tradesyncSignalCache.fetchedAt));
   }
 }
 

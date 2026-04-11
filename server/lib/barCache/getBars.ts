@@ -83,7 +83,10 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
 
     if (hasFullEdgeCoverage && isFresh) {
       const bars = await queryBarsRange(symbol, timeframe, adjusted, startTs, endTs);
-      if (!hasInternalGaps(bars, timeframe)) {
+      const expected = estimateExpectedBars(timeframe, startTs, endTs);
+      const minRatio = 0.5;
+      const hasSufficientCount = expected === 0 || bars.length >= expected * minRatio;
+      if (hasSufficientCount && !hasInternalGaps(bars, timeframe)) {
         memSet(memKey, bars);
         return bars;
       }
@@ -145,18 +148,19 @@ export async function getBars(params: GetBarsParams): Promise<Bar[]> {
     memSet(memKey, finalBars);
     return finalBars;
   } catch (err: any) {
-    if (err.message?.includes("SQLite") || err.message?.includes("persistence") || err.message?.includes("SQLITE")) {
-      const now = Date.now();
-      if (!cacheDisabled || now - cacheDisabledLoggedAt > 60_000) {
-        console.error(`[barCache] Cache layer failed, falling back to direct Polygon fetch: ${err.message}`);
-        cacheDisabledLoggedAt = now;
-      }
-      cacheDisabled = true;
+    const now = Date.now();
+    if (!cacheDisabled || now - cacheDisabledLoggedAt > 60_000) {
+      console.error(`[barCache] Cache layer failed, falling back to direct fetch: ${err.message}`);
+      cacheDisabledLoggedAt = now;
+    }
+    cacheDisabled = true;
+    try {
       const bars = await fetcher({ symbol, timeframe, adjusted, startTs, endTs });
       if (bars.length > 0) memSet(memKey, bars);
       return bars;
+    } catch (fetchErr: any) {
+      throw fetchErr;
     }
-    throw err;
   } finally {
     if (releaseLock) releaseLock();
   }
