@@ -1764,10 +1764,10 @@ export default function Dashboard() {
         )}
       </div>
 
-      <Tabs defaultValue="signals" data-testid="dashboard-tabs">
+      <Tabs defaultValue="tracker" data-testid="dashboard-tabs">
         <TabsList className="mb-4">
+          <TabsTrigger value="tracker" data-testid="tab-tracker">BTOD Tracker</TabsTrigger>
           <TabsTrigger value="signals" data-testid="tab-signals">Signals</TabsTrigger>
-          <TabsTrigger value="tracker" data-testid="tab-tracker">Trade Tracker</TabsTrigger>
         </TabsList>
 
         <TabsContent value="tracker">
