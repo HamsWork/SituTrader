@@ -1461,18 +1461,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <Tabs defaultValue="tracker" data-testid="dashboard-tabs">
-        <TabsList className="mb-4">
-          <TabsTrigger value="tracker" data-testid="tab-tracker">Trade Tracker</TabsTrigger>
-          <TabsTrigger value="signals" data-testid="tab-signals">Signals</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="tracker">
-          <TradeTracker />
-        </TabsContent>
-
-        <TabsContent value="signals">
-    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3 flex-wrap">
           <div>
@@ -1780,11 +1768,20 @@ export default function Dashboard() {
           </>
         )}
       </div>
-    </div>
-        </TabsContent>
-      </Tabs>
 
-      <BtodStatusPanel />
+      <Tabs defaultValue="tracker" data-testid="dashboard-tabs">
+        <TabsList className="mb-4">
+          <TabsTrigger value="tracker" data-testid="tab-tracker">Trade Tracker</TabsTrigger>
+          <TabsTrigger value="signals" data-testid="tab-signals">Signals</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tracker">
+          <TradeTracker />
+        </TabsContent>
+
+        <TabsContent value="signals">
+          <div className="space-y-6">
+          <BtodStatusPanel />
 
       {universeStatus && universeStatus.memberCount > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap" data-testid="text-universe-info">
@@ -2133,6 +2130,9 @@ export default function Dashboard() {
           </CardContent>
         )}
       </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
