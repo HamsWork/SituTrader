@@ -171,8 +171,8 @@ function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, currentPrice }: {
               <div className={`w-1.5 h-1.5 rounded-full ${
                 isHit ? "bg-emerald-500" : "bg-muted-foreground/30"
               }`} />
-              {m % 50 === 0 && (
-                <span className="absolute top-3 left-1/2 -translate-x-1/2 text-[7px] text-muted-foreground">
+              {m % 20 === 0 && (
+                <span className="absolute top-3 left-1/2 -translate-x-1/2 text-[7px] text-muted-foreground whitespace-nowrap">
                   {m}%
                 </span>
               )}

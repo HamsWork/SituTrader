@@ -1806,18 +1806,19 @@ export async function registerRoutes(
       const signalGroups: Record<number, SignalGroupResponse> = {};
 
       const priceCache = new Map<string, number | null>();
-      async function getPrice(ticker: string): Promise<number | null> {
-        if (priceCache.has(ticker)) return priceCache.get(ticker) ?? null;
+      const uniqueTickers = [...new Set(
+        trades
+          .map(t => t.instrumentTicker || t.ticker)
+          .filter((tk): tk is string => !!tk && !tk.startsWith("O:"))
+      )];
+      await Promise.all(uniqueTickers.map(async (ticker) => {
         try {
           const snap = await fetchSnapshot(ticker);
-          const price = snap?.lastPrice ?? null;
-          priceCache.set(ticker, price);
-          return price;
+          priceCache.set(ticker, snap?.lastPrice ?? null);
         } catch {
           priceCache.set(ticker, null);
-          return null;
         }
-      }
+      }));
 
       for (const trade of trades) {
         const signalId = trade.signalId;
@@ -1848,7 +1849,7 @@ export async function registerRoutes(
         let currentPrice: number | null = null;
         const priceTicker = trade.instrumentTicker || trade.ticker;
         if (priceTicker && !priceTicker.startsWith("O:")) {
-          currentPrice = await getPrice(priceTicker);
+          currentPrice = priceCache.get(priceTicker) ?? null;
         }
 
         signalGroups[signalId].trades.push({
