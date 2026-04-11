@@ -129,38 +129,68 @@ function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, currentPrice }: {
   const milestones = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
   const progressPctDisplay = Math.round(progress);
 
+  const stopOnLeft = isBuy;
+  const trackZone = 100 - stopPct;
+
   return (
     <div className="w-full space-y-1" data-testid={`milestone-bar`}>
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>Entry ${entry.toFixed(2)}</span>
-        <span className="flex items-center gap-1">
-          {progressPctDisplay > 0 && progressPctDisplay < 100 && (
-            <span className={`font-medium ${progress >= 50 ? "text-emerald-500" : "text-blue-500"}`}>
-              {progressPctDisplay}%
+        {stopOnLeft ? (
+          <>
+            <span>Entry ${entry.toFixed(2)}</span>
+            <span className="flex items-center gap-1">
+              {progressPctDisplay > 0 && progressPctDisplay < 100 && (
+                <span className={`font-medium ${progress >= 50 ? "text-emerald-500" : "text-blue-500"}`}>
+                  {progressPctDisplay}%
+                </span>
+              )}
+              {targetLabel} ${activeTarget.toFixed(2)}
             </span>
-          )}
-          {targetLabel} ${activeTarget.toFixed(2)}
-        </span>
+          </>
+        ) : (
+          <>
+            <span className="flex items-center gap-1">
+              {targetLabel} ${activeTarget.toFixed(2)}
+              {progressPctDisplay > 0 && progressPctDisplay < 100 && (
+                <span className={`font-medium ${progress >= 50 ? "text-emerald-500" : "text-blue-500"}`}>
+                  {progressPctDisplay}%
+                </span>
+              )}
+            </span>
+            <span>Entry ${entry.toFixed(2)}</span>
+          </>
+        )}
       </div>
       <div className="relative w-full h-6 rounded-full bg-muted/50 border overflow-hidden">
         <div
-          className="absolute left-0 top-0 h-full bg-red-500/15 border-r border-red-500/30"
+          className={`absolute top-0 h-full bg-red-500/15 ${stopOnLeft ? "left-0 border-r" : "right-0 border-l"} border-red-500/30`}
           style={{ width: `${stopPct}%` }}
         >
-          <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[8px] text-red-500 font-medium whitespace-nowrap">
+          <div className={`absolute top-1/2 -translate-y-1/2 text-[8px] text-red-500 font-medium whitespace-nowrap ${stopOnLeft ? "right-1" : "left-1"}`}>
             Stop
           </div>
         </div>
 
-        <div
-          className={`absolute top-0 h-full transition-all duration-500 ${
-            progress >= 100 ? "bg-emerald-500/30" : progress > 50 ? "bg-blue-500/25" : "bg-blue-500/15"
-          }`}
-          style={{ left: `${stopPct}%`, width: `${Math.max(0, progress * (100 - stopPct) / 100)}%` }}
-        />
+        {stopOnLeft ? (
+          <div
+            className={`absolute top-0 h-full transition-all duration-500 ${
+              progress >= 100 ? "bg-emerald-500/30" : progress > 50 ? "bg-blue-500/25" : "bg-blue-500/15"
+            }`}
+            style={{ left: `${stopPct}%`, width: `${Math.max(0, progress * trackZone / 100)}%` }}
+          />
+        ) : (
+          <div
+            className={`absolute top-0 h-full transition-all duration-500 ${
+              progress >= 100 ? "bg-emerald-500/30" : progress > 50 ? "bg-blue-500/25" : "bg-blue-500/15"
+            }`}
+            style={{ right: `${stopPct}%`, width: `${Math.max(0, progress * trackZone / 100)}%` }}
+          />
+        )}
 
         {milestones.map((m) => {
-          const pos = stopPct + (m / 100) * (100 - stopPct);
+          const pos = stopOnLeft
+            ? stopPct + (m / 100) * trackZone
+            : (100 - stopPct) - (m / 100) * trackZone;
           const isHit = progress >= m;
           return (
             <div
@@ -171,11 +201,9 @@ function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, currentPrice }: {
               <div className={`w-1.5 h-1.5 rounded-full ${
                 isHit ? "bg-emerald-500" : "bg-muted-foreground/30"
               }`} />
-              {m % 20 === 0 && (
-                <span className="absolute top-3 left-1/2 -translate-x-1/2 text-[7px] text-muted-foreground whitespace-nowrap">
-                  {m}%
-                </span>
-              )}
+              <span className="absolute top-3 left-1/2 -translate-x-1/2 text-[7px] text-muted-foreground whitespace-nowrap">
+                {m}%
+              </span>
             </div>
           );
         })}
