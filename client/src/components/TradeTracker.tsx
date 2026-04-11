@@ -221,10 +221,15 @@ function TradeRow({ trade }: { trade: TradeItem }) {
               {trade.discordChannel}
             </Badge>
           )}
-          {trade.tradesyncSent && (
+          {trade.tradesyncSent ? (
             <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-[10px] gap-1" data-testid={`badge-tradesync-${trade.id}`}>
               <Send className="w-2.5 h-2.5" />
               TradeSync
+            </Badge>
+          ) : (
+            <Badge className="bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30 text-[10px] gap-1" data-testid={`badge-tradesync-unsent-${trade.id}`}>
+              <Send className="w-2.5 h-2.5" />
+              Not Sent
             </Badge>
           )}
         </div>
