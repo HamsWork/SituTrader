@@ -467,6 +467,82 @@ export async function fetchTradeHistory(
   }
 }
 
+export interface TradeSyncLiveSignal {
+  id: number;
+  status: string;
+  auto_track: boolean;
+  current_stop_loss: number | null;
+  current_tp_number: number;
+  trailing_stop_active: boolean;
+  current_price: number | null;
+  remain_quantity: number | null;
+  targets: Record<string, { price?: number; hit?: boolean }>;
+  pnl_percent: number | null;
+}
+
+export async function fetchSignalById(
+  tradeSyncSignalId: number | string,
+): Promise<TradeSyncResult> {
+  if (!isConfigured()) {
+    return { ok: false, error: "TradeSync not configured" };
+  }
+
+  try {
+    const idSegment = encodeURIComponent(String(tradeSyncSignalId));
+    const res = await fetch(
+      `${TRADESYNC_BASE_URL}/api/signals/${idSegment}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${TRADESYNC_API_KEY}`,
+        },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+
+    const body = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      const msg = body?.message || `TradeSync API error (${res.status})`;
+      return { ok: false, error: msg };
+    }
+
+    return { ok: true, data: body };
+  } catch (err: any) {
+    return { ok: false, error: err.message || "Failed to reach TradeSync API" };
+  }
+}
+
+export async function fetchLiveSignalStatuses(
+  tradeSyncIds: (number | string)[],
+): Promise<Map<string, TradeSyncLiveSignal>> {
+  const result = new Map<string, TradeSyncLiveSignal>();
+  if (!isConfigured() || tradeSyncIds.length === 0) return result;
+
+  const fetches = tradeSyncIds.map(async (id) => {
+    const r = await fetchSignalById(id);
+    if (r.ok && r.data) {
+      const d = r.data;
+      const live: TradeSyncLiveSignal = {
+        id: d.id,
+        status: d.status ?? "unknown",
+        auto_track: d.auto_track ?? d.data?.auto_track ?? false,
+        current_stop_loss: d.current_stop_loss ?? d.data?.current_stop_loss ?? null,
+        current_tp_number: d.current_tp_number ?? d.data?.current_tp_number ?? 0,
+        trailing_stop_active: d.trailing_stop_active ?? d.data?.trailing_stop_active ?? false,
+        current_price: d.current_price ?? d.data?.current_price ?? null,
+        remain_quantity: d.remain_quantity ?? d.data?.remain_quantity ?? null,
+        targets: d.targets ?? d.data?.targets ?? {},
+        pnl_percent: d.pnl_percent ?? d.data?.pnl_percent ?? null,
+      };
+      result.set(String(id), live);
+    }
+  });
+
+  await Promise.allSettled(fetches);
+  return result;
+}
+
 export async function getTradesyncStatus(): Promise<{
   configured: boolean;
   reachable: boolean;

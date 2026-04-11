@@ -21,6 +21,17 @@ import { Link } from "wouter";
 
 const PAGE_SIZE = 5;
 
+interface TsLiveData {
+  status: string;
+  autoTrack: boolean;
+  currentStopLoss: number | null;
+  currentTpNumber: number;
+  trailingStopActive: boolean;
+  currentPrice: number | null;
+  remainQuantity: number | null;
+  pnlPercent: number | null;
+}
+
 interface TradeItem {
   id: number;
   signalId: number;
@@ -41,6 +52,7 @@ interface TradeItem {
   tradesyncSentAt: string | null;
   createdAt: string;
   currentPrice: number | null;
+  tsLive: TsLiveData | null;
 }
 
 interface SignalGroup {
@@ -224,11 +236,29 @@ function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, currentPrice }: {
   );
 }
 
+function getTsStatusBadge(status: string) {
+  const s = status.toLowerCase();
+  if (s === "active" || s === "submitted" || s === "filled")
+    return <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px]">{status}</Badge>;
+  if (s === "stopped_out" || s === "stop_loss_hit")
+    return <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 text-[10px]">Stopped Out</Badge>;
+  if (s === "closed" || s === "completed")
+    return <Badge className="bg-gray-500/15 text-gray-600 dark:text-gray-400 border border-gray-500/30 text-[10px]">Closed</Badge>;
+  if (s === "target_hit" || s === "tp_hit")
+    return <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px]">Target Hit</Badge>;
+  return <Badge variant="outline" className="text-[10px]">{status}</Badge>;
+}
+
 function TradeRow({ trade }: { trade: TradeItem }) {
   const entry = trade.entryPrice ?? 0;
   const stop = trade.stopPrice ?? 0;
   const t1 = trade.target1Price ?? 0;
   const t2 = trade.target2Price ?? 0;
+  const ts = trade.tsLive;
+  const liveStop = ts?.currentStopLoss ?? stop;
+  const stopMoved = ts?.currentStopLoss != null && ts.currentStopLoss !== stop;
+  const livePrice = trade.currentPrice ?? ts?.currentPrice ?? null;
+  const effectiveTpLevel = ts ? ts.currentTpNumber : trade.tpHitLevel;
 
   return (
     <div className="border rounded-lg p-3 space-y-2 bg-card" data-testid={`trade-row-${trade.id}`}>
@@ -240,14 +270,19 @@ function TradeRow({ trade }: { trade: TradeItem }) {
           {trade.instrumentTicker && (
             <span className="text-xs font-mono text-muted-foreground">{trade.instrumentTicker}</span>
           )}
-          {getStatusBadge(trade.status)}
+          {ts ? getTsStatusBadge(ts.status) : getStatusBadge(trade.status)}
         </div>
         <div className="flex items-center gap-2">
+          {ts?.trailingStopActive && (
+            <Badge className="bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-[10px] gap-1" data-testid={`badge-trailing-${trade.id}`}>
+              <Shield className="w-2.5 h-2.5" />
+              Trailing
+            </Badge>
+          )}
           {trade.discordAlertSent ? (
             <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10px] gap-1" data-testid={`badge-discord-live-${trade.id}`}>
               <MessageSquare className="w-2.5 h-2.5" />
               {trade.discordChannel}
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             </Badge>
           ) : (
             <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground" data-testid={`badge-discord-off-${trade.id}`}>
@@ -275,31 +310,40 @@ function TradeRow({ trade }: { trade: TradeItem }) {
           <div className="font-mono font-medium">{entry > 0 ? `$${entry.toFixed(2)}` : "—"}</div>
         </div>
         <div>
-          <span className="text-muted-foreground">Stop</span>
-          <div className="font-mono font-medium text-red-500">{stop > 0 ? `$${stop.toFixed(2)}` : "—"}</div>
+          <span className="text-muted-foreground">Stop{stopMoved ? " (moved)" : ""}</span>
+          <div className="font-mono font-medium text-red-500">
+            {liveStop > 0 ? `$${liveStop.toFixed(2)}` : "—"}
+          </div>
+          {stopMoved && stop > 0 && (
+            <div className="font-mono text-[9px] text-muted-foreground line-through">${stop.toFixed(2)}</div>
+          )}
         </div>
         <div>
           <span className="text-muted-foreground">T1</span>
-          <div className="font-mono font-medium text-emerald-500">{t1 > 0 ? `$${t1.toFixed(2)}` : "—"}</div>
+          <div className={`font-mono font-medium ${effectiveTpLevel >= 1 ? "text-emerald-500 line-through" : "text-emerald-500"}`}>
+            {t1 > 0 ? `$${t1.toFixed(2)}` : "—"}
+          </div>
         </div>
         <div>
           <span className="text-muted-foreground">T2</span>
-          <div className="font-mono font-medium text-emerald-600">{t2 > 0 ? `$${t2.toFixed(2)}` : "—"}</div>
+          <div className={`font-mono font-medium ${effectiveTpLevel >= 2 ? "text-emerald-600 line-through" : "text-emerald-600"}`}>
+            {t2 > 0 ? `$${t2.toFixed(2)}` : "—"}
+          </div>
         </div>
       </div>
 
-      {entry > 0 && trade.currentPrice != null && (
+      {entry > 0 && livePrice != null && (
         (() => {
           const isBuy = trade.side === "BUY";
           const pnlDollar = isBuy
-            ? trade.currentPrice - entry
-            : entry - trade.currentPrice;
-          const pnlPct = (pnlDollar / entry) * 100;
+            ? livePrice - entry
+            : entry - livePrice;
+          const pnlPct = ts?.pnlPercent ?? (pnlDollar / entry) * 100;
           const isPositive = pnlDollar >= 0;
           return (
             <div className="flex items-center justify-between text-[11px] px-1" data-testid={`pnl-${trade.id}`}>
               <span className="text-muted-foreground">
-                Now <span className="font-mono font-medium">${trade.currentPrice.toFixed(2)}</span>
+                Now <span className="font-mono font-medium">${livePrice.toFixed(2)}</span>
               </span>
               <span className={`font-mono font-semibold ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
                 {isPositive ? "+" : ""}{pnlDollar.toFixed(2)} ({isPositive ? "+" : ""}{pnlPct.toFixed(1)}%)
@@ -309,15 +353,15 @@ function TradeRow({ trade }: { trade: TradeItem }) {
         })()
       )}
 
-      {entry > 0 && t1 > 0 && stop > 0 && (
+      {entry > 0 && t1 > 0 && liveStop > 0 && (
         <MilestoneBar
           entry={entry}
-          stop={stop}
+          stop={liveStop}
           t1={t1}
           t2={t2 > 0 ? t2 : t1}
-          tpHitLevel={trade.tpHitLevel}
+          tpHitLevel={effectiveTpLevel}
           side={trade.side}
-          currentPrice={trade.currentPrice}
+          currentPrice={livePrice}
         />
       )}
     </div>

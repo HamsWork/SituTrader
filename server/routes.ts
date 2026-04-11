@@ -1786,6 +1786,16 @@ export async function registerRoutes(
         tradesyncSent: boolean;
         tradesyncSentAt: Date | null;
         currentPrice: number | null;
+        tsLive: {
+          status: string;
+          autoTrack: boolean;
+          currentStopLoss: number | null;
+          currentTpNumber: number;
+          trailingStopActive: boolean;
+          currentPrice: number | null;
+          remainQuantity: number | null;
+          pnlPercent: number | null;
+        } | null;
       }
 
       interface SignalGroupResponse {
@@ -1811,14 +1821,24 @@ export async function registerRoutes(
           .map(t => t.instrumentTicker || t.ticker)
           .filter((tk): tk is string => !!tk && !tk.startsWith("O:"))
       )];
-      await Promise.all(uniqueTickers.map(async (ticker) => {
-        try {
-          const snap = await fetchSnapshot(ticker);
-          priceCache.set(ticker, snap?.lastPrice ?? null);
-        } catch {
-          priceCache.set(ticker, null);
-        }
-      }));
+      const { fetchLiveSignalStatuses } = await import("./lib/tradesync");
+      const tradeSyncIds = [...new Set(
+        trades
+          .map(t => t.tradesyncSignalId)
+          .filter((id): id is number => id != null)
+      )];
+
+      const [, tsLiveMap] = await Promise.all([
+        Promise.all(uniqueTickers.map(async (ticker) => {
+          try {
+            const snap = await fetchSnapshot(ticker);
+            priceCache.set(ticker, snap?.lastPrice ?? null);
+          } catch {
+            priceCache.set(ticker, null);
+          }
+        })),
+        fetchLiveSignalStatuses(tradeSyncIds),
+      ]);
 
       for (const trade of trades) {
         const signalId = trade.signalId;
@@ -1852,6 +1872,9 @@ export async function registerRoutes(
           currentPrice = priceCache.get(priceTicker) ?? null;
         }
 
+        const tsId = trade.tradesyncSignalId;
+        const tsLiveData = tsId != null ? tsLiveMap.get(String(tsId)) : null;
+
         signalGroups[signalId].trades.push({
           id: trade.id,
           signalId: trade.signalId,
@@ -1872,6 +1895,16 @@ export async function registerRoutes(
           tradesyncSent: tsLog?.success ?? false,
           tradesyncSentAt: tsLog?.createdAt ?? null,
           currentPrice,
+          tsLive: tsLiveData ? {
+            status: tsLiveData.status,
+            autoTrack: tsLiveData.auto_track,
+            currentStopLoss: tsLiveData.current_stop_loss,
+            currentTpNumber: tsLiveData.current_tp_number,
+            trailingStopActive: tsLiveData.trailing_stop_active,
+            currentPrice: tsLiveData.current_price,
+            remainQuantity: tsLiveData.remain_quantity,
+            pnlPercent: tsLiveData.pnl_percent,
+          } : null,
         });
       }
 
