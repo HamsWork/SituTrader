@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TradeTracker from "@/components/TradeTracker";
 import {
   Select,
@@ -1768,6 +1769,18 @@ export default function Dashboard() {
         )}
       </div>
 
+      <Tabs defaultValue="tracker" data-testid="dashboard-tabs">
+        <TabsList className="mb-4">
+          <TabsTrigger value="tracker" data-testid="tab-tracker">Trade Tracker</TabsTrigger>
+          <TabsTrigger value="signals" data-testid="tab-signals">Signals</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tracker">
+          <TradeTracker />
+        </TabsContent>
+
+        <TabsContent value="signals">
+          <div className="space-y-6">
           <BtodStatusPanel />
 
       {universeStatus && universeStatus.memberCount > 0 && (
@@ -2117,8 +2130,9 @@ export default function Dashboard() {
           </CardContent>
         )}
       </Card>
-
-      <TradeTracker />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
