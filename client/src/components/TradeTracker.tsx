@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUp,
@@ -11,9 +13,13 @@ import {
   MessageSquare,
   Send,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { SETUP_LABELS, type SetupType, TIER_LABELS } from "@shared/schema";
 import { Link } from "wouter";
+
+const PAGE_SIZE = 5;
 
 interface TradeItem {
   id: number;
@@ -393,6 +399,7 @@ function SignalGroupCard({ group }: { group: SignalGroup }) {
 }
 
 export default function TradeTracker() {
+  const [page, setPage] = useState(1);
   const { data, isLoading, isError } = useQuery<SignalGroup[]>({
     queryKey: ["/api/ibkr/trades-live"],
     refetchInterval: 30000,
@@ -435,46 +442,46 @@ export default function TradeTracker() {
     );
   }
 
-  const totalTrades = data.reduce((sum, g) => sum + g.trades.length, 0);
-  const liveDiscord = data.reduce((sum, g) => sum + g.trades.filter(t => t.discordAlertSent).length, 0);
-  const liveTradeSync = data.reduce((sum, g) => sum + g.trades.filter(t => t.tradesyncSent).length, 0);
+  const sorted = [...data].sort((a, b) => {
+    const aTs = a.signal.activatedTs ? new Date(a.signal.activatedTs).getTime() : 0;
+    const bTs = b.signal.activatedTs ? new Date(b.signal.activatedTs).getTime() : 0;
+    return bTs - aTs;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="py-3 px-4">
-            <div className="text-xs text-muted-foreground">Signals</div>
-            <div className="text-2xl font-bold" data-testid="stat-signal-count">{data.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-3 px-4">
-            <div className="text-xs text-muted-foreground">Total Trades</div>
-            <div className="text-2xl font-bold" data-testid="stat-trade-count">{totalTrades}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-3 px-4">
-            <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <MessageSquare className="w-3 h-3" /> Discord Live
-            </div>
-            <div className="text-2xl font-bold text-emerald-500" data-testid="stat-discord-live">{liveDiscord}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-3 px-4">
-            <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <Send className="w-3 h-3" /> TradeSync
-            </div>
-            <div className="text-2xl font-bold text-blue-500" data-testid="stat-tradesync-count">{liveTradeSync}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {data.map((group) => (
+      {paged.map((group) => (
         <SignalGroupCard key={group.signal.id} group={group} />
       ))}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2" data-testid="pagination-controls">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            data-testid="button-prev-page"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-xs text-muted-foreground" data-testid="text-page-info">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            data-testid="button-next-page"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
