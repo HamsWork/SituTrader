@@ -34,6 +34,7 @@ interface TradeItem {
   tradesyncSent: boolean;
   tradesyncSentAt: string | null;
   createdAt: string;
+  currentPrice: number | null;
 }
 
 interface SignalGroup {
@@ -91,14 +92,14 @@ function getInstrumentLabel(type: string): string {
   }
 }
 
-function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, tp1FillPrice }: {
+function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, currentPrice }: {
   entry: number;
   stop: number;
   t1: number;
   t2: number;
   tpHitLevel: number;
   side: string;
-  tp1FillPrice: number | null;
+  currentPrice: number | null;
 }) {
   const isBuy = side === "BUY";
   const totalRange = Math.abs(t1 - entry);
@@ -114,12 +115,15 @@ function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, tp1FillPrice }: {
   let progress: number;
   if (tpHitLevel >= 2) {
     progress = 100;
-  } else if (tpHitLevel >= 1) {
-    progress = 100;
-  } else {
-    const ref = tp1FillPrice ?? entry;
-    const moved = isBuy ? (ref - entry) : (entry - ref);
+  } else if (tpHitLevel >= 1 && currentPrice != null) {
+    const t2Range = Math.abs(t2 - t1);
+    const movedPastT1 = isBuy ? (currentPrice - t1) : (t1 - currentPrice);
+    progress = t2Range > 0 ? Math.max(0, Math.min(100, (movedPastT1 / t2Range) * 100)) : 100;
+  } else if (currentPrice != null) {
+    const moved = isBuy ? (currentPrice - entry) : (entry - currentPrice);
     progress = activeRange > 0 ? Math.max(0, Math.min(100, (moved / activeRange) * 100)) : 0;
+  } else {
+    progress = 0;
   }
 
   const milestones = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -178,7 +182,7 @@ function MilestoneBar({ entry, stop, t1, t2, tpHitLevel, side, tp1FillPrice }: {
       </div>
       {tpHitLevel >= 1 && (
         <div className="text-[10px] text-emerald-500 font-medium flex items-center gap-1">
-          <Target className="w-3 h-3" /> T1 Hit{tp1FillPrice ? ` @ $${tp1FillPrice.toFixed(2)}` : ""}
+          <Target className="w-3 h-3" /> T1 Hit @ ${t1.toFixed(2)}
           {tpHitLevel >= 2 && " · T2 Hit"}
         </div>
       )}
@@ -245,6 +249,27 @@ function TradeRow({ trade }: { trade: TradeItem }) {
         </div>
       </div>
 
+      {entry > 0 && trade.currentPrice != null && (
+        (() => {
+          const isBuy = trade.side === "BUY";
+          const pnlDollar = isBuy
+            ? trade.currentPrice - entry
+            : entry - trade.currentPrice;
+          const pnlPct = (pnlDollar / entry) * 100;
+          const isPositive = pnlDollar >= 0;
+          return (
+            <div className="flex items-center justify-between text-[11px] px-1" data-testid={`pnl-${trade.id}`}>
+              <span className="text-muted-foreground">
+                Now <span className="font-mono font-medium">${trade.currentPrice.toFixed(2)}</span>
+              </span>
+              <span className={`font-mono font-semibold ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
+                {isPositive ? "+" : ""}{pnlDollar.toFixed(2)} ({isPositive ? "+" : ""}{pnlPct.toFixed(1)}%)
+              </span>
+            </div>
+          );
+        })()
+      )}
+
       {entry > 0 && t1 > 0 && stop > 0 && (
         <MilestoneBar
           entry={entry}
@@ -253,7 +278,7 @@ function TradeRow({ trade }: { trade: TradeItem }) {
           t2={t2 > 0 ? t2 : t1}
           tpHitLevel={trade.tpHitLevel}
           side={trade.side}
-          tp1FillPrice={trade.tp1FillPrice}
+          currentPrice={trade.currentPrice}
         />
       )}
     </div>

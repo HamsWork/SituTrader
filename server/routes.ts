@@ -47,7 +47,7 @@ import {
   startBacktestRun, getBacktestRunStatus, getBacktestRunLogsSince,
   cancelBacktestRun, clearBacktestRun, isBacktestRunActive,
 } from "./jobs/backtestRunner";
-import type { SetupType, OptionLive } from "@shared/schema";
+import type { SetupType, OptionLive, TradePlan, TradesyncLog } from "@shared/schema";
 import { runAllDetectSetupTests } from "./lib/testDetectSetups";
 
 const SEED_SYMBOLS = ["SPY", "QQQ", "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "ARM", "AMD", "PLTR", "NFLX", "DIS", "LLY", "UNH", "BABA"];
@@ -1747,13 +1747,15 @@ export async function registerRoutes(
       const allSignals = await storage.getSignals(undefined, 10000);
       const signalMap = new Map(allSignals.filter(s => signalIds.includes(s.id)).map(s => [s.id, s]));
 
-      const logsBySignal = new Map<string, typeof allLogs[0]>();
-      const allLogs: Awaited<ReturnType<typeof storage.getTradesyncLogs>> = [];
+      const logsBySignal = new Map<string, TradesyncLog>();
       for (const sid of signalIds) {
         const logs = await storage.getTradesyncLogs({ signalId: sid });
         for (const log of logs) {
           const key = `${log.signalId}-${log.instrumentType}`;
-          if (!logsBySignal.has(key)) logsBySignal.set(key, log);
+          const existing = logsBySignal.get(key);
+          if (!existing || (log.createdAt && existing.createdAt && new Date(log.createdAt) > new Date(existing.createdAt))) {
+            logsBySignal.set(key, log);
+          }
         }
       }
 
@@ -1764,7 +1766,29 @@ export async function registerRoutes(
         LETF_OPTIONS: "LETF Options",
       };
 
-      const signalGroups: Record<number, {
+      interface LiveTradeRow {
+        id: number;
+        signalId: number | null;
+        ticker: string;
+        instrumentType: string;
+        instrumentTicker: string | null;
+        side: string;
+        entryPrice: number | null;
+        stopPrice: number | null;
+        target1Price: number | null;
+        target2Price: number | null;
+        tp1FillPrice: number | null;
+        tpHitLevel: number;
+        status: string;
+        discordAlertSent: boolean;
+        createdAt: Date | null;
+        discordChannel: string;
+        tradesyncSent: boolean;
+        tradesyncSentAt: Date | null;
+        currentPrice: number | null;
+      }
+
+      interface SignalGroupResponse {
         signal: {
           id: number;
           ticker: string;
@@ -1776,8 +1800,24 @@ export async function registerRoutes(
           magnetPrice: number;
           entryPriceAtActivation: number | null;
         };
-        trades: Array<any>;
-      }> = {};
+        trades: LiveTradeRow[];
+      }
+
+      const signalGroups: Record<number, SignalGroupResponse> = {};
+
+      const priceCache = new Map<string, number | null>();
+      async function getPrice(ticker: string): Promise<number | null> {
+        if (priceCache.has(ticker)) return priceCache.get(ticker) ?? null;
+        try {
+          const snap = await fetchSnapshot(ticker);
+          const price = snap?.lastPrice ?? null;
+          priceCache.set(ticker, price);
+          return price;
+        } catch {
+          priceCache.set(ticker, null);
+          return null;
+        }
+      }
 
       for (const trade of trades) {
         const signalId = trade.signalId;
@@ -1786,7 +1826,7 @@ export async function registerRoutes(
         if (!signal) continue;
 
         if (!signalGroups[signalId]) {
-          const tp = signal.tradePlanJson as any;
+          const tp = signal.tradePlanJson as TradePlan | null;
           signalGroups[signalId] = {
             signal: {
               id: signal.id,
@@ -1805,11 +1845,32 @@ export async function registerRoutes(
 
         const tsLog = logsBySignal.get(`${signalId}-${trade.instrumentType}`);
 
+        let currentPrice: number | null = null;
+        const priceTicker = trade.instrumentTicker || trade.ticker;
+        if (priceTicker && !priceTicker.startsWith("O:")) {
+          currentPrice = await getPrice(priceTicker);
+        }
+
         signalGroups[signalId].trades.push({
-          ...trade,
+          id: trade.id,
+          signalId: trade.signalId,
+          ticker: trade.ticker,
+          instrumentType: trade.instrumentType,
+          instrumentTicker: trade.instrumentTicker,
+          side: trade.side,
+          entryPrice: trade.entryPrice,
+          stopPrice: trade.stopPrice,
+          target1Price: trade.target1Price,
+          target2Price: trade.target2Price,
+          tp1FillPrice: trade.tp1FillPrice,
+          tpHitLevel: trade.tpHitLevel,
+          status: trade.status,
+          discordAlertSent: trade.discordAlertSent,
+          createdAt: trade.createdAt,
           discordChannel: discordChannelMap[trade.instrumentType] ?? "Unknown",
           tradesyncSent: tsLog?.success ?? false,
           tradesyncSentAt: tsLog?.createdAt ?? null,
+          currentPrice,
         });
       }
 
