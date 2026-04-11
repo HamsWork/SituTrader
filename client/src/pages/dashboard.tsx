@@ -1780,6 +1780,9 @@ export default function Dashboard() {
           </>
         )}
       </div>
+    </div>
+        </TabsContent>
+      </Tabs>
 
       <BtodStatusPanel />
 
@@ -2130,9 +2133,6 @@ export default function Dashboard() {
           </CardContent>
         )}
       </Card>
-    </div>
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
