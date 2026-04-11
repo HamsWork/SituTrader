@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import TradeTracker from "@/components/TradeTracker";
 import {
   Select,
   SelectContent,
@@ -1441,10 +1443,39 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div>
+          <h1 className="text-xl font-semibold" data-testid="text-page-title">Dashboard</h1>
+        </div>
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium"
+          data-testid="indicator-live-status-header"
+        >
+          <span className={`w-2 h-2 rounded-full ${
+            liveStatus === "error" ? "bg-red-500" :
+            liveStatus === "refreshing" ? "bg-emerald-500 animate-pulse" :
+            "bg-emerald-500"
+          }`} />
+          <Activity className="w-3 h-3" />
+          <span>{liveStatus === "error" ? "Disconnected" : liveStatus === "refreshing" ? "Syncing..." : "Live"}</span>
+        </div>
+      </div>
+
+      <Tabs defaultValue="tracker" data-testid="dashboard-tabs">
+        <TabsList className="mb-4">
+          <TabsTrigger value="tracker" data-testid="tab-tracker">Trade Tracker</TabsTrigger>
+          <TabsTrigger value="signals" data-testid="tab-signals">Signals</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tracker">
+          <TradeTracker />
+        </TabsContent>
+
+        <TabsContent value="signals">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3 flex-wrap">
           <div>
-            <h1 className="text-xl font-semibold" data-testid="text-page-title">Dashboard</h1>
             <p className="text-sm text-muted-foreground">
               {tradeNowSignals.length > 0
                 ? `${tradeNowSignals.length} activated trade${tradeNowSignals.length === 1 ? "" : "s"} ready to act on`
@@ -1538,18 +1569,6 @@ export default function Dashboard() {
             <Bell className={`w-4 h-4 mr-1.5 ${alertMutation.isPending ? "animate-pulse" : ""}`} />
             {alertMutation.isPending ? "Scanning..." : "Alerts"}
           </Button>
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium"
-            data-testid="indicator-live-status"
-          >
-            <span className={`w-2 h-2 rounded-full ${
-              liveStatus === "error" ? "bg-red-500" :
-              liveStatus === "refreshing" ? "bg-emerald-500 animate-pulse" :
-              "bg-emerald-500"
-            }`} />
-            <Activity className="w-3 h-3" />
-            <span>{liveStatus === "error" ? "Disconnected" : liveStatus === "refreshing" ? "Syncing..." : "Live"}</span>
-          </div>
           {schedulerState && (
             <Sheet>
               <SheetTrigger asChild>
@@ -2111,6 +2130,9 @@ export default function Dashboard() {
           </CardContent>
         )}
       </Card>
+    </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

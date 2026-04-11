@@ -1735,6 +1735,90 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/ibkr/trades-live", async (_req, res) => {
+    try {
+      const trades = await storage.getActiveIbkrTrades();
+      if (trades.length === 0) {
+        res.json([]);
+        return;
+      }
+
+      const signalIds = [...new Set(trades.map(t => t.signalId).filter((id): id is number => id != null))];
+      const allSignals = await storage.getSignals(undefined, 10000);
+      const signalMap = new Map(allSignals.filter(s => signalIds.includes(s.id)).map(s => [s.id, s]));
+
+      const logsBySignal = new Map<string, typeof allLogs[0]>();
+      const allLogs: Awaited<ReturnType<typeof storage.getTradesyncLogs>> = [];
+      for (const sid of signalIds) {
+        const logs = await storage.getTradesyncLogs({ signalId: sid });
+        for (const log of logs) {
+          const key = `${log.signalId}-${log.instrumentType}`;
+          if (!logsBySignal.has(key)) logsBySignal.set(key, log);
+        }
+      }
+
+      const discordChannelMap: Record<string, string> = {
+        OPTION: "Swings",
+        SHARES: "Shares",
+        LEVERAGED_ETF: "Swings",
+        LETF_OPTIONS: "LETF Options",
+      };
+
+      const signalGroups: Record<number, {
+        signal: {
+          id: number;
+          ticker: string;
+          setupType: string;
+          direction: string;
+          tier: string;
+          qualityScore: number;
+          activatedTs: string | null;
+          magnetPrice: number;
+          entryPriceAtActivation: number | null;
+        };
+        trades: Array<any>;
+      }> = {};
+
+      for (const trade of trades) {
+        const signalId = trade.signalId;
+        if (!signalId) continue;
+        const signal = signalMap.get(signalId);
+        if (!signal) continue;
+
+        if (!signalGroups[signalId]) {
+          const tp = signal.tradePlanJson as any;
+          signalGroups[signalId] = {
+            signal: {
+              id: signal.id,
+              ticker: signal.ticker,
+              setupType: signal.setupType,
+              direction: tp?.bias ?? signal.direction,
+              tier: signal.tier,
+              qualityScore: signal.qualityScore,
+              activatedTs: signal.activatedTs,
+              magnetPrice: signal.magnetPrice,
+              entryPriceAtActivation: signal.entryPriceAtActivation,
+            },
+            trades: [],
+          };
+        }
+
+        const tsLog = logsBySignal.get(`${signalId}-${trade.instrumentType}`);
+
+        signalGroups[signalId].trades.push({
+          ...trade,
+          discordChannel: discordChannelMap[trade.instrumentType] ?? "Unknown",
+          tradesyncSent: tsLog?.success ?? false,
+          tradesyncSentAt: tsLog?.createdAt ?? null,
+        });
+      }
+
+      res.json(Object.values(signalGroups));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/ibkr/monitor", async (_req, res) => {
     try {
       await monitorActiveTrades();
